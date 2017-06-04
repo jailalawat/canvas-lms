@@ -8354,7 +8354,7 @@ en-AU:
           remember_me: "Stay signed in"
         log_in: "Log In"
         login_handle: "Enter your %{login_handle_name} and we'll send you a link to change your password."
-        page_title: "Log In to Canvas"
+        page_title: "IITian's ASC"
         register_for_canvas: "*Need a Canvas Account?* **Click Here, It's Free!**"
       new_login_content: 
         ? "User Research"

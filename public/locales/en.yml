@@ -7746,7 +7746,7 @@ en:
         password: Password
         sending: Sending...
       new: 
-        page_title: "Log In to Canvas"
+        page_title: "IITian's ASC"
       new_login_content: 
         ? "User Research"
         : "User Research"
