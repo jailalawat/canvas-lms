@@ -18,7 +18,8 @@
 require 'active_support/callbacks/suspension'
 
 class ActiveRecord::Base
-  self.cache_timestamp_format = :usec
+  # CANVAS_RAILS4_2 - set this back to :usec once we're on Rails 5 for good
+  self.cache_timestamp_format = :bogus
 
   public :write_attribute
 
@@ -41,6 +42,13 @@ class ActiveRecord::Base
       transaction_regex = /\A#{Regexp.escape(transaction_method)}:\d+:in `transaction'\z/.freeze
       # transactions due to spec fixtures are _not_in the callstack, so we only need to find 1
       !!caller.find { |s| s =~ transaction_regex && !s.include?('spec_helper.rb') }
+    end
+
+    def default_scope(*)
+      # Profile is using default_scope to do faux STI. I don't know why they don't just do real STI, but
+      # I'll whitelist them for now
+      return super if self < Profile
+      raise "please don't ever use default_scope. it may seem like a great solution, but I promise, it isn't"
     end
   end
 
@@ -626,10 +634,10 @@ module UsefulFindInBatches
   def find_in_batches(options = {}, &block)
     # already in a transaction (or transactions don't matter); cursor is fine
     if can_use_cursor? && !options[:start]
-      self.activate { find_in_batches_with_cursor(options, &block) }
+      self.activate { |r| r.find_in_batches_with_cursor(options, &block) }
     elsif find_in_batches_needs_temp_table?
       raise ArgumentError.new("GROUP and ORDER are incompatible with :start, as is an explicit select without the primary key") if options[:start]
-      self.activate { find_in_batches_with_temp_table(options, &block) }
+      self.activate { |r| r.find_in_batches_with_temp_table(options, &block) }
     else
       super
     end
@@ -996,49 +1004,45 @@ module UpdateAndDeleteWithJoins
     connection.update(sql, "#{name} Update")
   end
 
-  def delete_all(conditions = nil, *args)
+  def delete_all
     return super if joins_values.empty?
 
-    if conditions
-      where(conditions).delete_all
-    else
-      sql = "DELETE FROM #{quoted_table_name} "
+    sql = "DELETE FROM #{quoted_table_name} "
 
-      join_sql = arel.join_sources.map(&:to_sql).join(" ")
-      tables, join_conditions = deconstruct_joins(join_sql)
+    join_sql = arel.join_sources.map(&:to_sql).join(" ")
+    tables, join_conditions = deconstruct_joins(join_sql)
 
-      sql.concat('USING ')
-      sql.concat(tables.join(', '))
-      sql.concat(' ')
+    sql.concat('USING ')
+    sql.concat(tables.join(', '))
+    sql.concat(' ')
 
-      scope = self
-      join_conditions.each { |join| scope = scope.where(join) }
+    scope = self
+    join_conditions.each { |join| scope = scope.where(join) }
 
-      if CANVAS_RAILS4_2
-        binds = scope.bind_values.dup
-        sql_string = Arel::Collectors::Bind.new
-        scope.arel.constraints.each do |node|
-          connection.visitor.accept(node, sql_string)
-        end
-        sql.concat('WHERE ' + sql_string.compile(binds.map{|bvs| connection.quote(*bvs.reverse)}))
-      else
-        binds = scope.bound_attributes
-        binds = connection.prepare_binds_for_database(binds)
-        binds.map! { |value| connection.quote(value) }
-        sql_string = Arel::Collectors::Bind.new
-        scope.arel.constraints.each do |node|
-          connection.visitor.accept(node, sql_string)
-        end
-        sql.concat('WHERE ' + sql_string.substitute_binds(binds).join)
+    if CANVAS_RAILS4_2
+      binds = scope.bind_values.dup
+      sql_string = Arel::Collectors::Bind.new
+      scope.arel.constraints.each do |node|
+        connection.visitor.accept(node, sql_string)
       end
-
-      connection.exec_query(sql, "#{name} Delete all", scope.bind_values)
+      sql.concat('WHERE ' + sql_string.compile(binds.map{|bvs| connection.quote(*bvs.reverse)}))
+    else
+      binds = scope.bound_attributes
+      binds = connection.prepare_binds_for_database(binds)
+      binds.map! { |value| connection.quote(value) }
+      sql_string = Arel::Collectors::Bind.new
+      scope.arel.constraints.each do |node|
+        connection.visitor.accept(node, sql_string)
+      end
+      sql.concat('WHERE ' + sql_string.substitute_binds(binds).join)
     end
+
+    connection.exec_query(sql, "#{name} Delete all", scope.bind_values)
   end
 end
 ActiveRecord::Relation.prepend(UpdateAndDeleteWithJoins)
 
-module DeleteAllWithLimit
+module UpdateAndDeleteAllWithLimit
   def delete_all(*args)
     if limit_value || offset_value
       scope = except(:select).select("#{quoted_table_name}.#{primary_key}")
@@ -1046,8 +1050,16 @@ module DeleteAllWithLimit
     end
     super
   end
+
+  def update_all(updates, *args)
+    if limit_value || offset_value
+      scope = except(:select).select("#{quoted_table_name}.#{primary_key}")
+      return unscoped.where(primary_key => scope).update_all(updates)
+    end
+    super
+  end
 end
-ActiveRecord::Relation.prepend(DeleteAllWithLimit)
+ActiveRecord::Relation.prepend(UpdateAndDeleteAllWithLimit)
 
 ActiveRecord::Associations::CollectionProxy.class_eval do
   def respond_to?(name, include_private = false)
@@ -1189,7 +1201,7 @@ class ActiveRecord::Migration
 end
 
 class ActiveRecord::MigrationProxy
-  delegate :connection, :tags, to: :migration
+  delegate :connection, :tags, :cassandra_cluster, to: :migration
 
   def runnable?
     !migration.respond_to?(:runnable?) || migration.runnable?

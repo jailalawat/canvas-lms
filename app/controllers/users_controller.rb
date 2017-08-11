@@ -467,6 +467,7 @@ class UsersController < ApplicationController
 
   helper_method :show_planner?
   def show_planner?
+    return false unless @current_user && @current_user.preferences
     if @current_user.preferences[:dashboard_view]
       @current_user.preferences[:dashboard_view] == 'planner'
     else
@@ -900,19 +901,32 @@ class UsersController < ApplicationController
   # @argument user_id
   #   the student's ID
   #
+  # @argument include[] [String, "planner_overrides"]
+  #   "planner_overrides":: Optionally include the assignment's associated planner override, if it exists, for the current user.
+  #                         These will be returned under a +planner_override+ key
+  #
   # @returns [Assignment]
   def missing_submissions
     user = api_find(User, params[:user_id])
     return render_unauthorized_action unless @current_user && user.grants_right?(@current_user, :read)
 
-    assignments = []
+    submissions = []
     Shackles.activate(:slave) do
-      preloaded_submitted_assignment_ids = user.submissions.pluck(:assignment_id)
-      assignments = user.assignments_needing_submitting due_before: Time.zone.now
-      assignments.reject {|as| preloaded_submitted_assignment_ids.include? as.id }
+      course_ids = user.participating_student_course_ids
+      Shard.partition_by_shard(course_ids) do |shard_course_ids|
+        submissions = Submission.preload(:assignment).
+                      missing.
+                      where(user_id: user.id,
+                            assignments: {context_id: shard_course_ids}).
+                      merge(Assignment.active).
+                      order(:cached_due_date)
+      end
     end
+    assignments = Api.paginate(submissions, self, api_v1_user_missing_submissions_url).map(&:assignment)
 
-    render json: assignments.map {|as| assignment_json(as, user, session) }
+    planner_overrides = Array(params[:include]).include?('planner_overrides')
+
+    render json: assignments.map {|as| assignment_json(as, user, session, include_planner_override: planner_overrides) }
   end
 
   def ignore_item

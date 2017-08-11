@@ -16,18 +16,21 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react'
-import IconMoreSolid from 'instructure-icons/lib/Solid/IconMoreSolid'
-import { MenuItem, MenuItemGroup } from 'instructure-ui/lib/components/Menu'
-import PopoverMenu from 'instructure-ui/lib/components/PopoverMenu'
-import Typography from 'instructure-ui/lib/components/Typography'
-import I18n from 'i18n!gradebook'
+import React from 'react';
+import { bool, func, number, shape, string } from 'prop-types';
+import IconMoreSolid from 'instructure-icons/lib/Solid/IconMoreSolid';
+import { MenuItem, MenuItemFlyout, MenuItemGroup } from 'instructure-ui/lib/components/Menu';
+import PopoverMenu from 'instructure-ui/lib/components/PopoverMenu';
+import Typography from 'instructure-ui/lib/components/Typography';
+import I18n from 'i18n!gradebook';
+import ScreenReaderContent from 'instructure-ui/lib/components/ScreenReaderContent';
+import ColumnHeader from 'jsx/gradezilla/default_gradebook/components/ColumnHeader';
 
-const { bool, func, number, shape, string } = React.PropTypes;
+function renderTrigger (assignmentGroup, menuShown, ref) {
+  const classes = `Gradebook__ColumnHeaderAction ${menuShown ? 'menuShown' : ''}`;
 
-function renderTrigger (assignmentGroup) {
   return (
-    <span className="Gradebook__ColumnHeaderAction">
+    <span ref={ref} className={classes}>
       <Typography weight="bold" fontStyle="normal" size="large" color="brand">
         <IconMoreSolid title={I18n.t('%{name} Options', { name: assignmentGroup.name })} />
       </Typography>
@@ -50,7 +53,7 @@ function renderAssignmentGroupWeight (assignmentGroup, weightedGroups) {
   );
 }
 
-class AssignmentGroupColumnHeader extends React.Component {
+class AssignmentGroupColumnHeader extends ColumnHeader {
   static propTypes = {
     assignmentGroup: shape({
       name: string.isRequired,
@@ -67,15 +70,16 @@ class AssignmentGroupColumnHeader extends React.Component {
     weightedGroups: bool.isRequired
   };
 
-  constructor (props) {
-    super(props);
+  state = { menuShown: false };
 
-    this.bindOptionsMenuContent = (ref) => { this.optionsMenuContent = ref };
-  }
+  onToggle = (show) => { this.setState({ menuShown: show }); };
+
+  bindSortByMenuContent = (ref) => { this.sortByMenuContent = ref; };
 
   render () {
     const { assignmentGroup, sortBySetting, weightedGroups } = this.props;
     const selectedSortSetting = sortBySetting.isSortColumn && sortBySetting.settingKey;
+    const menuShown = this.state.menuShown;
 
     return (
       <div className="Gradebook__ColumnHeaderContent">
@@ -87,29 +91,32 @@ class AssignmentGroupColumnHeader extends React.Component {
         <PopoverMenu
           contentRef={this.bindOptionsMenuContent}
           focusTriggerOnClose={false}
-          trigger={renderTrigger(this.props.assignmentGroup)}
+          trigger={renderTrigger(this.props.assignmentGroup, menuShown, this.bindOptionsMenuTrigger)}
+          onToggle={this.onToggle}
         >
-          <MenuItemGroup label={I18n.t('Sort by')}>
-            <MenuItem
-              selected={selectedSortSetting === 'grade' && sortBySetting.direction === 'ascending'}
-              disabled={sortBySetting.disabled}
-              onSelect={sortBySetting.onSortByGradeAscending}
-            >
-              <span>{I18n.t('Grade - Low to High')}</span>
-            </MenuItem>
+          <MenuItemFlyout label={I18n.t('Sort by')} contentRef={this.bindSortByMenuContent}>
+            <MenuItemGroup label={<ScreenReaderContent>{I18n.t('Sort by')}</ScreenReaderContent>}>
+              <MenuItem
+                selected={selectedSortSetting === 'grade' && sortBySetting.direction === 'ascending'}
+                disabled={sortBySetting.disabled}
+                onSelect={sortBySetting.onSortByGradeAscending}
+              >
+                <span>{I18n.t('Grade - Low to High')}</span>
+              </MenuItem>
 
-            <MenuItem
-              selected={selectedSortSetting === 'grade' && sortBySetting.direction === 'descending'}
-              disabled={sortBySetting.disabled}
-              onSelect={sortBySetting.onSortByGradeDescending}
-            >
-              <span>{I18n.t('Grade - High to Low')}</span>
-            </MenuItem>
-          </MenuItemGroup>
+              <MenuItem
+                selected={selectedSortSetting === 'grade' && sortBySetting.direction === 'descending'}
+                disabled={sortBySetting.disabled}
+                onSelect={sortBySetting.onSortByGradeDescending}
+              >
+                <span>{I18n.t('Grade - High to Low')}</span>
+              </MenuItem>
+            </MenuItemGroup>
+          </MenuItemFlyout>
         </PopoverMenu>
       </div>
     );
   }
 }
 
-export default AssignmentGroupColumnHeader
+export default AssignmentGroupColumnHeader;

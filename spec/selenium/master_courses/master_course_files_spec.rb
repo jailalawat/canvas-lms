@@ -62,6 +62,7 @@ describe "master courses - master courses - file locking" do
     get "/courses/#{@copy_from.id}/files"
 
     expect(f('.ef-item-row .ef-name-col').text).to include("subfolder") # we're looking at the folder right?
+
     expect(f('.ef-directory .ef-item-row')).not_to contain_css('.icon-lock') # master folders never have locks
 
     f('.ef-item-row .ef-date-created-col').click # select the file

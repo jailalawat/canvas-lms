@@ -483,10 +483,125 @@ describe GradebooksController do
   end
 
   describe "GET 'show'" do
+    context "as an admin" do
+      it "renders successfully" do
+        account_admin_user(account: @course.root_account)
+        user_session(@admin)
+        get "show", :course_id => @course.id
+        expect(response).to render_template("gradebook")
+      end
+    end
+
+    context "as an admin with new gradebook available" do
+      before :each do
+        account_admin_user(account: @course.root_account)
+        user_session(@admin)
+      end
+
+      it "renders new gradebook when enabled" do
+        @course.enable_feature!(:new_gradebook)
+        get "show", course_id: @course.id
+        expect(response).to render_template("gradebooks/gradezilla/gradebook")
+      end
+
+      it "renders new indidivual view when enabled" do
+        @course.enable_feature!(:new_gradebook)
+        allow(@admin).to receive(:preferred_gradebook_version).and_return('individual')
+        get "show", course_id: @course.id
+        expect(response).to render_template("gradebooks/gradezilla/individual")
+      end
+
+      it "ignores the version parameter outside development environments" do
+        allow(Rails.env).to receive(:development?).and_return(false)
+        get "show", course_id: @course.id, version: 'gradezilla-gradebook'
+        expect(response).to render_template(:gradebook)
+      end
+    end
+
+    describe 'js_env' do
+      before :each do
+        user_session(@teacher)
+      end
+
+      let(:gradebook_options) { controller.js_env.fetch(:GRADEBOOK_OPTIONS) }
+
+      it "includes colors if New Gradebook is enabled" do
+        @course.enable_feature!(:new_gradebook)
+        get :show, course_id: @course.id
+        expect(gradebook_options).to have_key :colors
+      end
+
+      it "does not include colors if New Gradebook is disabled" do
+        get :show, course_id: @course.id
+        expect(gradebook_options).not_to have_key :colors
+      end
+
+      describe "graded_late_or_missing_submissions_exist" do
+        it "is not included if New Gradebook is disabled" do
+          get :show, course_id: @course.id
+          expect(gradebook_options).not_to have_key :graded_late_or_missing_submissions_exist
+        end
+
+        context "New Gradebook is enabled" do
+          before(:once) do
+            @course.enable_feature!(:new_gradebook)
+          end
+
+          let(:assignment) do
+            @course.assignments.create!(
+              due_at: 3.days.ago,
+              points_possible: 10,
+              submission_types: "online_text_entry"
+            )
+          end
+
+          let(:graded_late_or_missing_submissions_exist) do
+            gradebook_options.fetch(:graded_late_or_missing_submissions_exist)
+          end
+
+          it "is included if New Gradebook is enabled" do
+            get :show, course_id: @course.id
+            gradebook_options = controller.js_env.fetch(:GRADEBOOK_OPTIONS)
+            expect(gradebook_options).to have_key :graded_late_or_missing_submissions_exist
+          end
+
+          it "is true if graded late submissions exist" do
+            assignment.submit_homework(@student, body: "a body")
+            assignment.grade_student(@student, grader: @teacher, grade: 8)
+            get :show, course_id: @course.id
+            expect(graded_late_or_missing_submissions_exist).to eq(true)
+          end
+
+          it "is false if late submissions exist, but they are not graded" do
+            assignment.submit_homework(@student, body: "a body")
+            get :show, course_id: @course.id
+            expect(graded_late_or_missing_submissions_exist).to eq(false)
+          end
+
+          it "is true if graded missing submissions exist" do
+            assignment.grade_student(@student, grader: @teacher, grade: 8)
+            get :show, course_id: @course.id
+            expect(graded_late_or_missing_submissions_exist).to eq(true)
+          end
+
+          it "is false if missing submissions exist, but they are not graded" do
+            assignment # create the assignment so that missing submissions exist
+            get :show, course_id: @course.id
+            expect(graded_late_or_missing_submissions_exist).to eq(false)
+          end
+
+          it "is false if there are no graded late or missing submissions" do
+            get :show, course_id: @course.id
+            expect(graded_late_or_missing_submissions_exist).to eq(false)
+          end
+        end
+      end
+    end
+
     describe "csv" do
       before :once do
-        assignment1 = @course.assignments.create(:title => "Assignment 1")
-        assignment2 = @course.assignments.create(:title => "Assignment 2")
+        @course.assignments.create(:title => "Assignment 1")
+        @course.assignments.create(:title => "Assignment 2")
       end
 
       before :each do
@@ -575,6 +690,10 @@ describe GradebooksController do
         expected_value = new_course_gradebook_upload_path(@course)
 
         expect(actual_value).to eq(expected_value)
+      end
+
+      it "includes the context_modules_url in the ENV" do
+        expect(@gradebook_env[:context_modules_url]).to eq(api_v1_course_context_modules_url(@course))
       end
     end
 

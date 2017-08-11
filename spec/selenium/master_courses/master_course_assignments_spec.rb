@@ -16,9 +16,11 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require_relative '../common'
+require_relative '../helpers/blueprint_common'
 
 describe "master courses - assignment locking" do
   include_context "in-process server selenium tests"
+  include BlueprintCourseCommon
 
   before :once do
     Account.default.enable_feature!(:master_courses)
@@ -35,14 +37,13 @@ describe "master courses - assignment locking" do
 
   it "should show unlocked button on index page for unlocked assignment" do
    get "/courses/#{@course.id}/assignments"
-   expect(f('[data-view="lock-icon"] i.icon-unlock')).to be_displayed
+   expect(f('[data-view="lock-icon"] i.icon-blueprint')).to be_displayed
   end
 
   it "should show locked button on index page for locked assignment" do
     # restrict something
-    @tag.update_attribute(:restrictions, {:content => true})
-
+    @tag.update(restrictions: {content: true})
     get "/courses/#{@course.id}/assignments"
-    expect(f('[data-view="lock-icon"] i.icon-lock')).to be_displayed
+    expect(f('[data-view="lock-icon"] i.icon-blueprint-lock')).to be_displayed
   end
 end

@@ -200,6 +200,7 @@ module Importers
             event.saved_by = :after_migration
             event.delayed_post_at = shift_date(event.delayed_post_at, shift_options)
             event.lock_at = shift_date(event.lock_at, shift_options)
+            event.todo_date = shift_date(event.todo_date, shift_options)
             event.save_without_broadcasting
           end
 
@@ -236,6 +237,12 @@ module Importers
             event.save
           end
 
+          migration.imported_migration_items_by_class(WikiPage).each do |event|
+            event.reload
+            event.todo_date = shift_date(event.todo_date, shift_options)
+            event.save_without_broadcasting
+          end
+
           course.set_course_dates_if_blank(shift_options)
         else
           (migration.imported_migration_items_by_class(Announcement) +
@@ -268,6 +275,9 @@ module Importers
     end
 
     def self.import_syllabus_from_migration(course, syllabus_body, migration)
+      if migration.for_master_course_import?
+        course.updating_master_template_id = migration.master_course_subscription.master_template_id
+      end
       course.syllabus_body = migration.convert_html(syllabus_body, :syllabus, nil, :syllabus)
     end
 

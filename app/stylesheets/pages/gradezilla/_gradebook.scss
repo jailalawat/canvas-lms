@@ -27,7 +27,17 @@ a#accessibility_warning {
   display: none;
 }
 
+#keyboard-shortcuts:focus {
+  margin: -1px;
+  border-radius: 0.25rem;
+
+  // from app/stylesheets/vendor/bootstrap/_forms.scss .uneditable-input:focus
+  border: 1px solid lighten($ic-link-color, 10%);
+  outline: 0;
+}
+
 $cell_height: 33px;
+$header_height: 38px;
 
 // ******* overrides of the default slick.grid.css styles ********
 .slick-sort-indicator {
@@ -119,7 +129,7 @@ $cell_height: 33px;
 }
 
 .slick-header-column {
-  background-color: #f3f4f8;
+  background-color: $ic-bg-light-neutral;
   background-image: none;
   padding: 10px;
   @include fontSize(12px);
@@ -129,11 +139,12 @@ $cell_height: 33px;
   &.ui-state-default {
     height: 30px;
   }
-  &.hovered-column,
-  &.slick-header-column-active,
+  &.active-header, // the column header is active
+  &.active-column-header, // a cell within the column is active
+  &.hovered-column, // an element in the column is being hovered
+  &.slick-header-column-active, // the column is being dragged or resized
   &.ui-state-hover {
-    @if $use_high_contrast { @include vertical-gradient(#eef5fc, #d5e2ed); }
-    @else { @include vertical-gradient(#e0ecf9, #bdd2e3); }
+    background-color: $ic-bg-light-primary;
   }
   .slick-column-name {
     font-weight: bold;
@@ -145,81 +156,46 @@ $cell_height: 33px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .gradebook-header-drop {
-    //put it above the "out of"
-    z-index: 1;
-    width: 14px;
-    height: 14px;
+
+  .Gradebook__ColumnHeaderContent {
+    bottom: 0;
+    display: flex;
+    left: 0;
     position: absolute;
-    bottom: 3px;
-    right: 3px;
-    text-indent: 999px;
+    right: 0;
+    top: 0;
+  }
+
+  .Gradebook__ColumnHeaderDetail,
+  .Gradebook__ColumnHeaderAction {
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .Gradebook__ColumnHeaderDetail {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .Gradebook__ColumnHeaderAction {
+    flex-shrink: 0;
+    flex-grow: 0;
+    height: $cell_height;
     opacity: 0;
-    //override jqueryui blue border
-    border: 0 none;
 
-    @if $use_high_contrast {
-      background: url("/images/jqueryui/gradebook-header-drop2-high-contrast.png") no-repeat top left;
-      @media (min--moz-device-pixel-ratio: 1.5),
-      (-o-min-device-pixel-ratio: 3/2),
-      (-webkit-min-device-pixel-ratio: 1.5),
-      (min-device-pixel-ratio: 1.5),
-      (min-resolution: 1.5dppx) {
-        background-image: url("/images/jqueryui/gradebook-header-drop2-high-contrast@2x.png");
-        background-size: 14px 28px;
-      }
-    }
-
-    @else {
-      background: url("/images/jqueryui/gradebook-header-drop2.png") no-repeat top left;
-      @media (min--moz-device-pixel-ratio: 1.5),
-      (-o-min-device-pixel-ratio: 3/2),
-      (-webkit-min-device-pixel-ratio: 1.5),
-      (min-device-pixel-ratio: 1.5),
-      (min-resolution: 1.5dppx) {
-        background-image: url("/images/jqueryui/gradebook-header-drop2@2x.png");
-        background-size: 14px 28px;
-      }
-    }
-
-    &:hover, &.ui-menu-trigger-menu-is-open {
-      background-position: bottom left;
+    &:focus, &:hover, &.menuShown {
       opacity: 1;
     }
   }
-  &:hover .gradebook-header-drop {
+
+  &:hover .Gradebook__ColumnHeaderAction {
     opacity: 1;
   }
-}
-
-.Gradebook__ColumnHeaderContent {
-  bottom: 0;
-  display: flex;
-  left: 0;
-  position: absolute;
-  right: 0;
-  top: 0;
-}
-
-.Gradebook__ColumnHeaderDetail {
-  flex-grow: 1;
-  flex-shrink: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.Gradebook__ColumnHeaderAction {
-  flex-shrink: 0;
-  flex-grow: 0;
-}
-
-.Gradebook__ColumnHeaderDetail,
-.Gradebook__ColumnHeaderAction {
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
 }
 
 .odd .slick-cell {
@@ -286,38 +262,22 @@ $cell_height: 33px;
 @mixin first-row-tooltip() {
   top: 35px;
   &:after {
+    display: none;
+  }
+  &:before {
+    border-color: #444444 transparent;
+    border-style: solid;
+    border-width: 5px 5px 0;
+    position: absolute;
+    width: 0;
+    left: 15px;
+    content: "";
     border-top-color: transparent;
     border-left-color: transparent;
     border-right-color: transparent;
     border-bottom: 5px solid #444444;
-    bottom: 30px;
+    top: -10px;
   }
-}
-
-// We need both visibility and opacity because visibility is binary but opacity will allow fading in/out
-@keyframes fade-in-and-out {
-  0%   { opacity: 0; visibility: hidden; }
-  1%   { opacity: 0; visibility: visible; }
-  75%  { opacity: 1; visibility: visible; }
-  100% { opacity: 0; visibility: hidden; }
-}
-@-o-keyframes fade-in-and-out {
-  0%   { opacity: 0; visibility: hidden; }
-  1%   { opacity: 0; visibility: visible; }
-  75%  { opacity: 1; visibility: visible; }
-  100% { opacity: 0; visibility: hidden; }
-}
-@-moz-keyframes fade-in-and-out {
-  0%   { opacity: 0; visibility: hidden; }
-  1%   { opacity: 0; visibility: visible; }
-  75%  { opacity: 1; visibility: visible; }
-  100% { opacity: 0; visibility: hidden; }
-}
-@-webkit-keyframes fade-in-and-out {
-  0%   { opacity: 0; visibility: hidden; }
-  1%   { opacity: 0; visibility: visible; }
-  75%  { opacity: 1; visibility: visible; }
-  100% { opacity: 0; visibility: hidden; }
 }
 
 .gradebook-tooltip {
@@ -332,6 +292,7 @@ $cell_height: 33px;
   font-size: 0.8em;
   left: 0;
   top: -30px;
+  line-height: 1rem;
   &:after {
     border-color: #444444 transparent;
     border-style: solid;
@@ -349,10 +310,6 @@ $cell_height: 33px;
   .slick-cell.active &, .slick-cell.editable & {
     visibility: visible;
     opacity: 1;
-    -webkit-animation: fade-in-and-out 2s 1 forwards;
-    -moz-animation: fade-in-and-out 2s 1 forwards;
-    -o-animation: fade-in-and-out 2s 1 forwards;
-    animation: fade-in-and-out 2s 1 forwards;
   }
   &.first-row {
     @include first-row-tooltip();
@@ -395,22 +352,10 @@ $gradebook_cell_padding_top: 8px;
   height: $cell_height - $gradebook_cell_padding_top;
   position: relative;
   text-align: center;
-  background-repeat: repeat;
   border: none;
-  &.late {
-    background-image: url("/images/gradebook-late-indicator.png");
-  }
-  &.resubmitted {
-    background-image: url("/images/gradebook-resubmitted-indicator.png");
-  }
   &.grayed-out {
     background-color: $grayLighter;
   }
-}
-
-.slick-cell.dropped {
-  background-image: url("/images/gradebook-dropped-indicator.png");
-  background-repeat: repeat;
 }
 
 .gradebook-cell-turnitin {
@@ -578,34 +523,52 @@ $gradebook_checkbox_size: 16px;
 // STUFF FOR HEADER
 #gradebook-toolbar {
   position: relative;
-  padding: $ic-sp;
+  padding: $ic-sp 0;
   border-top: none;
   @include breakpoint(desktop) {
     display: flex;
     align-items: center;
+    justify-content: space-between;
   }
+}
+
+.section-button-placeholder {
+  display: inline-block;
 }
 
 .gradebook-menus {
   display: inline-block;
+  flex: 0 1 auto;
+}
+
+#gradebook-actions {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: row;
+  justify-content: flex-end;
+}
+
+.gradebook-filter-container {
+  display: inline-block;
+  flex: 0 1 auto;
+  margin-left: $ic-sp/2;
 }
 
 .gradebook_filter {
   display: inline-block;
+  margin-left: $ic-sp/2;
+
   input {
     width: 248px;
-  }
-  @include breakpoint(desktop) {
-    margin-left: $ic-sp/3;
   }
 }
 
 .gradebook_menu {
-  margin-top: $ic-sp/3;
+  margin-left: $ic-sp/2;
+  flex: 0 1 auto;
+
   @include breakpoint(desktop) {
     white-space: nowrap;
-    margin-top: 0;
-    flex: 1;
     text-align: right;
   }
 }
@@ -733,5 +696,58 @@ $gradebook_checkbox_size: 16px;
 #section-to-show-menu {
   li:first-of-type.ui-state-disabled {
     opacity: 0.8;
+  }
+}
+
+.Gradebook__StatusModalListItem {
+  padding: 7px;
+  margin-bottom: 5px;
+  border: 1px solid #C7CDD1;
+  border-radius: 3px;
+}
+
+.Gradebook__StatusModalList {
+  margin: 0px;
+  width: 225px;
+  list-style-type: none;
+}
+
+.ComingSoonContent__Container {
+  text-align: center;
+}
+
+.ComingSoonContent__Body {
+  display: inline-block;
+  margin-top: 2rem;
+}
+
+#LatePoliciesTabPanel__Container-noContent {
+  text-align: center;
+  min-height: 30rem;
+}
+
+#LatePoliciesTabPanel__Container {
+  min-height: 30rem;
+  display: flex;
+  justify-content: space-around;
+  flex-direction: column;
+}
+
+.SubmissionTray__Container {
+  padding: 1.5rem;
+  width: 18.75rem;
+}
+
+.SubmissionCell__IconExpand {
+  height: 1.1rem;
+  width: 2rem;
+  background-repeat: no-repeat;
+
+  &.SubmissionCell__IconExpand-right {
+    background-image: url("/images/svg-icons/svg_icon_expand_right.svg");
+  }
+
+  &.SubmissionCell__IconExpand-left {
+    background-image: url("/images/svg-icons/svg_icon_expand_left.svg");
   }
 }

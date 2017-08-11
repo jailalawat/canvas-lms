@@ -63,6 +63,20 @@ describe AssignmentsController do
       expect(assigns[:js_env][:WEIGHT_FINAL_GRADES]).to eq(@course.apply_group_weights?)
     end
 
+    it "js_env HAS_ASSIGNMENTS is true when the course has assignments" do
+      user_session(@teacher)
+      get 'index', :course_id => @course.id
+      expect(assigns[:js_env][:HAS_ASSIGNMENTS]).to eq(true)
+    end
+
+    it "js_env HAS_ASSIGNMENTS is false when the course does not have assignments" do
+      user_session(@teacher)
+      @assignment.workflow_state = 'deleted'
+      @assignment.save!
+      get 'index', :course_id => @course.id
+      expect(assigns[:js_env][:HAS_ASSIGNMENTS]).to eq(false)
+    end
+
     it "js_env DUE_DATE_REQUIRED_FOR_ACCOUNT is true when AssignmentUtil.due_date_required_for_account? == true" do
       user_session(@teacher)
       AssignmentUtil.stubs(:due_date_required_for_account?).returns(true)
@@ -267,6 +281,35 @@ describe AssignmentsController do
       get 'show', :course_id => @course.id, :id => a.id
       expect(@course.reload.assignment_groups).not_to be_empty
       expect(assigns[:unlocked]).not_to be_nil
+    end
+
+    it "should assign 'similarity_pledge'" do
+      user_session(@student)
+      a = @course.assignments.create(:title => "some assignment")
+      pledge = 'I made this'
+      @course.account.update_attributes(turnitin_pledge: pledge)
+      get 'show', :course_id => @course.id, :id => a.id
+      expect(assigns[:similarity_pledge]).to eq pledge
+    end
+
+    it 'uses the vericite pledge if vericite is enabled' do
+      user_session(@student)
+      a = @course.assignments.create(:title => "some assignment")
+      pledge = 'vericite pledge'
+      allow_any_instance_of(Assignment).to receive(:vericite_enabled?).and_return(true)
+      allow_any_instance_of(Course).to receive(:vericite_pledge).and_return(pledge)
+      get 'show', :course_id => @course.id, :id => a.id
+      expect(assigns[:similarity_pledge]).to eq pledge
+    end
+
+    it 'uses the turnitin pledge if turnitin is enabled' do
+      user_session(@student)
+      a = @course.assignments.create(:title => "some assignment")
+      pledge = 'tii pledge'
+      allow_any_instance_of(Assignment).to receive(:turnitin_enabled?).and_return(true)
+      @course.account.update_attributes(turnitin_pledge: pledge)
+      get 'show', :course_id => @course.id, :id => a.id
+      expect(assigns[:similarity_pledge]).to eq pledge
     end
 
     it "should assign submission variable if current user and submitted" do

@@ -109,7 +109,7 @@
 #           "example": "crit1",
 #           "type": "string"
 #         },
-#         "outcome_id": {
+#         "learning_outcome_id": {
 #           "description": "(Optional) The id of the learning outcome this criteria uses, if any.",
 #           "example": "1234",
 #           "type": "string"
@@ -585,6 +585,34 @@ class AssignmentsApiController < ApplicationController
     end
   end
 
+  def duplicate
+    assignment_id = params[:assignment_id]
+    old_assignment = @context.active_assignments.find_by({ id: assignment_id })
+
+    if !old_assignment || old_assignment.workflow_state == "deleted"
+      return render json: { error: 'assignment does not exist' }, status: 400
+    end
+
+    # Duplicating is basically creating, so the same authorization conditions
+    # appear on both
+    return unless authorized_action(old_assignment, @current_user, :create)
+    if old_assignment.quiz
+      return render json: { error: 'quiz duplication not implemented' }, status: 400
+    end
+
+    if old_assignment.discussion_topic
+      return render json: { error: 'discussion topic duplication not implemented' }, status: 400
+    end
+
+    if old_assignment.wiki_page
+      return render json: { error: 'wiki page duplication not implemented' }, status: 400
+    end
+
+    new_assignment = old_assignment.duplicate
+    new_assignment.save!
+    render :json => assignment_json(new_assignment, @current_user, session)
+  end
+
   def get_assignments(user)
     if authorized_action(@context, user, :read)
       scope = Assignments::ScopedToUser.new(@context, user).scope.
@@ -1049,8 +1077,8 @@ class AssignmentsApiController < ApplicationController
   end
 
   def render_create_or_update_result(result, opts = {})
-    if result == :success
-      render json: assignment_json(@assignment, @current_user, session, opts), status: :created
+    if [:created, :ok].include?(result)
+      render json: assignment_json(@assignment, @current_user, session, opts), status: result
     else
       status = result == :forbidden ? :forbidden : :bad_request
       errors = @assignment.errors.as_json[:errors]

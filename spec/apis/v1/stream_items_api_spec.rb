@@ -374,6 +374,7 @@ describe UsersController, type: :request do
       'html_url' => "http://www.example.com/courses/#{@course.id}/assignments/#{@assignment.id}/submissions/#{@user.id}",
       'workflow_state' => 'graded',
       'late' => false,
+      'missing' => false,
       'assignment' => assign_json,
       'assignment_id' => @assignment.id,
       'attempt' => nil,
@@ -382,6 +383,10 @@ describe UsersController, type: :request do
       'preview_url' => "http://www.example.com/courses/#{@course.id}/assignments/#{@assignment.id}/submissions/#{@user.id}?preview=1&version=1",
       'submission_type' => nil,
       'submitted_at' => nil,
+      'late_policy_status' => nil,
+      'accepted_at' => nil,
+      'points_deducted' => 0.0,
+      'duration_late' => 0.0,
       'url' => nil,
       'user_id' => @sub.user_id,
 
@@ -436,7 +441,8 @@ describe UsersController, type: :request do
         'storage_quota_mb' => @course.storage_quota_mb,
         'apply_assignment_group_weights' => false,
         'restrict_enrollments_to_course_dates' => false,
-        'time_zone' => 'America/Denver'
+        'time_zone' => 'America/Denver',
+        'uuid' => @course.uuid
       },
 
       'user' => {
@@ -486,14 +492,19 @@ describe UsersController, type: :request do
       'html_url' => "http://www.example.com/courses/#{@course.id}/assignments/#{@assignment.id}/submissions/#{@user.id}",
       'workflow_state' => 'unsubmitted',
       'late' => false,
+      'missing' => false,
       'assignment' => assign_json,
       'assignment_id' => @assignment.id,
       'attempt' => nil,
       'body' => nil,
-      'grade_matches_current_submission' => nil,
+      'grade_matches_current_submission' => true,
       'preview_url' => "http://www.example.com/courses/#{@course.id}/assignments/#{@assignment.id}/submissions/#{@user.id}?preview=1&version=1",
       'submission_type' => nil,
       'submitted_at' => nil,
+      'late_policy_status' => nil,
+      'accepted_at' => nil,
+      'points_deducted' => nil,
+      'duration_late' => 0.0,
       'url' => nil,
       'user_id' => @sub.user_id,
 
@@ -548,7 +559,8 @@ describe UsersController, type: :request do
         'storage_quota_mb' => @course.storage_quota_mb,
         'apply_assignment_group_weights' => false,
         'restrict_enrollments_to_course_dates' => false,
-        'time_zone' => 'America/Denver'
+        'time_zone' => 'America/Denver',
+        'uuid' => @course.uuid
       },
 
       'user' => {

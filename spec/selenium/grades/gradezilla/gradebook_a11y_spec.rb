@@ -8,42 +8,43 @@
 # Software Foundation, version 3 of the License.
 #
 # Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
-# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# WARRANTY; wthout even the implied warranty of MERCHANTABILITY or FITNESS FOR
 # A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
 # details.
 #
 # You should have received a copy of the GNU Affero General Public License along
-# with this program. If not, see <http://www.gnu.org/licenses/>.
+# with this program. If not, see <http://www.gnu.org/licenses/>
 
 require_relative '../../helpers/gradezilla_common'
+require_relative '../../helpers/color_common'
 require_relative '../page_objects/gradezilla_page'
 
 describe "Gradezilla" do
   include_context "in-process server selenium tests"
   include GradezillaCommon
+  include ColorCommon
 
   let(:extra_setup) { }
-  let(:active_element) { driver.switch_to.active_element }
 
-  before(:once) do
-    gradebook_data_setup
-  end
+  before(:once) { gradebook_data_setup }
 
   before do
-    Account.default.set_feature_flag!('gradezilla', 'on')
+    Account.default.set_feature_flag!('new_gradebook', 'on')
     extra_setup
     user_session(@teacher)
-    Gradezilla.visit(@course)
   end
 
   context "export menu" do
-    before { f('span[data-component="ActionMenu"] button').click }
+    before do
+      Gradezilla.visit(@course)
+      Gradezilla.open_action_menu
+    end
 
     it "moves focus to Actions menu trigger button during current export", priority: "2", test_id: 720459 do
-      f('span[data-menu-id="export"]').click
+      Gradezilla.action_menu_item_selector("export").click
 
-      expect(active_element.tag_name).to eq('button')
-      expect(active_element.text).to eq('Actions')
+      expect(current_active_element.tag_name).to eq('button')
+      expect(current_active_element.text).to eq('Actions')
     end
 
     context "when a csv already exists" do
@@ -58,42 +59,78 @@ describe "Gradezilla" do
       end
 
       it "maintains focus to Actions menu trigger during past csv export", priority: "2", test_id: 720460 do
-        f('span[data-menu-id="previous-export"]').click
+        Gradezilla.select_previous_grade_export
 
-        expect(active_element.tag_name).to eq('button')
-        expect(active_element.text).to eq('Actions')
+        expect(current_active_element.tag_name).to eq('button')
+        expect(current_active_element.text).to eq('Actions')
       end
     end
   end
 
   context "return focus to settings menu when it closes" do
-    it "after hide/show student names is clicked", priority: "2", test_id: 720461 do
-      f('#gradebook_settings').click
-      f(".student_names_toggle").click
-      expect(active_element).to have_attribute('id', 'gradebook_settings')
-    end
+    before { Gradezilla.visit(@course) }
 
     it "after arrange columns is clicked", priority: "2", test_id: 720462 do
-      view_menu_trigger = Gradezilla.gradebook_menu('View').find('button')
-      Gradezilla.open_gradebook_menu('View')
-      Gradezilla.select_gradebook_menu_option('Arrange By > Due Date - Oldest to Newest')
-      expect(active_element).to eq(view_menu_trigger)
+      Gradezilla.open_view_menu_and_arrange_by_menu
+      Gradezilla.select_gradebook_menu_option('Due Date - Oldest to Newest')
+      expect(check_element_has_focus(Gradezilla.view_options_menu_selector)).to be true
     end
   end
 
-  it 'returns focus to the view options menu after clicking the "Notes" option' do
-    Gradezilla.gradebook_view_options_menu.click
-    Gradezilla.notes_option.click
-    expect(active_element).to eq(Gradezilla.gradebook_view_options_menu)
+  context "return focus to view options menu when it closes" do
+
+    before { Gradezilla.visit(@course) }
+
+    it 'returns focus to the view options menu after clicking the "Notes" option' do
+      Gradezilla.select_view_dropdown
+      Gradezilla.select_notes_option
+      expect(check_element_has_focus(Gradezilla.view_options_menu_selector)).to be true
+    end
   end
 
-  context 'settings menu is accessible' do
-    it 'hides the icon from screen readers' do
-      expect(f('#gradebook_settings .icon-settings')).to have_attribute('aria-hidden', 'true')
+  context "assignment header contrast" do
+    let(:assignment_title) { @course.assignments.first.title }
+
+    context "without high contrast mode" do
+      before do
+        @teacher.disable_feature!(:high_contrast)
+        Gradezilla.visit(@course)
+      end
+
+      it 'meets 3:1 contrast for column headers' do
+        bg_color = rgba_to_hex Gradezilla.select_assignment_header_cell_element(assignment_title).style('background-color')
+        text_color = rgba_to_hex Gradezilla.select_assignment_header_cell_label_element(assignment_title).style('color')
+
+        expect(LuminosityContrast.ratio(bg_color, text_color).round(2)).to be >= 3
+      end
     end
 
-    it 'has screen reader only text' do
-      expect(f('#gradebook_settings .screenreader-only').text).to eq('Gradebook Settings')
+    context "with high contrast mode" do
+      before do
+        @teacher.enable_feature!(:high_contrast)
+        Gradezilla.visit(@course)
+      end
+
+      it 'meets 4.5:1 contrast for column headers' do
+        bg_color = rgba_to_hex Gradezilla.select_assignment_header_cell_element(assignment_title).style('background-color')
+        text_color = rgba_to_hex Gradezilla.select_assignment_header_cell_label_element(assignment_title).style('color')
+
+        expect(LuminosityContrast.ratio(bg_color, text_color).round(2)).to be >= 4.5
+      end
+    end
+  end
+
+  context 'cell tooltip' do
+    before { Gradezilla.visit(@course) }
+
+    it 'is shown on hover' do
+      Gradezilla.cell_hover(0, 0)
+      expect(Gradezilla.cell_tooltip(0, 0)).to be_displayed
+    end
+
+    it 'is shown on focus' do
+      Gradezilla.cell_click(0, 0)
+      expect(Gradezilla.cell_tooltip(0, 0)).to be_displayed
     end
   end
 end

@@ -23,6 +23,9 @@ Dir["{gems,vendor}/plugins/*/config/pre_routes.rb"].each { |pre_routes|
 }
 
 CanvasRails::Application.routes.draw do
+  post "/api/graphql", to: "graphql#execute"
+  get 'graphiql', to: 'graphql#graphiql'
+
   resources :submission_comments, only: [:update, :destroy]
 
   resources :epub_exports, only: [:index]
@@ -120,9 +123,7 @@ CanvasRails::Application.routes.draw do
   end
 
   concern :folders do
-    resources :folders do
-      get :download
-    end
+    resources :folders
   end
 
   concern :media do
@@ -227,9 +228,6 @@ CanvasRails::Application.routes.draw do
 
     resource :gradebook_csv, only: [:show]
 
-    get 'attendance' => 'gradebooks#attendance'
-    get 'attendance/:user_id' => 'gradebooks#attendance', as: :attendance_user
-
     # DEPRECATED old migration emails pointed the user to this url, leave so the controller can redirect
     get 'imports/list' => 'content_imports#index', as: :import_list
     # DEPRECATED
@@ -282,6 +280,9 @@ CanvasRails::Application.routes.draw do
       member do
         get :list_google_docs
       end
+
+      get 'lti/resource/:resource_link_id', controller: 'lti/message',
+          action: 'resource', as: :resource_link_id
     end
 
     resources :grading_standards, only: [:index, :create, :update, :destroy]
@@ -303,6 +304,8 @@ CanvasRails::Application.routes.draw do
       end
     end
 
+    get 'lti/resource/:resource_link_id', controller: 'lti/message',
+        action: 'resource', as: :resource_link_id
     get 'lti/basic_lti_launch_request/:message_handler_id', controller: 'lti/message',
         action: 'basic_lti_launch_request', as: :basic_lti_launch_request
     get 'lti/tool_proxy_registration', controller: 'lti/message', action: 'registration', as: :tool_proxy_registration
@@ -613,6 +616,8 @@ CanvasRails::Application.routes.draw do
       end
     end
 
+    get 'lti/resource/:resource_link_id', controller: 'lti/message',
+        action: 'resource', as: :resource_link_id
     get 'lti/basic_lti_launch_request/:message_handler_id', controller: 'lti/message',
         action: 'basic_lti_launch_request', as: :basic_lti_launch_request
     get 'lti/tool_proxy_registration', controller: 'lti/message', action: 'registration', as: :tool_proxy_registration
@@ -676,6 +681,7 @@ CanvasRails::Application.routes.draw do
   get 'grades_for_student' => 'users#grades_for_student'
 
   get 'login' => 'login#new'
+  get 'login/session_token' => 'login#session_token'
   delete 'logout' => 'login#destroy'
   get 'logout' => 'login#logout_confirm'
 
@@ -854,8 +860,7 @@ CanvasRails::Application.routes.draw do
   get 'browserconfig.xml', to: 'info#browserconfig', defaults: { format: 'xml' }
 
   post 'object_snippet' => 'context#object_snippet'
-  get 'saml2' => 'accounts#saml_meta_data'
-  get 'saml_meta_data' => 'accounts#saml_meta_data'
+  get 'saml2' => 'login/saml#metadata'
 
   # Routes for course exports
   get 'xsd/:version.xsd' => 'content_exports#xml_schema'
@@ -1035,6 +1040,7 @@ CanvasRails::Application.routes.draw do
       get 'courses/:course_id/assignments/:id', action: :show, as: 'course_assignment'
       post 'courses/:course_id/assignments', action: :create
       put 'courses/:course_id/assignments/:id', action: :update
+      post 'courses/:course_id/assignments/:assignment_id/duplicate', action: :duplicate
       delete 'courses/:course_id/assignments/:id', action: :destroy, controller: :assignments
     end
 
@@ -1066,6 +1072,7 @@ CanvasRails::Application.routes.draw do
         post "#{context.pluralize}/:#{context}_id/assignments/:assignment_id/submissions/:user_id/files", action: :create_file
         put "#{context.pluralize}/:#{context}_id/assignments/:assignment_id/submissions/:user_id", action: :update
         post "#{context.pluralize}/:#{context}_id/assignments/:assignment_id/submissions/update_grades", action: :bulk_update
+        get "#{context.pluralize}/:#{context}_id/assignments/:assignment_id/submission_summary", action: :submission_summary, as: "#{path_prefix}_assignment_submission_summary"
       end
       get "courses/:course_id/assignments/:assignment_id/gradeable_students", action: :gradeable_students, as: "course_assignment_gradeable_students"
     end
@@ -1218,7 +1225,7 @@ CanvasRails::Application.routes.draw do
 
       get 'users/self/todo', action: :todo_items
       get 'users/self/upcoming_events', action: :upcoming_events
-      get 'users/:user_id/missing_submissions', action: :missing_submissions
+      get 'users/:user_id/missing_submissions', action: :missing_submissions, as: 'user_missing_submissions'
 
       delete 'users/self/todo/:asset_string/:purpose', action: :ignore_item, as: 'users_todo_ignore'
       post 'accounts/:account_id/users', action: :create
@@ -1923,6 +1930,8 @@ CanvasRails::Application.routes.draw do
       get 'accounts/:account_id/rubrics/:id', action: :show
       get 'courses/:course_id/rubrics', action: :index, as: :course_rubrics
       get 'courses/:course_id/rubrics/:id', action: :show
+      post 'courses/:course_id/rubrics', controller: :rubrics, action: :create
+      put 'courses/:course_id/rubrics/:id', controller: :rubrics, action: :update
     end
 
     scope(controller: 'master_courses/master_templates') do
@@ -1937,12 +1946,33 @@ CanvasRails::Application.routes.draw do
       get 'courses/:course_id/blueprint_templates/:template_id/migrations/:id/details', action: :migration_details
 
       put 'courses/:course_id/blueprint_templates/:template_id/restrict_item', action: :restrict_item
+
+      get 'courses/:course_id/blueprint_subscriptions/:subscription_id/migrations', action: :imports_index, as: :course_blueprint_imports
+      get 'courses/:course_id/blueprint_subscriptions/:subscription_id/migrations/:id', action: :imports_show
+      get 'courses/:course_id/blueprint_subscriptions/:subscription_id/migrations/:id/details', action: :import_details
     end
 
     scope(controller: :late_policy) do
       get 'courses/:id/late_policy', action: :show
       post 'courses/:id/late_policy', action: :create
       patch 'courses/:id/late_policy', action: :update
+    end
+
+    scope(controller: :planner_overrides) do
+      get 'planner/items', action: :items_index, as: :planner_items
+      get 'planner/overrides', action: :index, as: :planner_overrides
+      get 'planner/overrides/:id', action: :show
+      put 'planner/overrides/:id', action: :update
+      post 'planner/overrides', action: :create
+      delete 'planner/overrides/:id', action: :destroy
+    end
+
+    scope(controller: :planner_notes) do
+      get 'planner_notes', action: :index, as: :planner_notes
+      get 'planner_notes/:id', action: :show
+      put 'planner_notes/:id', action: :update
+      post 'planner_notes', action: :create
+      delete 'planner_notes/:id', action: :destroy
     end
   end
 
@@ -2032,6 +2062,9 @@ CanvasRails::Application.routes.draw do
     scope(controller: :sis_api) do
       get 'accounts/:account_id/assignments', action: 'sis_assignments', as: :sis_account_assignments
       get 'courses/:course_id/assignments', action: 'sis_assignments', as: :sis_course_assignments
+    end
+    scope(controller: :disable_post_to_sis_api) do
+      put 'courses/:course_id/disable_post_to_sis', action: 'disable_post_to_sis', as: :disable_post_to_sis_course_assignments
     end
   end
 end
