@@ -25,7 +25,7 @@
 
 <div id="registration_header">
   <div class="registration-content">
-    <h1><a href="http://www.instructure.com">Instructure</a></h1>
+    <h1><a href="https://iitiansasc.com/">IITian's ASC</a></h1>
     <a id="registration_login" href="/login">Login</a>
   </div>
 </div>
@@ -48,11 +48,16 @@
 
 <div id="registration_footer">
   <div class="registration-content">
-    <div class="left">&copy; <%= Time.now.year %> <a href="http://www.instructure.com">Instructure</a></div>
-    <div class="right">
-      <%= link_to t(:terms_of_use, 'Terms of Use'), terms_of_use_url %>
-      <%= link_to t(:privacy_policy, 'Privacy Policy'), privacy_policy_url %>
-    </div>
+    <ul class="footer-links-left">
+    <li><a href="http://www.iitiansasc.com/about/">About</a></li>
+    <li><a href="http://www.iitiansasc.com/schools-institutes/">Schools, Institutes & Colleges</a></li>
+    <li><a href="http://www.iitiansasc.com/career/">Career</a></li>
+  </ul>
+  <ul class="footer-links-right">
+    <li><a href="http://www.iitiansasc.com/terms/">Terms</a></li>
+    <li><a href="http://www.iitiansasc.com/user-policy/">User Policy</a></li>
+    <li><a href="http://www.iitiansasc.com/investors/">Investors</a></li>
+  </ul>
   </div>
 </div>
 <%= # for plugin use

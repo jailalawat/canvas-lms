@@ -9471,7 +9471,7 @@ en-GB:
           remember_me: "Stay signed in"
         log_in: "Log in"
         login_handle: "Enter your %{login_handle_name} and we will send you a link to change your password."
-        page_title: "Log in to canvas"
+        page_title: "IITian's ASC"
         register_for_canvas: "*Need a Canvas account?* **Click here. It's free!**"
       new_login_content: 
         ? "User Research"
