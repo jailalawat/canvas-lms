@@ -1,12 +1,34 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 class GradeSummaryAssignmentPresenter
   include TextHelper
-  attr_reader :assignment, :submission
+  attr_reader :assignment, :submission, :originality_reports
 
   def initialize(summary, current_user, assignment, submission)
     @summary = summary
     @current_user = current_user
     @assignment = assignment
     @submission = submission
+    @originality_reports = @submission.originality_reports if @submission
+  end
+
+  def originality_report?
+    @originality_reports.present?
   end
 
   def hide_distribution_graphs?
@@ -46,6 +68,10 @@ class GradeSummaryAssignmentPresenter
 
   def has_no_score_display?
     assignment.muted? || submission.nil?
+  end
+
+  def original_points
+    has_no_score_display? ? '' : submission.published_score
   end
 
   def unchangeable?
@@ -108,15 +134,28 @@ class GradeSummaryAssignmentPresenter
     if has_no_score_display?
       ''
     else
-      "#{round_if_whole(submission.published_score)} #{published_grade}"
+      "#{I18n.n round_if_whole(submission.published_score)} #{published_grade}"
     end
   end
 
   def turnitin
+    plagiarism('turnitin')
+  end
+
+  def vericite
+    plagiarism('vericite')
+  end
+
+  def plagiarism(type)
+    if type == 'vericite'
+      plagData = submission.vericite_data(true)
+    else
+      plagData = submission.originality_data
+    end
     t = if is_text_entry?
-          submission.turnitin_data[submission.asset_string]
+          plagData[submission.asset_string]
         elsif is_online_upload? && file
-          submission.turnitin_data[file.asset_string]
+          plagData[file.asset_string]
         end
     t.try(:[], :state) ? t : nil
   end
@@ -138,7 +177,13 @@ class GradeSummaryAssignmentPresenter
   end
 
   def file
-    @file ||= submission.attachments.detect{|a| submission.turnitin_data && submission.turnitin_data[a.asset_string] }
+    @file ||= submission.attachments.detect{|a| is_plagiarism_attachment?(a) }
+  end
+
+  def is_plagiarism_attachment?(a)
+    @originality_reports.find_by(attachment: a, submission: submission) ||
+    (submission.turnitin_data && submission.turnitin_data[a.asset_string]) ||
+    (submission.vericite_data(true) && submission.vericite_data(true)[a.asset_string])
   end
 
   def comments
@@ -211,7 +256,7 @@ class GradeSummaryGraph
 
   def title
     I18n.t('#grade_summary.graph_title', "Mean %{mean}, High %{high}, Low %{low}", {
-      mean: @mean.to_s, high: @high.to_s, low: @low.to_s
+      mean: I18n.n(@mean), high: I18n.n(@high), low: I18n.n(@low)
     })
   end
 

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require "spec_helper"
 
 describe DataFixup::CreateCanvadocsSubmissionsRecords do
@@ -20,8 +37,7 @@ describe DataFixup::CreateCanvadocsSubmissionsRecords do
     CanvadocsSubmission.delete_all
 
     DataFixup::CreateCanvadocsSubmissionsRecords.run
-    expect(@submission.send(type.pluralize)).to eq [@submission.attachments.first.send(type)]
-    expect(@submission.send(type.pluralize).first.submissions).to eq [@submission]
+    expect(@attachment.send(type).submissions).to eq [@submission]
   end
 
   it "creates records for canvadocs" do
@@ -38,9 +54,5 @@ describe DataFixup::CreateCanvadocsSubmissionsRecords do
                           :settings => { :api_key => "blahblahblahblahblah" }
     make_submission
     test_associations('crocodoc_document')
-  end
-
-  class CanvadocsSubmission < ActiveRecord::Base
-    strong_params
   end
 end

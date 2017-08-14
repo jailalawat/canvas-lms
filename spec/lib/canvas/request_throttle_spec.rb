@@ -1,4 +1,5 @@
-# Copyright (C) 2013 Instructure, Inc.
+#
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,8 +22,8 @@ describe 'RequestThrottle' do
   let(:base_req) { { 'QUERY_STRING' => '', 'PATH_INFO' => '/' } }
   let(:request_user_1) { base_req.merge({ 'REMOTE_ADDR' => '1.2.3.4', 'rack.session' => { user_id: 1 } }) }
   let(:request_user_2) { base_req.merge({ 'REMOTE_ADDR' => '4.3.2.1', 'rack.session' => { user_id: 2 } }) }
-  let(:token1) { AccessToken.create!(user: user) }
-  let(:token2) { AccessToken.create!(user: user) }
+  let(:token1) { AccessToken.create!(user: user_factory) }
+  let(:token2) { AccessToken.create!(user: user_factory) }
   let(:request_query_token) { base_req.merge({ 'REMOTE_ADDR' => '1.2.3.4', 'QUERY_STRING' => "access_token=#{token1.full_token}" }) }
   let(:request_header_token) { base_req.merge({ 'REMOTE_ADDR' => '4.3.2.1', 'HTTP_AUTHORIZATION' => "Bearer #{token2.full_token}" }) }
   let(:request_logged_out) { base_req.merge({ 'REMOTE_ADDR' => '1.2.3.4', 'rack.session.options' => { id: 'sess1' } }) }
@@ -229,6 +230,20 @@ describe 'RequestThrottle' do
           Setting.set('request_throttle.hwm', '4.0')
           expect(bucket.full?).to eq true
         end
+
+        it "compares to a customized hwm setting if set" do
+          bucket = RequestThrottle::LeakyBucket.new("test", 5.0)
+          Setting.set('request_throttle.hwm', '4.0')
+          expect(bucket.full?).to eq true
+          Setting.set('request_throttle.custom_settings',
+                      {test: {hwm: '6.0'}}.to_json)
+          RequestThrottle::LeakyBucket.reload!
+          expect(bucket.full?).to eq false
+          Setting.set('request_throttle.custom_settings',
+                      {other: {hwm: '6.0'}}.to_json)
+          RequestThrottle::LeakyBucket.reload!
+          expect(bucket.full?).to eq true
+        end
       end
 
       describe "redis interaction" do
@@ -292,21 +307,35 @@ describe 'RequestThrottle' do
         end
 
         it "clamps a negative increment to 0" do
-          now = Time.zone.now
-
-          # this is a hack to make the second Time.now call
-          # return 6 seconds in the future, which makes the
-          # final cost with leak < 0 (cuz the return is 5)
-          x = 0
-          Time.stubs(:now).returns { now + x.seconds; x += 6; }
-
-          Timecop.freeze(now) do
+          Timecop.safe_mode = false
+          Timecop.freeze('2013-01-01 3:00:00 UTC') do
             @bucket.reserve_capacity(20) do
+              # finishing 6 seconds later, so final cost with leak is < 0
+              Timecop.freeze(Time.now + 6.seconds)
               5
             end
+            Timecop.return
           end
           expect(@bucket.count).to eq 0
           expect(@bucket.redis.hget(@bucket.cache_key, 'count').to_f).to eq 0
+        end
+
+        it "uses custom values if available" do
+          Setting.set('request_throttle.custom_settings',
+                      {test: {up_front_cost: '20.0'}}.to_json)
+          RequestThrottle::LeakyBucket.reload!
+          Timecop.freeze('2012-01-29 12:00:00 UTC') do
+            @bucket.increment(0, 0, @current_time)
+            @bucket.reserve_capacity do
+              expect(@bucket.redis.hget(@bucket.cache_key, 'count').to_f).to be_within(0.1).of(20)
+              5
+            end
+            expect(@bucket.redis.hget(@bucket.cache_key, 'count').to_f).to be_within(0.1).of(5)
+          end
+        end
+
+        after do
+          Timecop.safe_mode = true
         end
       end
     end

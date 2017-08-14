@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -35,7 +35,7 @@ module SIS
 
       Course.update_account_associations(course_ids_to_update_associations.to_a) unless course_ids_to_update_associations.empty?
       courses_to_update_sis_batch_id.in_groups_of(1000, false) do |batch|
-        Course.where(:id => batch).update_all(:sis_batch_id => @batch)
+        Course.where(:id => batch).update_all(:sis_batch_id => @batch.id)
       end if @batch
       @logger.debug("Courses took #{Time.now - start} seconds")
       return importer.success_count
@@ -57,7 +57,7 @@ module SIS
         @success_count = 0
       end
 
-      def add_course(course_id, term_id, account_id, fallback_account_id, status, start_date, end_date, abstract_course_id, short_name, long_name, integration_id)
+      def add_course(course_id, term_id, account_id, fallback_account_id, status, start_date, end_date, abstract_course_id, short_name, long_name, integration_id, course_format)
         state_changes = []
         @logger.debug("Processing Course #{[course_id, term_id, account_id, fallback_account_id, status, start_date, end_date, abstract_course_id, short_name, long_name].inspect}")
 
@@ -65,6 +65,7 @@ module SIS
         raise ImportError, "No short_name given for course #{course_id}" if short_name.blank? && abstract_course_id.blank?
         raise ImportError, "No long_name given for course #{course_id}" if long_name.blank? && abstract_course_id.blank?
         raise ImportError, "Improper status \"#{status}\" for course #{course_id}" unless status =~ /\A(active|deleted|completed)/i
+        raise ImportError, "Invalid course_format \"#{course_format}\" for course #{course_id}" unless course_format.blank? || course_format =~ /\A(online|on_campus|blended)/i
 
         course = @root_account.all_courses.where(sis_source_id: course_id).take
         if course.nil?
@@ -158,6 +159,11 @@ module SIS
         end
 
         update_enrollments = !course.new_record? && !(course.changes.keys & ['workflow_state', 'name', 'course_code']).empty?
+
+        if course_format != course.course_format
+          course.settings_will_change!
+          course.course_format = course_format
+        end
 
         if course.changed?
           course.templated_courses.each do |templated_course|

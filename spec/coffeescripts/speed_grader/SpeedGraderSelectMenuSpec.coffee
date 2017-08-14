@@ -1,9 +1,26 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery',
   'speed_grader_select_menu'
 ], ($, SpeedgraderSelectMenu)->
 
-  module "SpeedGraderSelectMenu",
+  QUnit.module "SpeedGraderSelectMenu",
     setup: ->
       @fixtureNode = document.getElementById("fixtures")
       @testArea = document.createElement('div')
@@ -75,3 +92,9 @@ define [
 
     document.getElementById('students_selectmenu').dispatchEvent(event)
     equal(fired, true)
+
+  test "Properly replaces the default ui selectmenu icon with the min-arrow-down icon", ->
+    @testArea.innerHTML = '<span class="ui-selectmenu-icon ui-icon"></span>'
+    @selectMenu.replaceDropdownIcon(@testArea)
+
+    equal(@testArea.innerHTML,'<span class="ui-selectmenu-icon"><i class="icon-mini-arrow-down"></i></span>')

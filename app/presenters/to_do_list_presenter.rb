@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 class ToDoListPresenter
   ASSIGNMENT_LIMIT = 100
   VISIBLE_LIMIT = 5
@@ -12,7 +29,9 @@ class ToDoListPresenter
     if user
       @needs_grading = assignments_needing(:grading)
       @needs_moderation = assignments_needing(:moderation)
-      @needs_submitting = assignments_needing(:submitting)
+      @needs_submitting = assignments_needing(:submitting, include_ungraded: true)
+      @needs_submitting += ungraded_quizzes_needing_submitting
+      @needs_submitting.sort_by! { |a| a.due_at || a.updated_at }
       assessment_requests = user.submissions_needing_peer_review(contexts: contexts, limit: ASSIGNMENT_LIMIT)
       @needs_reviewing = assessment_requests.map do |ar|
         AssessmentRequestPresenter.new(view, ar, user) if ar.asset.assignment.published?
@@ -25,13 +44,19 @@ class ToDoListPresenter
     end
   end
 
-  def assignments_needing(type)
+  def assignments_needing(type, opts = {})
     if @user
-      @user.send("assignments_needing_#{type}", contexts: @contexts, limit: ASSIGNMENT_LIMIT).map do |assignment|
+      @user.send("assignments_needing_#{type}", {contexts: @contexts, limit: ASSIGNMENT_LIMIT}.merge(opts)).map do |assignment|
         AssignmentPresenter.new(@view, assignment, @user, type)
       end
     else
       []
+    end
+  end
+
+  def ungraded_quizzes_needing_submitting
+    @user.ungraded_quizzes_needing_submitting(contexts: @contexts, limit: ASSIGNMENT_LIMIT).map do |quiz|
+      AssignmentPresenter.new(@view, quiz, @user, :submitting)
     end
   end
 
@@ -70,11 +95,12 @@ class ToDoListPresenter
   class AssignmentPresenter
     attr_reader :assignment
     protected :assignment
-    delegate :title, :submission_action_string, :points_possible, :due_at, :peer_reviews_due_at, to: :assignment
+    delegate :title, :submission_action_string, :points_possible, :due_at, :updated_at, :peer_reviews_due_at, to: :assignment
 
     def initialize(view, assignment, user, type)
       @view = view
       @assignment = assignment
+      @assignment = @assignment.overridden_for(user) if type == :submitting
       @user = user
       @type = type
     end
@@ -89,6 +115,10 @@ class ToDoListPresenter
 
     def context_name
       @assignment.context.nickname_for(@user)
+    end
+
+    def short_context_name
+      @assignment.context.nickname_for(@user, :short_name)
     end
 
     def needs_grading_count
@@ -120,7 +150,11 @@ class ToDoListPresenter
     end
 
     def assignment_path
-      @view.course_assignment_path(assignment.context_id, assignment.id)
+      if assignment.is_a?(Quizzes::Quiz)
+        @view.course_quiz_path(assignment.context_id, assignment.id)
+      else
+        @view.course_assignment_path(assignment.context_id, assignment.id)
+      end
     end
 
     def ignore_url
@@ -135,6 +169,17 @@ class ToDoListPresenter
         I18n.t('Ignore until new mark')
       when :submitting
         I18n.t('Ignore this assignment')
+      end
+    end
+
+    def ignore_sr_message
+      case @type
+      when :grading
+        I18n.t('Ignore %{item} until new submission', :item => title)
+      when :moderation
+        I18n.t('Ignore %{item} until new mark', :item => title)
+      when :submitting
+        I18n.t('Ignore %{item}', :item => title)
       end
     end
 
@@ -162,6 +207,7 @@ class ToDoListPresenter
 
   class AssessmentRequestPresenter
     delegate :context_name, to: :assignment_presenter
+    delegate :short_context_name, to: :assignment_presenter
     attr_reader :assignment
 
     def initialize(view, assessment_request, user)
@@ -189,6 +235,10 @@ class ToDoListPresenter
 
     def ignore_title
       I18n.t('Ignore this assignment')
+    end
+
+    def ignore_sr_message
+      I18n.t('Ignore %{assignment}', :assignment => @assignment.title)
     end
 
     def ignore_flash_message

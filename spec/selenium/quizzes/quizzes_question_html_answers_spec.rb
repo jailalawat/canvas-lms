@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 require_relative '../helpers/quizzes_common'
 
@@ -7,8 +24,6 @@ describe 'quizzes question with html answers' do
 
   before(:each) do
     course_with_teacher_logged_in
-    @last_quiz = start_quiz_question
-    driver.manage.window.maximize
   end
 
   def edit_first_html_answer(question_type=nil)
@@ -20,6 +35,12 @@ describe 'quizzes question with html answers' do
 
   def close_first_html_answer
     move_to_click('.btn.edit_html_done')
+  end
+
+  def check_for_no_edit_button(option)
+    click_option('.question_form:visible .question_type', option)
+    driver.execute_script "$('.answer').addClass('hover');"
+    expect(f("#content")).not_to contain_jqcss('.edit_html:visible')
   end
 
   it 'allows HTML answers for multiple choice', priority: "1", test_id: 209356 do
@@ -35,7 +56,22 @@ describe 'quizzes question with html answers' do
     click_questions_tab
     edit_first_question
     html = driver.execute_script "return $('.answer:eq(3) .answer_html').html()"
+    wait_for_ajaximations
     expect(html).to eq '<p>HTML</p>'
+  end
+
+  it 'should preserve HTML image answers for multiple choice', priority: "2", test_id: 3103797 do
+    img_url = "http://invalid.nowhere.com/nothing.jpg"
+    img_alt = "sample alt text"
+    img_cls = "sample_image"
+    quiz_with_new_questions(true, {id: 1}, {id: 2},
+                            {id: 3, answer_html: %|<img src="#{img_url}" alt="#{img_alt}" class="#{img_cls}">|})
+    click_questions_tab
+    edit_first_question
+    alt_before = fj(".#{img_cls}", question_answers[2]).attribute('alt')
+    select_different_correct_answer(2)
+    alt_after = fj(".#{img_cls}", question_answers[2]).attribute('alt')
+    expect(alt_after).to eq alt_before
   end
 
   it 'sets focus back to the edit button after editing', priority: "1", test_id: 209357 do
@@ -43,13 +79,8 @@ describe 'quizzes question with html answers' do
     click_questions_tab
     edit_first_html_answer
     close_first_html_answer
+    wait_for_ajaximations
     check_element_has_focus(fj('.edit_html:visible'))
-  end
-
-  def check_for_no_edit_button(option)
-    click_option('.question_form:visible .question_type', option)
-    driver.execute_script "$('.answer').addClass('hover');"
-    expect(f("#content")).not_to contain_jqcss('.edit_html:visible')
   end
 
   it 'doesn\'t show the edit html button for question types besides multiple choice and multiple answers', priority: "1", test_id: 209358 do

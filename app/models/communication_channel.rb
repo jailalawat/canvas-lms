@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,8 +21,6 @@ class CommunicationChannel < ActiveRecord::Base
   # as independent of pseudonyms
   include Workflow
 
-  attr_accessible :user, :path, :path_type, :build_pseudonym_on_confirm, :pseudonym
-
   serialize :last_bounce_details
   serialize :last_transient_bounce_details
 
@@ -37,6 +35,7 @@ class CommunicationChannel < ActiveRecord::Base
   before_save :consider_building_pseudonym
   validates_presence_of :path, :path_type, :user, :workflow_state
   validate :uniqueness_of_path
+  validate :validate_email, if: lambda { |cc| cc.path_type == TYPE_EMAIL && cc.new_record? }
   validate :not_otp_communication_channel, :if => lambda { |cc| cc.path_type == TYPE_SMS && cc.retired? && !cc.new_record? }
   after_commit :check_if_bouncing_changed
 
@@ -59,54 +58,77 @@ class CommunicationChannel < ActiveRecord::Base
   def self.country_codes
     # [country code, name, true if email should be used instead of Twilio]
     [
-      ['54', I18n.t('Argentina'), false],
-      ['61', I18n.t('Australia'), false],
-      ['32', I18n.t('Belgium'), false],
-      ['55', I18n.t('Brazil'), false],
-      ['1', I18n.t('Canada'), false],
-      ['56', I18n.t('Chile'), false],
-      ['57', I18n.t('Colombia'), false],
-      ['45', I18n.t('Denmark'), false],
-      ['358', I18n.t('Finland'), false],
-      ['49', I18n.t('Germany'), false],
-      ['504', I18n.t('Honduras'), false],
-      ['852', I18n.t('Hong Kong'), false],
-      ['353', I18n.t('Ireland'), false],
-      ['352', I18n.t('Luxembourg'), false],
-      ['60', I18n.t('Malaysia'), false],
-      ['52', I18n.t('Mexico'), false],
-      ['31', I18n.t('Netherlands'), false],
-      ['64', I18n.t('New Zealand'), false],
-      ['47', I18n.t('Norway'), false],
-      ['507', I18n.t('Panama'), false],
-      ['51', I18n.t('Peru'), false],
-      ['63', I18n.t('Philippines'), false],
-      ['974', I18n.t('Qatar'), false],
-      ['966', I18n.t('Saudi Arabia'), false],
-      ['65', I18n.t('Singapore'), false],
-      ['34', I18n.t('Spain'), false],
-      ['46', I18n.t('Sweden'), false],
-      ['41', I18n.t('Switzerland'), false],
-      ['971', I18n.t('United Arab Emirates'), false],
-      ['44', I18n.t('United Kingdom'), false],
-      ['1', I18n.t('United States'), true]
+      ['54',   I18n.t('Argentina (+54)'),              false],
+      ['61',   I18n.t('Australia (+61)'),              false],
+      ['43',   I18n.t('Austria (+43)'),                false],
+      ['32',   I18n.t('Belgium (+32)'),                false],
+      ['591',  I18n.t('Bolivia (+591)'),               false],
+      ['55',   I18n.t('Brazil (+55)'),                 false],
+      ['1',    I18n.t('Canada (+1)'),                  false],
+      ['56',   I18n.t('Chile (+56)'),                  false],
+      ['57',   I18n.t('Colombia (+57)'),               false],
+      ['506',  I18n.t('Costa Rica (+506)'),            false],
+      ['45',   I18n.t('Denmark (+45)'),                false],
+      ['593',  I18n.t('Ecuador (+593)'),               false],
+      ['358',  I18n.t('Finland (+358)'),               false],
+      ['33',   I18n.t('France (+33)'),                 false],
+      ['49',   I18n.t('Germany (+49)'),                false],
+      ['504',  I18n.t('Honduras (+504)'),              false],
+      ['852',  I18n.t('Hong Kong (+852)'),             false],
+      ['91',   I18n.t('India (+91)'),                  false],
+      ['353',  I18n.t('Ireland (+353)'),               false],
+      ['972',  I18n.t('Israel (+972)'),                false],
+      ['39',   I18n.t('Italy (+39)'),                  false],
+      ['81',   I18n.t('Japan (+81)'),                  false],
+      ['352',  I18n.t('Luxembourg (+352)'),            false],
+      ['60',   I18n.t('Malaysia (+60)'),               false],
+      ['52',   I18n.t('Mexico (+52)'),                 false],
+      ['31',   I18n.t('Netherlands (+31)'),            false],
+      ['64',   I18n.t('New Zealand (+64)'),            false],
+      ['47',   I18n.t('Norway (+47)'),                 false],
+      ['507',  I18n.t('Panama (+507)'),                false],
+      ['595',  I18n.t('Paraguay (+595)'),              false],
+      ['51',   I18n.t('Peru (+51)'),                   false],
+      ['63',   I18n.t('Philippines (+63)'),            false],
+      ['48',   I18n.t('Poland (+48)'),                 false],
+      ['974',  I18n.t('Qatar (+974)'),                 false],
+      ['966',  I18n.t('Saudi Arabia (+966)'),          false],
+      ['65',   I18n.t('Singapore (+65)'),              false],
+      ['82',   I18n.t('South Korea (+82)'),            false],
+      ['34',   I18n.t('Spain (+34)'),                  false],
+      ['46',   I18n.t('Sweden (+46)'),                 false],
+      ['41',   I18n.t('Switzerland (+41)'),            false],
+      ['971',  I18n.t('United Arab Emirates (+971)'),  false],
+      ['44',   I18n.t('United Kingdom (+44)'),         false],
+      ['1',    I18n.t('United States (+1)'),           true ],
+      ['598',  I18n.t('Uruguay (+598)'),               false]
     ].sort_by{ |a| Canvas::ICU.collation_key(a[1]) }
   end
 
+  DEFAULT_SMS_CARRIERS = {
+      'txt.att.net' => { name: 'AT&T', country_code: 1 }.with_indifferent_access.freeze,
+      'message.alltel.com' => { name: 'Alltel', country_code: 1 }.with_indifferent_access.freeze,
+      'myboostmobile.com' => { name: 'Boost', country_code: 1 }.with_indifferent_access.freeze,
+      'cspire1.com' => { name: 'C Spire', country_code: 1 }.with_indifferent_access.freeze,
+      'cingularme.com' => { name: 'Cingular', country_code: 1 }.with_indifferent_access.freeze,
+      'mobile.celloneusa.com' => { name: 'CellularOne', country_code: 1 }.with_indifferent_access.freeze,
+      'sms.mycricket.com' => { name: 'Cricket', country_code: 1 }.with_indifferent_access.freeze,
+      'messaging.nextel.com' => { name: 'Nextel', country_code: 1 }.with_indifferent_access.freeze,
+      'messaging.sprintpcs.com' => { name: 'Sprint PCS', country_code: 1 }.with_indifferent_access.freeze,
+      'tmomail.net' => { name: 'T-Mobile', country_code: 1 }.with_indifferent_access.freeze,
+      'vtext.com' => { name: 'Verizon', country_code: 1 }.with_indifferent_access.freeze,
+      'vmobl.com' => { name: 'Virgin Mobile', country_code: 1 }.with_indifferent_access.freeze,
+  }.freeze
+
   def self.sms_carriers
-    @sms_carriers ||= Canvas::ICU.collate_by((ConfigFile.load('sms', false) ||
-        { 'AT&T' => 'txt.att.net',
-          'Alltel' => 'message.alltel.com',
-          'Boost' => 'myboostmobile.com',
-          'C Spire' => 'cspire1.com',
-          'Cingular' => 'cingularme.com',
-          'CellularOne' => 'mobile.celloneusa.com',
-          'Cricket' => 'sms.mycricket.com',
-          'Nextel' => 'messaging.nextel.com',
-          'Sprint PCS' => 'messaging.sprintpcs.com',
-          'T-Mobile' => 'tmomail.net',
-          'Verizon' => 'vtext.com',
-          'Virgin Mobile' => 'vmobl.com' }), &:first)
+    @sms_carriers ||= ConfigFile.load('sms', false) || DEFAULT_SMS_CARRIERS
+  end
+
+  def self.sms_carriers_by_name
+    carriers = sms_carriers.map do |domain, carrier|
+      [carrier['name'], domain]
+    end
+    Canvas::ICU.collate_by(carriers, &:first)
   end
 
   set_policy do
@@ -178,6 +200,12 @@ class CommunicationChannel < ActiveRecord::Base
     end
   end
 
+  def validate_email
+    # this is not perfect and will allow for invalid emails, but it mostly works.
+    # This pretty much allows anything with an "@"
+    self.errors.add(:email, :invalid, value: path) unless EmailAddressValidator.valid?(path)
+  end
+
   def not_otp_communication_channel
     self.errors.add(:workflow_state, "Can't remove a user's SMS that is used for one time passwords") if self.id == self.user.otp_communication_channel_id
   end
@@ -192,7 +220,7 @@ class CommunicationChannel < ActiveRecord::Base
   end
 
   def context
-    pseudonym.try(:account)
+    pseudonym&.account || user.pseudonym&.account
   end
 
   # Public: Determine if this channel is the product of an SIS import.
@@ -242,11 +270,26 @@ class CommunicationChannel < ActiveRecord::Base
     @send_merge_notification = false
   end
 
-  def send_otp!(code)
+  def send_otp_via_sms_gateway!(message)
     m = self.messages.temp_record
     m.to = self.path
-    m.body = t :body, "Your Canvas verification code is %{verification_code}", :verification_code => code
+    m.body = message
     Mailer.create_message(m).deliver rescue nil # omg! just ignore delivery failures
+  end
+
+  def send_otp!(code, account = nil)
+    message = t :body, "Your Canvas verification code is %{verification_code}", :verification_code => code
+    if Setting.get('mfa_via_sms', true) == 'true' && e164_path && account&.feature_enabled?(:notification_service)
+      Services::NotificationService.process(
+        "otp:#{global_id}",
+        message,
+        "sms",
+        e164_path
+      )
+    else
+      send_later_if_production_enqueue_args(:send_otp_via_sms_gateway!,
+                                            priority: Delayed::HIGH_PRIORITY, max_attempts: 1)
+    end
   end
 
   # If you are creating a new communication_channel, do nothing, this just
@@ -275,7 +318,7 @@ class CommunicationChannel < ActiveRecord::Base
   }
 
   def self.by_path_condition(path)
-    Arel::Nodes::NamedFunction.new('lower', [CANVAS_RAILS4_0 ? path : Arel::Nodes.build_quoted(path)])
+    Arel::Nodes::NamedFunction.new('lower', [Arel::Nodes.build_quoted(path)])
   end
 
   scope :by_path, ->(path) { where(by_path_condition(arel_table[:path]).eq(by_path_condition(path))) }
@@ -470,5 +513,12 @@ class CommunicationChannel < ActiveRecord::Base
   def self.find_by_confirmation_code(code)
     where(confirmation_code: code).first
 
+  end
+
+  def e164_path
+    return path if path =~ /^\+\d+$/
+    return nil unless (match = path.match(/^(?<number>\d+)@(?<domain>.+)$/))
+    return nil unless (carrier = CommunicationChannel.sms_carriers[match[:domain]])
+    "+#{carrier['country_code']}#{match[:number]}"
   end
 end

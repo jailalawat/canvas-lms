@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,6 +22,7 @@ class Announcement < DiscussionTopic
 
   has_a_broadcast_policy
   include HasContentTags
+  include Plannable
 
   sanitize_field :message, CanvasSanitize::SANITIZE
 
@@ -60,7 +61,7 @@ class Announcement < DiscussionTopic
 
   set_broadcast_policy! do
     dispatch :new_announcement
-    to { users_with_permissions(active_participants(true) - [user]) }
+    to { users_with_permissions(active_participants_include_tas_and_teachers(true) - [user]) }
     whenever { |record|
       record.send_notification_for_context? and
         ((record.just_created and !(record.post_delayed? || record.unpublished?)) || record.changed_state(:active, :unpublished) || record.changed_state(:active, :post_delayed))

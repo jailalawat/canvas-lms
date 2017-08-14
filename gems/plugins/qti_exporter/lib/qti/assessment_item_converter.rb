@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'nokogiri'
 require 'sanitize'
 
@@ -89,13 +106,14 @@ class AssessmentItemConverter
       type = @opts[:custom_type] || @migration_type || @type
       unless ['fill_in_multiple_blanks_question', 'canvas_matching', 'matching_question',
               'multiple_dropdowns_question', 'respondus_matching'].include?(type)
-        selectors << 'itemBody > choiceInteraction > prompt'
+        selectors << 'itemBody choiceInteraction > prompt'
         selectors << 'itemBody > extendedTextInteraction > prompt'
       end
 
       text_nodes = @doc.css(selectors.join(','))
       text_nodes = text_nodes.reject{|node| node.inner_html.strip.empty? ||
-        EXCLUDED_QUESTION_TEXT_CLASSES.any?{|c| c.casecmp(node['class'].to_s) == 0}}
+        EXCLUDED_QUESTION_TEXT_CLASSES.any?{|c| c.casecmp(node['class'].to_s) == 0} ||
+        node.at_css('choiceInteraction') || node.at_css('associateInteraction')}
 
       if text_nodes.length > 0
         @question[:question_text] = ''
@@ -107,6 +125,8 @@ class AssessmentItemConverter
             @question[:question_text] += sanitize_html!(node)
           end
         end
+      elsif @doc.at_css('itemBody associateInteraction prompt')
+        @question[:question_text] = "" # apparently they deliberately had a blank question?
       elsif text = @doc.at_css('itemBody div:first-child') || @doc.at_css('itemBody p:first-child') || @doc.at_css('itemBody div') || @doc.at_css('itemBody p')
         @question[:question_text] = sanitize_html!(text)
       elsif @doc.at_css('itemBody')
@@ -148,10 +168,13 @@ class AssessmentItemConverter
       if bank =  get_node_att(meta, 'instructureField[name=question_bank]',  'value')
         @question[:question_bank_name] = bank
       end
-      if bank =  get_node_att(meta, 'instructureField[name=question_bank_iden]', 'value')
+      if bank = get_node_att(meta, 'instructureField[name=question_bank_iden]', 'value')
         @question[:question_bank_id] = bank
+        if bb_bank = get_node_att(meta, 'instructureField[name=bb_question_bank_iden]', 'value')
+          @question[:bb_question_bank_id] = bb_bank
+        end
       end
-      if score =  get_node_att(meta, 'instructureField[name=max_score]', 'value')
+      if score = get_node_att(meta, 'instructureField[name=max_score]', 'value')
         @question[:points_possible] = [score.to_f, 0.0].max
       end
       if score = get_node_att(meta, 'instructureField[name=points_possible]', 'value')
@@ -159,6 +182,9 @@ class AssessmentItemConverter
       end
       if ref = get_node_att(meta, 'instructureField[name=assessment_question_identifierref]', 'value')
         @question[:assessment_question_migration_id] = ref
+      end
+      if get_node_att(meta, 'instructureField[name=cc_profile]', 'value') == 'cc.pattern_match.v0p1'
+        @question[:is_cc_pattern_match] = true
       end
       if type =  get_node_att(meta, 'instructureField[name=bb_question_type]', 'value')
         @migration_type = type
@@ -221,7 +247,7 @@ class AssessmentItemConverter
         end
       elsif id =~ /solution/i
         @question[:example_solution] = clear_html(f.text.strip.gsub(/\s+/, " "))
-      elsif id =~ /general_|_all/i
+      elsif (@flavor == Qti::Flavors::D2L && f.text.present?) || id =~ /general_|_all/i
         extract_feedback!(@question, :neutral_comments, f)
       elsif id =~ /feedback_(\d*)_fb/i
         if answer = @question[:answers].find{|a|a[:migration_id]== "RESPONSE_#{$1}"}
@@ -299,7 +325,7 @@ class AssessmentItemConverter
         end
       when /associateinteraction|matching_question|matchinteraction/i
         q = AssociateInteraction.new(opts)
-      when /extendedtextinteraction|textinteraction|essay_question|short_answer_question/i
+      when /extendedtextinteraction|extendedtextentryinteraction|textinteraction|essay_question|short_answer_question/i
         if opts[:custom_type] and opts[:custom_type] =~ /calculated/i
           q = CalculatedInteraction.new(opts)
         elsif opts[:custom_type] and opts[:custom_type] =~ /numeric|numerical_question/

@@ -21,8 +21,8 @@ require File.expand_path(File.dirname(__FILE__) + '/../api_spec_helper')
 describe TabsController, type: :request do
   describe 'index' do
     it "should require read permissions on the context" do
-      course(:active_all => true)
-      user(:active_all => true)
+      course_factory(active_all: true)
+      user_factory(active_all: true)
       api_call(:get, "/api/v1/courses/#{@course.id}/tabs",
                       { :controller => 'tabs', :action => 'index', :course_id => @course.to_param, :format => 'json'},
                       { :include => ['external']},
@@ -191,6 +191,24 @@ describe TabsController, type: :request do
         expect(uri.path).to eq "/api/v1/courses/#{@course.id}/external_tools/sessionless_launch"
         expect(uri.query).to include('id=')
       end
+    end
+
+    it "includes collaboration tab if configured" do
+      course_with_teacher :active_all => true
+      @course.enable_feature! 'new_collaborations'
+      json = api_call(:get, "/api/v1/courses/#{@course.id}/tabs",
+                      { :controller => 'tabs', :action => 'index', :course_id => @course.to_param, :format => 'json'},
+                      { :include => ['external']})
+      expect(json.map { |el| el['id'] }).to include 'collaborations'
+    end
+
+    it "includes webconferences tab if configured" do
+      course_with_teacher :active_all => true
+      ApplicationController.any_instance.stubs(:feature_enabled?).with(:web_conferences).returns(true)
+      json = api_call(:get, "/api/v1/courses/#{@course.id}/tabs",
+                      { :controller => 'tabs', :action => 'index', :course_id => @course.to_param, :format => 'json'},
+                      { :include => ['external']})
+      expect(json.map { |el| el['id'] }).to include 'conferences'
     end
 
     it 'should list navigation tabs for a group' do

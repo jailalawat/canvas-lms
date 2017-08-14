@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -106,7 +106,7 @@ class AccountAuthorizationConfig::LDAP < AccountAuthorizationConfig
 
   def test_ldap_connection
     begin
-      timeout(5) do
+      timeout(Setting.get('test_ldap_connection_timeout', '5').to_i) do
         TCPSocket.open(self.auth_host, self.auth_port)
       end
       return true
@@ -121,26 +121,36 @@ class AccountAuthorizationConfig::LDAP < AccountAuthorizationConfig
   end
 
   def test_ldap_bind
-    conn = self.ldap_connection
-    unless (res = conn.bind)
-      error = conn.get_operation_result
-      self.errors.add(:ldap_bind_test, "Error #{error.code}: #{error.message}")
+    timeout(Setting.get('test_ldap_bind_timeout', '60').to_i) do
+      conn = self.ldap_connection
+      unless (res = conn.bind)
+        error = conn.get_operation_result
+        self.errors.add(:ldap_bind_test, "Error #{error.code}: #{error.message}")
+      end
+      return res
     end
-    return res
+  rescue Timeout::Error
+    self.errors.add(:ldap_bind_test, t(:test_bind_timeout, "Timeout when binding"))
+    return false
   rescue => e
     self.errors.add(:ldap_bind_test, t(:test_bind_failed, "Failed to bind with the following error: %{error}", :error => e.message))
     return false
   end
 
   def test_ldap_search
-    conn = self.ldap_connection
-    filter = self.ldap_filter("canvas_ldap_test_user")
-    Net::LDAP::Filter.construct(filter)
-    unless (res = conn.search {|s| break s})
-      error = conn.get_operation_result
-      self.errors.add(:ldap_search_test, "Error #{error.code}: #{error.message}")
+    timeout(Setting.get('test_ldap_search_timeout', '60').to_i) do
+      conn = self.ldap_connection
+      filter = self.ldap_filter("canvas_ldap_test_user")
+      Net::LDAP::Filter.construct(filter)
+      unless (res = conn.search {|s| break s})
+        error = conn.get_operation_result
+        self.errors.add(:ldap_search_test, "Error #{error.code}: #{error.message}")
+      end
+      return res.present?
     end
-    return res.present?
+  rescue Timeout::Error
+    self.errors.add(:ldap_bind_test, t("Timeout when searching"))
+    return false
   rescue
     self.errors.add(
       :ldap_search_test,

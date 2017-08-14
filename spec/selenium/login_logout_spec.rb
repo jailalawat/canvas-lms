@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 describe "login logout test" do
@@ -5,8 +22,7 @@ describe "login logout test" do
 
   def should_show_message(message_text, selector)
     expect(fj(selector)).to include_text(message_text)
-    # the text isn't visible on the page so the webdriver .text method doesn't return it
-    expect(driver.execute_script("return $('#flash_screenreader_holder').text()")).to eq message_text
+    expect(f('#flash_screenreader_holder')).to have_attribute("textContent", message_text)
   end
 
   def go_to_forgot_password
@@ -21,13 +37,13 @@ describe "login logout test" do
   it "should login successfully with correct username and password", priority: "2" do
     user_with_pseudonym({:active_user => true})
     login_as
-    expect(f(ENV['CANVAS_FORCE_USE_NEW_STYLES'] ? '#global_nav_profile_display_name' : '.user_name').text).to eq @user.primary_pseudonym.unique_id
+    expect(f('#global_nav_profile_display_name').text).to eq @user.primary_pseudonym.unique_id
   end
 
   it "should show error message if wrong credentials are used", priority: "2" do
     get "/login"
     fill_in_login_form("fake@user.com", "fakepass")
-    assert_flash_error_message(/Invalid username/)
+    assert_flash_error_message("Invalid username")
   end
 
   it "should show invalid password message if password is nil", priority: "2" do
@@ -52,9 +68,9 @@ describe "login logout test" do
   end
 
   it "should prompt must be logged in message when accessing permission based pages while not logged in", priority: "2" do
-    expected_url = app_host + "/login/canvas"
+    expected_url = app_url + "/login/canvas"
     get "/grades"
-    assert_flash_warning_message /You must be logged in to access this page/
+    assert_flash_warning_message "You must be logged in to access this page"
     expect(driver.current_url).to eq expected_url
   end
 
@@ -64,7 +80,7 @@ describe "login logout test" do
     f('#pseudonym_session_unique_id_forgot').send_keys(@user.primary_pseudonym.unique_id)
     submit_form('#forgot_password_form')
     wait_for_ajaximations
-    assert_flash_notice_message /Password confirmation sent to #{@user.primary_pseudonym.unique_id}/
+    assert_flash_notice_message "Password confirmation sent to #{@user.primary_pseudonym.unique_id}"
   end
 
   it "should validate back button works in forgot password page", priority: "2" do
@@ -79,7 +95,7 @@ describe "login logout test" do
       get "/login"
       driver.execute_script "$.cookie('_csrf_token', '42')"
       fill_in_login_form("nobody@example.com", 'asdfasdf')
-      assert_flash_error_message /Invalid Authenticity Token/
+      assert_flash_error_message "Invalid Authenticity Token"
     ensure
       driver.execute_script "$.cookie('_csrf_token', '', { expires: -1 })"
     end

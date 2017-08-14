@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -26,6 +26,14 @@ class CustomData < ActiveRecord::Base
       end
       super 'write conflict for custom_data hash'
     end
+
+    def as_json
+      {
+        conflict_scope: conflict_scope,
+        type_at_conflict: type_at_conflict,
+        value_at_conflict: value_at_conflict
+      }
+    end
   end
 
   self.table_name = 'custom_data'
@@ -33,7 +41,6 @@ class CustomData < ActiveRecord::Base
   belongs_to :user
 
   serialize :data, Hash
-  attr_protected :data
 
   validates_presence_of :user, :namespace
 

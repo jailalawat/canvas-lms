@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../../qti_helper')
 if Qti.migration_executable
 describe "Converting D2L QTI" do
@@ -64,7 +81,7 @@ describe "Converting D2L QTI" do
     expect(get_quiz_data(d2l_question_dir, 'assessment', @opts).last.first).to eq D2LExpected::ASSESSMENT
   end
 
-  it "should convert the assessment into a quiz" do
+  it "should convert the assessment references into a quiz" do
     expect(get_quiz_data(d2l_question_dir, 'assessment_references', @opts).last.first).to eq D2LExpected::ASSESSMENT_REFS
   end
 
@@ -124,6 +141,8 @@ module D2LExpected
                    "<p>Is this <strong>true</strong> or false?</p><img src=\"quizzing/bunny_consumer.png\" alt=\"\">",
            :question_name=>"true false questions",
            :migration_id=>"QUES_968903_1181388",
+            :neutral_comments => "False is not correct",
+            :neutral_comments_html => "False is <strong>not</strong> correct",
            :correct_comments=>""}
 
   ASSESSMENT = {:migration_id=>"res_quiz_90521",
@@ -184,6 +203,7 @@ module D2LExpected
                   :correct_comments=>""}
 
   MULTI_SELECT = {:correct_comments=>"",
+                  :neutral_comments => "a",
                   :question_type=>"multiple_answers_question",
                   :incorrect_comments=>"",
                   :question_bank_id=>"SECT_3981973",
@@ -249,11 +269,13 @@ module D2LExpected
               :question_type=>"Error"}
 
   MATH = {:answers=>[],
+          :answer_tolerance => "2",
+          :formula_decimal_places => 2,
           :question_type=>"calculated_question",
-          :formulas=>[],
+          :formulas=>[{:formula => "2 * x   y - z"}],
           :question_bank_id=>"SECT_3981973",
           :incorrect_comments=>"",
-          :imported_formula=>"2 * {x}   {y} - {z}",
+          :imported_formula=>"2 * x   y - z",
           :points_possible=>3.0,
           :question_bank_name=>"02gilback",
           :question_text=>"<p>Solve the formula:</p>",
@@ -273,7 +295,8 @@ module D2LExpected
          :correct_comments=>"",
          :question_type=>"fill_in_multiple_blanks_question",
          :question_bank_id=>"SECT_3981973",
-         :incorrect_comments=>"",
+          :neutral_comments => "No feedback for you.",
+          :incorrect_comments=>"",
          :points_possible=>1,
          :question_bank_name=>"02gilback",
          :question_text=> "This a weird way to do [QUES_979782_1194494_A4749142] in the blank [QUES_979782_1194494_A4749144] ",

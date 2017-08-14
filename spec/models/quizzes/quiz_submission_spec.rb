@@ -1,6 +1,6 @@
 # encoding: UTF-8
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,7 +22,7 @@ require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper.rb')
 describe Quizzes::QuizSubmission do
   context 'with course and quiz' do
     before(:once) do
-      course
+      course_factory
       @quiz = @course.quizzes.create!
     end
 
@@ -38,7 +38,7 @@ describe Quizzes::QuizSubmission do
         qs = Quizzes::QuizSubmission.new
         qs.extra_time = 10081
         expect(qs.valid?).to eq false
-        expect(Array(qs.errors[:extra_time])).to eq ["must be less than or equal to 10080"]
+        expect(Array(qs.errors[:extra_time])).to eq ["must be less than or equal to 10,080"]
       end
 
       it "should validate numericality of extra attempts" do
@@ -52,14 +52,14 @@ describe Quizzes::QuizSubmission do
         qs = Quizzes::QuizSubmission.new
         qs.extra_attempts = 1001
         expect(qs.valid?).to eq false
-        expect(Array(qs.errors[:extra_attempts])).to eq ["must be less than or equal to 1000"]
+        expect(Array(qs.errors[:extra_attempts])).to eq ["must be less than or equal to 1,000"]
       end
 
       it "should validate quiz points possible is not too long" do
         qs = Quizzes::QuizSubmission.new
         qs.quiz = Quizzes::Quiz.new(:points_possible => 2000000001)
         expect(qs.valid?).to eq false
-        expect(Array(qs.errors[:quiz_points_possible])).to eq ["must be less than or equal to 2000000000"]
+        expect(Array(qs.errors[:quiz_points_possible])).to eq ["must be less than or equal to 2,000,000,000"]
       end
     end
 
@@ -137,7 +137,7 @@ describe Quizzes::QuizSubmission do
     describe "#update_scores" do
       before(:once) do
         student_in_course
-        assignment_quiz([])
+        assignment_quiz([], course: @course)
         qd = multiple_choice_question_data
         @quiz.quiz_data = [qd]
         @quiz.points_possible = qd[:points_possible]
@@ -189,7 +189,7 @@ describe Quizzes::QuizSubmission do
       it "should not allow updating scores on an uncompleted submission" do
         qs = @quiz.generate_submission(@student)
         expect(qs).to be_untaken
-        expect { qs.update_scores }.to raise_error
+        expect { qs.update_scores({}) }.to raise_error("Can't update submission scores unless it's completed")
       end
 
       it "should update scores for a previous submission" do
@@ -222,7 +222,7 @@ describe Quizzes::QuizSubmission do
         qs.backup_submission_data({ "question_1" => "" }) # simulate k/v pairs we store for quizzes in progress
         expect(qs.reload.attempt).to eq 2
 
-        expect { qs.update_scores }.to raise_error
+        expect { qs.update_scores({}) }.to raise_error("Can't update submission scores unless it's completed")
         expect { qs.update_scores(:submission_version_number => 1, :fudge_points => 1, :question_score_1 => 0) }.not_to raise_error
 
         expect(qs).to be_untaken
@@ -278,7 +278,7 @@ describe Quizzes::QuizSubmission do
 
         @quiz.publish!
 
-        quiz_submission = @quiz.generate_submission(user)
+        quiz_submission = @quiz.generate_submission(user_factory)
         quiz_submission.backup_submission_data({
           "question_#{qq1.id}" => "1",
           "question_#{qq2.id}" => "",
@@ -287,6 +287,31 @@ describe Quizzes::QuizSubmission do
         })
 
         expect(quiz_submission.events.where(event_type: event_type).count).to eq 1
+      end
+
+      context 'with cant_go_back true' do
+        it 'does not allow changing the response for a question that was previously read' do
+          question = @quiz.quiz_questions.create!({ question_data: true_false_question_data })
+          @quiz.one_question_at_a_time = true
+          @quiz.cant_go_back = true
+          @quiz.publish!
+
+          true_answer = question.question_data['answers'].find { |answer| answer['text'] == 'True' }
+          false_answer = question.question_data['answers'].find { |answer| answer['text'] == 'False' }
+          quiz_submission = @quiz.generate_submission(user_factory)
+          quiz_submission.backup_submission_data({
+            "question_#{question.id}" => true_answer['id'],
+            :"_question_#{question.id}_read" => true
+          })
+          quiz_submission.reload
+
+          quiz_submission.backup_submission_data({
+            "question_#{question.id}" => false_answer['id']
+          })
+          quiz_submission.reload
+
+          expect(quiz_submission.submission_data["question_#{question.id}"]).to eq true_answer['id']
+        end
       end
     end
 
@@ -311,10 +336,11 @@ describe Quizzes::QuizSubmission do
     context "explicitly setting grade" do
 
       before(:once) do
-        course_with_student
+        course_with_teacher
+        course_with_student(course: @course)
         @quiz = @course.quizzes.create!
         @quiz.generate_quiz_data
-        @quiz.published_at = Time.now
+        @quiz.published_at = Time.zone.now
         @quiz.workflow_state = 'available'
         @quiz.scoring_policy = "keep_highest"
         @quiz.save!
@@ -330,7 +356,7 @@ describe Quizzes::QuizSubmission do
       end
 
       it "it should adjust the fudge points" do
-        @assignment.grade_student(@user, {:grade => 3})
+        @assignment.grade_student(@user, grade: 3, grader: @teacher)
 
         @quiz_sub.reload
         expect(@quiz_sub.score).to eq 3
@@ -356,7 +382,7 @@ describe Quizzes::QuizSubmission do
         expect(@submission.score).to eq 5
         expect(@submission.grade).to eq "5"
 
-        @assignment.grade_student(@user, {:grade => 3})
+        @assignment.grade_student(@user, grade: 3, grader: @teacher)
         @quiz_sub.reload
         expect(@quiz_sub.score).to eq 3
         expect(@quiz_sub.kept_score).to eq 3
@@ -371,7 +397,7 @@ describe Quizzes::QuizSubmission do
         @quiz_sub.score = 4.0
         @quiz_sub.attempt = 2
         @quiz_sub.with_versioning(true, &:save!)
-        @assignment.grade_student(@user, {:grade => 3})
+        @assignment.grade_student(@user, grade: 3, grader: @teacher)
         @quiz_sub.reload
         expect(@quiz_sub.manually_scored).to be_truthy
 
@@ -387,11 +413,11 @@ describe Quizzes::QuizSubmission do
       end
 
       it "should add a version to the submission" do
-        @assignment.grade_student(@user, {:grade => 3})
+        @assignment.grade_student(@user, grade: 3, grader: @teacher)
         @submission.reload
         expect(@submission.versions.count).to eq 2
         expect(@submission.score).to eq 3
-        @assignment.grade_student(@user, {:grade => 6})
+        @assignment.grade_student(@user, grade: 6, grader: @teacher)
         @submission.reload
         expect(@submission.versions.count).to eq 3
         expect(@submission.score).to eq 6
@@ -402,7 +428,7 @@ describe Quizzes::QuizSubmission do
         @quiz_sub.attempt = 2
         @quiz_sub.with_versioning(true, &:save!)
         @quiz.generate_submission(@user)
-        @assignment.grade_student(@user, {:grade => 3})
+        @assignment.grade_student(@user, grade: 3, grader: @teacher)
 
         expect(@quiz_sub.reload.score).to be_nil
         expect(@quiz_sub.kept_score).to eq 3
@@ -564,15 +590,27 @@ describe Quizzes::QuizSubmission do
         expect(@quiz_submission.submission.workflow_state).to eql 'pending_review'
       end
 
-      it "should mark a submission as complete once an essay question has been graded" do
+      def grade_question(score)
         @quiz_submission.update_scores({
           'context_id' => @course.id,
           'override_scores' => true,
           'context_type' => 'Course',
           'submission_version_number' => '1',
-          "question_score_#{@questions[0].id}" => '1'
+          "question_score_#{@questions[0].id}" => "#{score}"
         })
+      end
+
+      it "should mark a submission as complete once an essay question has been graded" do
+        grade_question(1)
         expect(@quiz_submission.submission.workflow_state).to eql 'graded'
+      end
+
+      it "recomputes grades when a quiz submission is graded (even if the score doesn't change)" do
+        enrollment = @quiz_submission.user.enrollments.first
+        expect(enrollment.computed_current_score).to eq nil
+        grade_question(0)
+        enrollment.reload
+        expect(enrollment.computed_current_score).to eq 0
       end
 
       it "should increment the assignment needs_grading_count for pending_review state" do
@@ -713,7 +751,7 @@ describe Quizzes::QuizSubmission do
     describe "#score_to_keep" do
       before(:once) do
         student_in_course
-        assignment_quiz([])
+        assignment_quiz([], course: @course)
         qd = multiple_choice_question_data
         @quiz.quiz_data = [qd]
         @quiz.points_possible = qd[:points_possible]
@@ -804,7 +842,7 @@ describe Quizzes::QuizSubmission do
     context "permissions" do
       it "should allow read to observers" do
         course_with_student(:active_all => true)
-        @observer = user
+        @observer = user_factory
         oe = @course.enroll_user(@observer, 'ObserverEnrollment', :enrollment_state => 'active')
         oe.update_attribute(:associated_user, @user)
         @quiz = @course.quizzes.create!
@@ -960,58 +998,132 @@ describe Quizzes::QuizSubmission do
     end
 
     describe "#results_visible?" do
-      it "return true if no quiz" do
-        qs = Quizzes::QuizSubmission.new
-        expect(qs.results_visible?).to be_truthy
+      let(:quiz_submission) { @quiz.generate_submission(@student) }
+
+      subject { quiz_submission.results_visible? }
+
+      it { is_expected.to be(true) }
+
+      context 'no quiz' do
+        let(:quiz_submission) { Quizzes::QuizSubmission.new }
+
+        it { is_expected.to be(true) }
       end
 
-      it "returns false if quiz restricts answers for concluded courses" do
-        quiz = Quizzes::Quiz.new
-        quiz.stubs(:restrict_answers_for_concluded_course? => true)
+      context 'quiz restricts answers for concluded courses' do
+        before do
+          @course.root_account.settings[:restrict_quiz_questions] = true
+          @course.root_account.save!
+        end
 
-        qs = Quizzes::QuizSubmission.new(:quiz => quiz)
-        expect(qs.results_visible?).to be_falsey
+        context 'course is concluded' do
+          before do
+            @course.complete!
+          end
+
+          it { is_expected.to be(false) }
+
+          context 'is a user who can review grades' do
+            subject { quiz_submission.results_visible?(user: @teacher) }
+
+            before do
+              course_with_teacher(course: @course, active_all: true)
+            end
+
+            it { is_expected.to be(true) }
+          end
+        end
       end
 
-      it "returns true if quiz doesn't restrict answers for concluded courses" do
-        quiz = Quizzes::Quiz.new
-        quiz.stubs(:restrict_answers_for_concluded_course? => false)
+      context 'results are locked down' do
+        before do
+          @quiz.one_time_results = true
+          @quiz.save
+        end
 
-        qs = Quizzes::QuizSubmission.new(:quiz => quiz)
-        expect(qs.results_visible?).to be_truthy
+        context 'has not yet seen results' do
+          before do
+            quiz_submission.has_seen_results = false
+            quiz_submission.save!
+          end
+
+          it { is_expected.to be(true) }
+        end
+
+        context 'has seen results' do
+          before do
+            quiz_submission.has_seen_results = true
+            quiz_submission.save!
+          end
+
+          it { is_expected.to be(false) }
+        end
       end
 
-      it "returns false if results are locked down" do
-        quiz = Quizzes::Quiz.new
-        quiz.stubs(:restrict_answers_for_concluded_course? => false)
-        quiz.stubs(:one_time_results => true)
+      context 'results are always hidden' do
+        before do
+          @quiz.hide_results = 'always'
+          @quiz.save!
+        end
 
-        qs = Quizzes::QuizSubmission.new(:quiz => quiz)
-        expect(qs.results_visible?).to be_truthy
-
-        qs.stubs(:has_seen_results => true)
-        expect(qs.results_visible?).to be_falsey
-      end
-    end
-
-    describe '#results_visible_for_user' do
-      before(:once) do
-        course_with_teacher(active_all: true)
-        course_quiz(course: @course)
-        student_in_course(course: @course)
-        @course.account.settings[:restrict_quiz_questions] = true
-        @course.account.save!
-        @course.enrollment_term.end_at = 1.day.ago
-        @course.enrollment_term.save!
-        @quiz_submission = Quizzes::QuizSubmission.new(:quiz => @quiz)
+        it { is_expected.to be(false) }
       end
 
-      it "returns true if quiz restricts answers for concluded courses and the user is a grader" do
-        expect(@quiz_submission.results_visible_for_user?(@teacher)).to be_truthy
-      end
+      context 'results are hidden until after last attempt' do
+        before do
+          @quiz.hide_results = 'until_after_last_attempt'
+          @quiz.save!
+        end
 
-      it "returns false if quiz restricts answers for concluded courses and the user is not a grader" do
-        expect(@quiz_submission.results_visible_for_user?(@student)).to be_falsey
+        context 'there are unlimited attempts' do
+          before do
+            @quiz.allowed_attempts = -1
+            @quiz.save!
+          end
+
+          it { is_expected.to be(true) }
+        end
+
+        context 'allows multiple attempts' do
+          let(:allowed_attempts) { 2 }
+          let(:second_quiz_submission) do
+            quiz_submission
+            @quiz.generate_submission(@student)
+          end
+
+          before do
+            @quiz.allowed_attempts = allowed_attempts
+            @quiz.save!
+          end
+
+          context 'not last attempt' do
+            it { is_expected.to be(false) }
+          end
+
+          context 'the last attempt' do
+            subject { second_quiz_submission.results_visible? }
+
+            context 'completed' do
+              before do
+                second_quiz_submission.complete!
+              end
+
+              it { is_expected.to be(true) }
+            end
+          end
+
+          context 'an extra attempt' do
+            let(:extra_attempt) do
+              quiz_submission
+              second_quiz_submission
+              @quiz.generate_submission(@student)
+            end
+
+            subject { extra_attempt.results_visible? }
+
+            it { is_expected.to be(true) }
+          end
+        end
       end
     end
 
@@ -1023,13 +1135,11 @@ describe Quizzes::QuizSubmission do
           s.score = 10
           s.save(:validate => false)
         end
-        expect(submission.version_number).to eq 1
 
         submission.with_versioning(true) do |s|
           s.score = 15
           s.save(:validate => false)
         end
-        expect(submission.version_number).to eq 2
       end
 
       it "updates a previous version given current attributes" do
@@ -1133,7 +1243,7 @@ describe Quizzes::QuizSubmission do
     describe "#needs_grading?" do
       before :once do
         student_in_course
-        assignment_quiz([])
+        assignment_quiz([], course: @course)
         qd = multiple_choice_question_data
         @quiz.quiz_data = [qd]
         @quiz.points_possible = qd[:points_possible]
@@ -1199,7 +1309,7 @@ describe Quizzes::QuizSubmission do
     describe "#needs_grading" do
       before :once do
         student_in_course
-        assignment_quiz([])
+        assignment_quiz([], course: @course)
         qd = multiple_choice_question_data
         @quiz.quiz_data = [qd]
         @quiz.points_possible = qd[:points_possible]
@@ -1231,15 +1341,13 @@ describe Quizzes::QuizSubmission do
     describe "#questions_regraded_since_last_attempt" do
       before :once do
         @quiz = @course.quizzes.create! title: 'Test Quiz'
-        course_with_teacher_logged_in(active_all: true, course: @course)
+        course_with_teacher(active_all: true, course: @course)
 
         @submission = @quiz.quiz_submissions.build
         @submission.workflow_state = "complete"
         @submission.score = 5.0
         @submission.attempt = 1
         @submission.with_versioning(true, &:save!)
-        expect(@submission.version_number).to eql(1)
-        expect(@submission.score).to eql(5.0)
         @submission.save
       end
 
@@ -1375,7 +1483,8 @@ describe Quizzes::QuizSubmission do
 
     describe '#teachers' do
       before(:once) do
-        @quiz_submission = @quiz.quiz_submissions.create!
+        student_in_course(:active_all => true, :course => @course)
+        @quiz_submission = @quiz.quiz_submissions.create!(:user => @student)
         @active_teacher = User.create!
         @active_enrollment = @course.enroll_teacher(@active_teacher)
         @active_enrollment.accept
@@ -1412,6 +1521,41 @@ describe Quizzes::QuizSubmission do
         @active_enrollment.deactivate
         @active_enrollment.reactivate
         expect(@quiz_submission.teachers).to include @active_teacher
+      end
+
+      it "doesn't include section-restricted teachers from other sections" do
+        other_section = @course.course_sections.create!
+        other_teacher = User.create!
+        other_enrollment = @course.enroll_teacher(other_teacher, :section => other_section, :limit_privileges_to_course_section => true)
+        other_enrollment.accept
+        expect(@quiz_submission.teachers).to_not include other_teacher
+      end
+    end
+  end
+
+  describe "associated submission" do
+    before(:each) { course_with_student }
+
+    it "assigns duration_late to zero when not late" do
+      Timecop.freeze do
+        quiz = @course.quizzes.create(due_at: 5.minutes.from_now, quiz_type: "assignment")
+        qs = Quizzes::QuizSubmission.create(
+          finished_at: Time.zone.now, user: @user, quiz: quiz, workflow_state: :complete
+        )
+
+        expect(qs.submission.duration_late).to be_zero
+      end
+    end
+
+    it "assigns duration_late with a -1 minute offset" do
+      Timecop.freeze do
+        quiz = @course.quizzes.create(due_at: 5.minutes.ago, quiz_type: "assignment")
+        qs = Quizzes::QuizSubmission.create(
+          finished_at: Time.zone.now, user: @user, quiz: quiz, workflow_state: :complete
+        )
+
+        expected_duration_late = (Time.zone.now - 60.seconds - 5.minutes.ago.change(sec: 0))
+        expect(qs.submission.duration_late).to eq(expected_duration_late)
       end
     end
   end
@@ -1544,87 +1688,6 @@ describe Quizzes::QuizSubmission do
       ])
 
       expect(@quiz_submission.points_possible_at_submission_time).to eq 0.65
-    end
-  end
-
-  describe "#late?" do
-    let(:course)          { Course.create! }
-    let(:now)             { Time.zone.now }
-    let(:quiz)            { course.quizzes.create! due_at: 3.days.ago(now) }
-
-    context "for quizzes with a due date" do
-      let(:quiz_submission) { quiz.quiz_submissions.create! }
-
-      it "is not late when on turned in before the due date" do
-        quiz_submission.finished_at = 4.days.ago(now)
-        quiz_submission.save
-
-        expect(quiz_submission.late?).to eq false
-      end
-
-      it "is not late when turned in at the due date" do
-        quiz_submission.finished_at = 3.days.ago(now) + 60.seconds
-        quiz_submission.save
-
-        expect(quiz_submission.late?).to eq false
-      end
-
-      it "is late when turned in after the due date" do
-        quiz_submission.finished_at = 2.days.ago(now)
-        quiz_submission.save
-
-        expect(quiz_submission.late?).to eq true
-      end
-
-      it "is not late when unfinished" do
-        expect(quiz_submission.late?).to eq false
-      end
-    end
-
-    context "for quizzes without a due date" do
-      let(:quiz) { course.quizzes.create! }
-      let(:quiz_submission) do
-        quiz.quiz_submissions.create! do |qs|
-          qs.finished_at = 3.days.ago(now)
-        end
-      end
-
-      it "is not late when the quiz has no due date" do
-        expect(quiz_submission.late?).to eq false
-      end
-    end
-
-    context "for quizzes with overridden due dates for some students" do
-      let(:quiz_submission) do
-        quiz.quiz_submissions.create! do |qs|
-          qs.user = student
-          qs.finished_at = 1.week.ago(now)
-        end
-      end
-
-      let(:student) { User.create! }
-
-      let!(:enroll_student) do
-        course.enroll_user student, 'StudentEnrollment'
-      end
-
-      let!(:override_students_quiz) do
-        assignment_override = quiz.assignment_overrides.create! do |override|
-          override.due_at = 3.weeks.ago(now)
-          override.due_at_overridden = true
-        end
-
-        assignment_override.assignment_override_students.create! do |aos|
-          aos.quiz = quiz
-          aos.user = student
-        end
-      end
-
-      it "is late when it's overridden due date is before the submission" do
-        submission = stub("blank?" => false, "user" => student)
-        quiz_submission.stubs(:submission).returns(submission)
-        expect(quiz_submission.late?).to eq true
-      end
     end
   end
 

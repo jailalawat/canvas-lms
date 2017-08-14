@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -12,12 +12,12 @@
 # A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
 # details.
 #
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <http://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
 class CrocodocSessionsController < ApplicationController
-  before_filter :require_user
+  before_action :require_user
   include HmacHelper
 
   def show
@@ -38,17 +38,21 @@ class CrocodocSessionsController < ApplicationController
 
       # For the purposes of reporting student viewership, we only
       # care if the original attachment owner is looking
-      attachment.touch(:viewed_at) if attachment.context == @current_user
+      # Depending on how the attachment came to exist that might be
+      # either the context of the attachment or the attachments' user
+      if (attachment.context == @current_user) || (attachment.user == @current_user)
+        attachment.touch(:viewed_at)
+      end
 
       redirect_to url
     else
-      render :text => "Not found", :status => :not_found
+      render :plain => "Not found", :status => :not_found
     end
 
   rescue HmacHelper::Error
-    render :text => 'unauthorized', :status => :unauthorized
+    render :plain => 'unauthorized', :status => :unauthorized
   rescue Timeout::Error
-    render :text => "Service is currently unavailable. Try again later.",
+    render :plain => "Service is currently unavailable. Try again later.",
            :status => :service_unavailable
   end
 end

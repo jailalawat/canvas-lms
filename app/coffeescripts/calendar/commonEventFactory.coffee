@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'compiled/calendar/CommonEvent'
@@ -11,6 +28,7 @@ define [
     if data == null
       obj = new CommonEvent()
       obj.allPossibleContexts = contexts
+      obj.can_change_context = true
       return obj
 
     actualContextCode = data.context_code
@@ -37,6 +55,14 @@ define [
         contextInfo = context
         break
 
+    # match one of a multi-context event
+    if contextInfo == null && contextCode && contextCode.indexOf(',') >= 0
+      contextCodes = contextCode.split(',')
+      for context in contexts
+        if contextCodes.indexOf(context.asset_string) >= 0
+          contextInfo = context
+          break
+
     # If we can't find the context, then we're not sure
     # how to handle or display this, so we ditch it.
     if contextInfo == null
@@ -59,6 +85,8 @@ define [
     # the following assumptions:
     obj.can_edit = false
     obj.can_delete = false
+    obj.can_change_context = false
+
     # If the user can create an event in a context, they can also edit/delete
     # any events in that context.
     if contextInfo.can_create_calendar_events
@@ -77,6 +105,12 @@ define [
     # frozen assignments can't be deleted
     if obj.assignment?.frozen
       obj.can_delete = false
+
+    # events can be moved to a different calendar in limited circumstances
+    if type == 'calendar_event'
+      unless obj.object.appointment_group_id || obj.object.parent_event_id ||
+             obj.object.child_events_count || obj.object.effective_context_code
+        obj.can_change_context = true
 
     # disable fullcalendar.js dragging unless the user has permissions
     obj.editable = false unless obj.can_edit

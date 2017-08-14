@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/groups_common')
 
@@ -123,6 +140,8 @@ describe "new groups" do
       # Verifies group leader silhouette and leader's name appear in the group header
       expect(f('.span3.ellipsis.group-leader')).to be_displayed
       expect(f('.span3.ellipsis.group-leader')).to include_text(@students.first.name)
+
+      check_element_has_focus f(".group-user-actions[data-user-id='user_#{@students.first.id}']")
     end
 
     it "should allow a teacher to set up a group set with member limits", priority: "1", test_id: 94160 do
@@ -180,7 +199,7 @@ describe "new groups" do
       ff(".group-user-actions")[0].click
       fln("Set as Leader").click
       wait_for_ajaximations
-      f(".group-user-actions[data-user-id=\"#{@students[0].id}\"]").click
+      f(".group-user-actions[data-user-id=\"user_#{@students[0].id}\"]").click
       wait_for_ajaximations
       f(".ui-menu-item .edit-group-assignment").click
       wait_for_ajaximations
@@ -218,7 +237,7 @@ describe "new groups" do
       f(".group[data-id=\"#{@testgroup[0].id}\"] .toggle-group").click
       wait_for_ajaximations
 
-      f(".group-user-actions[data-user-id=\"#{@students[0].id}\"]").click
+      f(".group-user-actions[data-user-id=\"user_#{@students[0].id}\"]").click
       wait_for_ajaximations
 
       f('.ui-menu-item .edit-group-assignment').click
@@ -252,7 +271,7 @@ describe "new groups" do
       f(".group[data-id=\"#{@testgroup[0].id}\"] .toggle-group").click
       wait_for_ajaximations
 
-      f(".group-user-actions[data-user-id=\"#{@students[0].id}\"]").click
+      f(".group-user-actions[data-user-id=\"user_#{@students[0].id}\"]").click
       wait_for_ajaximations
 
       f('.ui-menu-item .remove-from-group').click
@@ -276,7 +295,7 @@ describe "new groups" do
 
       expect(f(".icon-user.group-leader")).to be_displayed
 
-      f(".group-user-actions[data-user-id=\"#{@students[0].id}\"]").click
+      f(".group-user-actions[data-user-id=\"user_#{@students[0].id}\"]").click
 
       f(".ui-menu-item .edit-group-assignment").click
 
@@ -306,7 +325,7 @@ describe "new groups" do
 
       expect(f(".icon-user.group-leader")).to be_displayed
 
-      f(".group-user-actions[data-user-id=\"#{@students[1].id}\"]").click
+      f(".group-user-actions[data-user-id=\"user_#{@students[1].id}\"]").click
 
       f(".ui-menu-item .edit-group-assignment").click
       wait_for_ajaximations
@@ -339,7 +358,7 @@ describe "new groups" do
       expect(f(".group[data-id=\"#{@testgroup[0].id}\"] .group-user")).to include_text('Test Student 1')
       expect(f('.icon-user.group-leader')).to be_displayed
 
-      f(".group-user-actions[data-user-id=\"#{@students[0].id}\"]").click
+      f(".group-user-actions[data-user-id=\"user_#{@students[0].id}\"]").click
       f('.ui-menu-item .icon-trash').click
       wait_for_ajaximations
 
@@ -471,8 +490,12 @@ describe "new groups" do
       expect(f(".group[data-id=\"#{@testgroup[1].id}\"] .group-summary")).to include_text('1 student')
 
       f(".group[data-id=\"#{@testgroup[0].id}\"] .toggle-group").click
+      # click opens the group to display details, wait for it to complete
+      expect(fj('.group-user-name:contains("Test Student 1")')).to be_displayed
+
       f(".group[data-id=\"#{@testgroup[1].id}\"] .toggle-group").click
-      wait_for_ajaximations
+      # click opens the group to display details, wait for it to complete
+      expect(fj('.group-user-name:contains("Test Student 2")')).to be_displayed
 
       drag_and_drop_element(fj(drag_item1), fj(drop_target1))
       wait_for_ajaximations
@@ -546,9 +569,11 @@ describe "new groups" do
       drop_target1 = ".group[data-id=\"#{@testgroup[0].id}\"]"
 
       f(".group[data-id=\"#{@testgroup[0].id}\"] .toggle-group").click
-      f(".group[data-id=\"#{@testgroup[1].id}\"] .toggle-group").click
-      wait_for_ajaximations
+      # click opens the group to display details, wait for it to complete
+      expect(fj('.group-user-name:contains("Test Student 2")')).to be_displayed
 
+      f(".group[data-id=\"#{@testgroup[1].id}\"] .toggle-group").click
+      # click opens the second group, wait for it to complete
       expect(f('.icon-user.group-leader')).to be_displayed
 
       drag_and_drop_element(fj(drag_item1), fj(drop_target1))
@@ -998,7 +1023,7 @@ describe "new groups" do
 
           select_change_groups_option
 
-          expect(f('.progressbar').displayed?)
+          expect(f('.progressbar')).to be_displayed
         end
 
         context "dragging and dropping a student" do

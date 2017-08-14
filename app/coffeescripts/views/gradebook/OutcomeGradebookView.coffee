@@ -1,13 +1,30 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
-  'i18n!gradebook2'
+  'i18n!gradebook'
   'jquery'
   'underscore'
   'Backbone'
   'vendor/slickgrid'
-  'compiled/gradebook2/OutcomeGradebookGrid'
+  'compiled/gradebook/OutcomeGradebookGrid'
   'compiled/views/gradebook/CheckboxView'
   'compiled/views/gradebook/SectionMenuView'
-  'jst/gradebook2/outcome_gradebook'
+  'jst/gradebook/outcome_gradebook'
   'vendor/jquery.ba-tinypubsub'
   'jquery.instructure_misc_plugins'
 ], (I18n, $, _, {View}, Slick, Grid, CheckboxView, SectionMenuView, template, cellTemplate) ->

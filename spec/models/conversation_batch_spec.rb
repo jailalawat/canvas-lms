@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -108,7 +108,7 @@ describe ConversationBatch do
       specs_require_sharding
 
       it "should reuse existing private conversations" do
-        @shard1.activate { @user4 = user }
+        @shard1.activate { @user4 = user_factory }
         conversation = @user1.initiate_conversation([@user4]).conversation
         conversation.add_message(@user1, "hello")
         batch = ConversationBatch.generate(@message, [@user3, @user4], :sync)

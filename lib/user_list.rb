@@ -1,6 +1,6 @@
 # encoding: UTF-8
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -88,6 +88,7 @@ class UserList
 
   private
 
+  module Parsing
   def parse_single_user(path)
     return if path.blank?
 
@@ -159,6 +160,8 @@ class UserList
       end
     end
   end
+  end
+  include Parsing
 
   def resolve
     trusted_account_ids = @root_account.trusted_account_ids

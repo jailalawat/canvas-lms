@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'compiled/helpDialog'
@@ -6,9 +23,11 @@ define [
 ], ($,helpDialog,fakeENV)->
   # more tests are in spec/selenium/help_dialog_spec.rb
 
-  module 'HelpDialog',
+  QUnit.module 'HelpDialog',
     setup: ->
-      fakeENV.setup()
+      fakeENV.setup({
+        help_link_name: 'Links'
+      })
       helpDialog.animateDuration = 0
       @server = sinon.fakeServer.create()
       @server.respondWith '/help_links', '[]'
@@ -36,6 +55,7 @@ define [
     helpDialog.initTriggers()
     $tester.click()
     ok $('.ui-dialog-content').is(':visible'), "help dialog appears when you click 'help' link"
+    equal $('.ui-dialog-title:contains("Links")').length, 1
     $tester.remove()
 
   test 'teacher feedback', ->

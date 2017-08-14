@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,7 +22,6 @@ class RoleOverride < ActiveRecord::Base
   belongs_to :role
   include Role::AssociationHelper
 
-  attr_accessible :context, :permission, :role, :enabled, :locked, :applies_to_self, :applies_to_descendants
   validates :enabled, inclusion: [true, false]
   validates :locked, inclusion: [true, false]
 
@@ -68,7 +67,7 @@ class RoleOverride < ActiveRecord::Base
   # RoleOverridesController#add_role
   Permissions.register({
       :manage_wiki => {
-        :label => lambda { t('permissions.manage_wiki', "Manage wiki (add / edit / delete pages)") },
+        :label => lambda { t("Manage (add / edit / delete) pages") },
         :available_to => [
           'TaEnrollment',
           'TeacherEnrollment',
@@ -126,7 +125,8 @@ class RoleOverride < ActiveRecord::Base
           'TeacherEnrollment',
           'AccountAdmin'
         ],
-        :restrict_future_enrollments => true
+        :restrict_future_enrollments => true,
+        :applies_to_concluded => ['TeacherEnrollment', 'TaEnrollment']
       },
       :moderate_forum => {
         :label => lambda { t('permissions.moderate_form', "Moderate discussions ( delete / edit other's posts, lock topics)") },
@@ -441,7 +441,8 @@ class RoleOverride < ActiveRecord::Base
           'DesignerEnrollment',
           'TeacherEnrollment',
           'AccountAdmin'
-        ]
+        ],
+        :applies_to_concluded => true
       },
       :manage_files => {
         :label => lambda { t('permissions.manage_files', "Manage (add / edit / delete) course files") },
@@ -585,6 +586,18 @@ class RoleOverride < ActiveRecord::Base
           'AccountAdmin'
         ]
       },
+      :manage_master_courses => {
+        :label => lambda { t('Blueprint Courses (create / edit / associate / delete)') },
+        :available_to => [
+          'AccountAdmin',
+          'AccountMembership'
+        ],
+        :account_only => true,
+        :true_for => [
+          'AccountAdmin'
+        ],
+        :account_allows => lambda {|a| a.feature_allowed?(:master_courses)}
+      },
       :manage_user_logins => {
         :label => lambda { t('permissions.manage_user_logins', "Modify login details for users") },
         :available_to => [
@@ -680,7 +693,7 @@ class RoleOverride < ActiveRecord::Base
           'TeacherEnrollment',
           'AccountAdmin'
         ],
-        :if => :enable_user_notes
+        :account_allows => lambda {|a| a.root_account.enable_user_notes}
       },
       :read_course_content => {
         :label => lambda { t('permissions.read_course_content', "View course content") },
@@ -779,6 +792,11 @@ class RoleOverride < ActiveRecord::Base
         :true_for => %w(AccountAdmin),
         :available_to => %w(AccountAdmin AccountMembership),
         :account_allows => lambda {|a| a.mfa_settings != :disabled}
+      },
+      :lti_add_edit => {
+        :label => -> { t('LTI add and edit') },
+        :true_for => %w(TeacherEnrollment TaEnrollment DesignerEnrollment AccountAdmin),
+        :available_to => %w(TeacherEnrollment TaEnrollment DesignerEnrollment AccountAdmin AccountMembership)
       }
     })
 
@@ -868,13 +886,14 @@ class RoleOverride < ActiveRecord::Base
         default_data[:account_allows].call(context.root_account)))
 
     base_role = role.base_role_type
+    locked = !default_data[:available_to].include?(base_role) || !account_allows
 
     generated_permission = {
       :account_allows => account_allows,
       :permission =>  default_data,
       :enabled    =>  account_allows && (default_data[:true_for].include?(base_role) ? [:self, :descendants] : false),
-      :locked     => !default_data[:available_to].include?(base_role),
-      :readonly   => !default_data[:available_to].include?(base_role),
+      :locked     => locked,
+      :readonly   => locked,
       :explicit   => false,
       :base_role_type => base_role,
       :enrollment_type => role.name,
@@ -891,7 +910,7 @@ class RoleOverride < ActiveRecord::Base
     end
 
     # cannot be overridden; don't bother looking for overrides
-    return generated_permission if generated_permission[:locked]
+    return generated_permission if locked
 
     @@role_override_chain ||= {}
     overrides = @@role_override_chain[permissionless_key] ||= begin
@@ -947,7 +966,7 @@ class RoleOverride < ActiveRecord::Base
           generated_permission[:enabled] = override.enabled? ? override.applies_to : nil
         end
       end
-      hit_role_context ||= (role_context && override.context_id == role_context.id && override.context_type == 'Account')
+      hit_role_context ||= (role_context.is_a?(Account) && override.has_asset?(role_context))
 
       break if override.locked?
       break if generated_permission[:enabled] && hit_role_context

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -42,7 +42,7 @@ class SubAccountsController < ApplicationController
     end
   end
 
-  before_filter :require_context, :require_account_management
+  before_action :require_context, :require_account_management
   def index
     @query = params[:account] && params[:account][:name] || params[:term]
     if @query
@@ -78,8 +78,8 @@ class SubAccountsController < ApplicationController
     counts = Course.
         joins(:course_account_associations).
         group('course_account_associations.account_id').
-        where("course_account_associations.account_id IN (?) AND " +
-                    "course_account_associations.depth=0 AND courses.workflow_state<>'deleted'", @accounts[:all_account_ids]).
+        where("course_account_associations.account_id IN (?) AND course_account_associations.course_section_id IS NULL AND
+                 course_account_associations.depth=0 AND courses.workflow_state<>'deleted'", @accounts[:all_account_ids]).
         distinct.count(:id)
     counts.each do |account_id, count|
       @accounts[account_id][:course_count] = count
@@ -111,7 +111,7 @@ class SubAccountsController < ApplicationController
   # @argument account[default_group_storage_quota_mb] [Integer]
   #   The default group storage quota to be used, if not otherwise specified.
   #
-  # @returns [Account]
+  # @returns Account
   def create
     if params[:account][:parent_account_id]
       parent_id = params[:account].delete(:parent_account_id)
@@ -120,7 +120,8 @@ class SubAccountsController < ApplicationController
     end
     @parent_account = subaccount_or_self(parent_id)
     return unless authorized_action(@parent_account, @current_user, :manage_account_settings)
-    @sub_account = @parent_account.sub_accounts.build(params[:account])
+
+    @sub_account = @parent_account.sub_accounts.build(account_params)
     @sub_account.root_account = @context.root_account
     if params[:account][:sis_account_id]
       can_manage_sis = @account.grants_right?(@current_user, :manage_sis)
@@ -140,7 +141,7 @@ class SubAccountsController < ApplicationController
   def update
     @sub_account = subaccount_or_self(params[:id])
     params[:account].delete(:parent_account_id)
-    if @sub_account.update_attributes(params[:account])
+    if @sub_account.update_attributes(account_params)
       render :json => account_json(@sub_account, @current_user, session, [])
     else
       render :json => @sub_account.errors
@@ -167,5 +168,9 @@ class SubAccountsController < ApplicationController
     else
       @account.find_child(account_id)
     end
+  end
+
+  def account_params
+    params.require(:account).permit(:name, :default_storage_quota_mb, :default_user_storage_quota_mb, :default_group_storage_quota_mb)
   end
 end

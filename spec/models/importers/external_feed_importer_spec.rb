@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,7 +22,7 @@ describe Importers::ExternalFeedImporter do
 
   context ".import_from_migration" do
     it "creates a feed from the provided hash" do
-      @course = course
+      @course = course_factory
       migration = @course.content_migrations.create!
       data = {
         url: 'http://www.example.com/feed',
@@ -40,7 +40,7 @@ describe Importers::ExternalFeedImporter do
 
   context ".find_or_initialize_from_migration" do
     before(:once) do
-      @course = course
+      @course = course_factory
       @feed = external_feed_model(migration_id: '12345')
     end
 

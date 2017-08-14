@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -92,7 +92,7 @@ describe AvatarHelper do
     end
 
     it "should return full URIs for users" do
-      user
+      user_factory
       expect(avatar_url_for_user(@user)).to match(%r{\Ahttps?://})
       expect(avatar_url_for_user(@user, true)).to match(%r{\Ahttps?://})
 

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module SectionTabHelper
   def available_section_tabs(context)
     AvailableSectionTabs.new(
@@ -5,12 +22,26 @@ module SectionTabHelper
     ).to_a
   end
 
+  def nav_name
+    if active_path?('/courses')
+      I18n.t('Courses Navigation Menu')
+    elsif active_path?('/profile')
+     I18n.t('Account Navigation Menu')
+    elsif active_path?('/accounts')
+      I18n.t('Admin Navigation Menu')
+    elsif active_path?('/groups')
+       I18n.t('Groups Navigation Menu')
+    else
+       I18n.t('Context Navigation Menu')
+    end
+  end
+
   def section_tabs
     @section_tabs ||= begin
       if @context && available_section_tabs(@context).any?
         content_tag(:nav, {
           :role => 'navigation',
-          :'aria-label' => 'context'
+          :'aria-label' => nav_name
         }) do
           concat(content_tag(:ul, id: 'section-tabs') do
             available_section_tabs(@context).map do |tab|
@@ -39,9 +70,9 @@ module SectionTabHelper
     def to_a
       return [] unless context.respond_to?(:tabs_available)
 
-      new_collaborations_enabled = @domain_root_account.feature_enabled?(:new_collaborations)
-
       Rails.cache.fetch(cache_key, expires_in: 1.hour) do
+        new_collaborations_enabled = context.feature_enabled?(:new_collaborations) if context.respond_to?(:feature_enabled?)
+
         context.tabs_available(current_user, {
           session: session,
           root_account: domain_root_account
@@ -64,7 +95,7 @@ module SectionTabHelper
     def cache_key
       [ context, current_user, domain_root_account,
         Lti::NavigationCache.new(domain_root_account),
-        "section_tabs_hash", I18n.locale, domain_root_account.feature_enabled?(:use_new_styles)
+        "section_tabs_hash", I18n.locale
       ].cache_key
     end
 
@@ -96,10 +127,10 @@ module SectionTabHelper
 
     def a_attributes
       { href: @tab.path,
+        title: @tab.label,
         class: a_classes }.tap do |h|
-        if @tab.screenreader?
-          h[:'aria-label'] = @tab.screenreader
-        end
+        h[:'aria-label'] = @tab.screenreader if @tab.screenreader?
+        h[:target] = @tab.target if @tab.target?
       end
     end
 

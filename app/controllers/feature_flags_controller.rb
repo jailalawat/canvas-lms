@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -138,7 +138,7 @@
 class FeatureFlagsController < ApplicationController
   include Api::V1::FeatureFlag
 
-  before_filter :get_context
+  before_action :get_context
 
   # @API List features
   #
@@ -259,11 +259,11 @@ class FeatureFlagsController < ApplicationController
       new_flag, saved = create_or_update_feature_flag(new_attrs, current_flag)
       if saved
         if prior_state != new_flag.state && feature_def.after_state_change_proc.is_a?(Proc)
-          feature_def.after_state_change_proc.call(@context, prior_state, new_flag.state)
+          feature_def.after_state_change_proc.call(@current_user, @context, prior_state, new_flag.state)
         end
         render json: feature_flag_json(new_flag, @context, @current_user, session)
       else
-        render json: new_flag.errors.to_json, status: :bad_request
+        render json: new_flag.errors, status: :bad_request
       end
     end
   end
@@ -295,7 +295,7 @@ class FeatureFlagsController < ApplicationController
 
   def create_or_update_feature_flag(attributes, current_flag = nil)
     FeatureFlag.unique_constraint_retry do
-      new_flag = @context.feature_flags.find(current_flag) if current_flag &&
+      new_flag = @context.feature_flags.find(current_flag.id) if current_flag &&
           !current_flag.default? && !current_flag.new_record? &&
           current_flag.context_type == @context.class.name && current_flag.context_id == @context.id
       new_flag ||= @context.feature_flags.build

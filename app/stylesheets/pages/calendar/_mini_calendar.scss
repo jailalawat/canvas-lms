@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 
 $kyle-blue: #0081e3;
@@ -30,8 +48,7 @@ $kyle-blue: #0081e3;
       box-shadow: none;
       border-bottom: none;
       padding-bottom: 0;
-      @if $use_new_styles { font-weight: 500; }
-      @else { font-weight: bold; }
+      font-weight: bold;
     }
     .fc-button {
       padding: 0px 10px;
@@ -40,13 +57,8 @@ $kyle-blue: #0081e3;
       background: none;
       border: none;
       color: inherit;
-      @if $use_new_styles {
-        box-shadow: none;
-        &:hover { color: $ic-color-dark; }
-      }
-      @else {
-        &:hover { text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.7); }
-      }
+      box-shadow: none;
+      &:hover { color: $ic-font-color-dark; }
     }
   }
   .fc-widget-header {
@@ -97,13 +109,7 @@ $kyle-blue: #0081e3;
   }
   .slot-available {
     background: white;
-    @if $use_new_styles {
-      color: $ic-brand-primary;
-    }
-    @else {
-      color: #0090ff;
-      text-shadow: 0px 1px 1px rgba(0, 0, 0, 0.7);
-    }
+    color: $ic-brand-primary;
   }
   .fc-other-month {
     color: #b4b3b3;

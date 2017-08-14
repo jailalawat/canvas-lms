@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -76,7 +76,7 @@ describe PseudonymsController do
     describe "forgot password" do
       before :once do
         Notification.create(:name => 'Forgot Password')
-        user
+        user_factory
       end
 
       it "should send password-change email for a registered user" do
@@ -338,34 +338,34 @@ describe PseudonymsController do
       account1 = Account.new
       account1.settings[:admins_can_change_passwords] = true
       account1.save!
-      user_with_pseudonym(:active_all => 1, :username => 'user@example.com', :password => 'qwerty1', :account => account1)
+      user_with_pseudonym(:active_all => 1, :username => 'user@example.com', :password => 'qwertyuiop', :account => account1)
       @user1 = @user
       @pseudonym1 = @pseudonym
       # need to get the user associated with the default account as well
       @user.pseudonyms.create!(:unique_id => 'user1@example.com', :account => Account.default)
 
-      user_with_pseudonym(:active_all => 1, :username => 'user2@example.com', :password => 'qwerty2')
+      user_with_pseudonym(:active_all => 1, :username => 'user2@example.com', :password => 'qwertyuiop')
       Account.default.account_users.create!(user: @user)
       user_session(@user, @pseudonym)
       # not logged in!
 
-      post 'update', :format => 'json', :id => @pseudonym1.id, :user_id => @user1.id, :pseudonym => { :password => 'bobbob', :password_confirmation => 'bobbob' }
+      post 'update', :format => 'json', :id => @pseudonym1.id, :user_id => @user1.id, :pseudonym => { :password => 'bobbobbob', :password_confirmation => 'bobbobbob' }
       expect(response).not_to be_success
       @pseudonym1.reload
-      expect(@pseudonym1.valid_password?('qwerty1')).to be_truthy
-      expect(@pseudonym1.valid_password?('bobob')).to be_falsey
+      expect(@pseudonym1.valid_password?('qwertyuiop')).to be_truthy
+      expect(@pseudonym1.valid_password?('bobbobbob')).to be_falsey
     end
 
     it "should be able to change SIS with only :manage_sis permissions" do
       account1 = Account.new
       account1.settings[:admins_can_change_passwords] = false
       account1.save!
-      user_with_pseudonym(:active_all => 1, :username => 'user@example.com', :password => 'qwerty1', :account => account1)
+      user_with_pseudonym(:active_all => 1, :username => 'user@example.com', :password => 'qwertyuiop', :account => account1)
       @user1 = @user
       @pseudonym1 = @pseudonym
 
       role = custom_account_role('sis_only', :account => account1)
-      user_with_pseudonym(:active_all => 1, :username => 'user2@example.com', :password => 'qwerty2')
+      user_with_pseudonym(:active_all => 1, :username => 'user2@example.com', :password => 'qwertyuiop')
       account_admin_user_with_role_changes(user: @user, account: account1, role: role, role_changes: { manage_sis: true, manage_user_logins: true })
       user_session(@user, @pseudonym)
 
@@ -376,7 +376,6 @@ describe PseudonymsController do
       post 'update', :format => 'json', :id => @pseudonym1.id, :user_id => @user1.id, :pseudonym => { :integration_id => 'sis2' }
       expect(response).to be_success
       expect(@pseudonym1.reload.integration_id).to eq 'sis2'
-
     end
 
     it "should be able to change unique_id with permission" do
@@ -434,6 +433,27 @@ describe PseudonymsController do
       expect(bob.pseudonym.unique_id).to eq 'old_username'
       expect(bob.pseudonym).to be_valid_password('new_password')
     end
+
+    it "should return an error message when trying to duplicate a sis id" do
+      user_with_pseudonym(:active_all => 1, :username => 'user@example.com', :password => 'qwertyuiop')
+      @user1 = @user
+      @pseudonym1 = @pseudonym
+      @pseudonym1.update_attribute(:sis_user_id, "sis_user")
+
+      user_with_pseudonym(:active_all => 1, :username => 'user2@example.com', :password => 'qwertyuiop')
+      @user2 = @user
+      @pseudonym2 = @pseudonym
+
+      user_with_pseudonym(:active_all => 1, :username => 'admin@example.com', :password => 'qwertyuiop')
+      account_admin_user(user: @user)
+      user_session(@user, @pseudonym)
+
+      post 'update', :format => 'json', :id => @pseudonym2.id, :user_id => @user2.id, :pseudonym => { :sis_user_id => 'sis_user' }
+      expect(response).to be_bad_request
+      res = JSON.parse(response.body)
+      expect(res["errors"]["sis_user_id"][0]["type"]).to eq "taken"
+      expect(res["errors"]["sis_user_id"][0]["message"]).to match(/is already in use/)
+    end
   end
 
   context "sharding" do
@@ -462,13 +482,13 @@ describe PseudonymsController do
 
         get 'index', :format => 'json', :user_id => @user.id
         expect(response).to be_success
-        expect(assigns['pseudonyms']).to eq [@p1, @p2]
+        expect(assigns['pseudonyms']).to match_array [@p1, @p2]
       end
     end
 
     describe 'create' do
       it "should create a new pseudonym for a user in a different shard (cross-shard)" do
-        post 'create', :format => 'json', :user_id => @user.id, :pseudonym => { :password => 'bobobob', :password_confirmation => 'bobobob', :account_id => Account.default.id, :unique_id => 'bobob' }
+        post 'create', :format => 'json', :user_id => @user.id, :pseudonym => { :password => 'bobobobo', :password_confirmation => 'bobobobo', :account_id => Account.default.id, :unique_id => 'bobob' }
         expect(response).to be_success
 
         @user.reload
@@ -477,7 +497,7 @@ describe PseudonymsController do
       end
 
       it "should create a new pseudonym for a user in a different shard (same-shard)" do
-        post 'create', :format => 'json', :user_id => @user.id, :pseudonym => { :password => 'bobobob', :password_confirmation => 'bobobob', :account_id => @account.id, :unique_id => 'bobob' }
+        post 'create', :format => 'json', :user_id => @user.id, :pseudonym => { :password => 'bobobobo', :password_confirmation => 'bobobobo', :account_id => @account.id, :unique_id => 'bobob' }
         expect(response).to be_success
 
         expect(@user.all_pseudonyms.length).to eq 2

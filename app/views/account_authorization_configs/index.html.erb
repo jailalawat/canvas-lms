@@ -1,11 +1,30 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <% add_crumb t(:page_title, "Authentication Settings") %>
 <% @active_tab = "authentication" %>
+<%- css_bundle(:federated_attributes) %>
 <% content_for :page_title do %>
   <%= t(:page_title, "Authentication Settings")%>
 <% end %>
 
 <% content_for :right_side do %>
-  <div id="auth-config-right-side" class="rs-margin-lr rs-margin-top">
+  <div id="auth-config-right-side">
 
     <% if @presenter.ldap_config? %>
       <a href="#"
@@ -15,18 +34,21 @@
       </a>
     <% end %>
 
-    <% if @presenter.auth? %>
-      <%= link_to(image_tag("delete.png", :alt => '') + t(:delete_auth_link, "Remove All Authentication"),
-                  account_remove_all_authentication_providers_url(@account),
-                  confirm: t(:delete_auth_confirmation, "Are you sure? Users may not be able to log in if this is removed."),
-                  method: :delete,
-                  class: "delete_auth_link btn button-sidebar-wide")%>
-    <% end %>
-
     <div id="add-authentication-provider"
          class="add_auth_div"
          data-options="<%= @presenter.sso_options.to_json %>">
     </div>
+
+    <% if @presenter.auth? %>
+      <br/>
+      <%= link_to(account_remove_all_authentication_providers_url(@account),
+          data: { confirm: t(:delete_auth_confirmation,
+            'Are you sure? Users may not be able to log in if this is removed.') },
+          method: :delete,
+          class: "delete_auth_link Button Button--danger icon-trash button-sidebar-wide") do %>
+          <%= t(:delete_auth_link, "Remove All Authentication") %>
+      <% end %>
+    <% end %>
   </div>
 <% end %>
 

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   '../start_app'
   'ember'
@@ -24,13 +41,15 @@ define [
   checkChecked = (expectedBool) ->
     equal find('#assignment_muted_check').prop('checked'), expectedBool
 
-  closeDialog = (dialog) ->
-    click find('a', dialog)
+  checkDialogClosed = () ->
     dialog = find('.ui-dialog:visible', 'body')
     equal(dialog.length, 0, 'the dialog closes')
 
+  closeDialog = (dialog) ->
+    click find('button.ui-dialog-titlebar-close', dialog)
+    checkDialogClosed()
 
-  module 'screenreader_gradebook assignment_muter_component: muted',
+  QUnit.module 'screenreader_gradebook assignment_muter_component: muted',
     setup: ->
       fixtures.create()
       App = startApp()
@@ -43,12 +62,22 @@ define [
       @server.restore()
       Ember.run App, 'destroy'
 
+  test 'dialog cancels dialog without changes', ->
+    checkLabel(ariaMuted)
+    checkChecked(true)
+    click('#assignment_muted_check').then =>
+      dialog = find('.ui-dialog:visible', 'body')
+      click('[data-action="cancel"]', dialog)
+      checkDialogClosed()
+      checkChecked(true)
+      checkLabel(ariaMuted)
+
   test 'dialog opens and closes without changes', ->
     checkLabel(ariaMuted)
     checkChecked(true)
     click('#assignment_muted_check').then =>
       dialog = find('.ui-dialog:visible', 'body')
-      equal find('button', dialog).text(), dialogTitleMuted
+      equal find('[data-action="unmute"]', dialog).text(), dialogTitleMuted
       closeDialog(dialog)
       checkChecked(true)
       checkLabel(ariaMuted)
@@ -59,7 +88,7 @@ define [
     checkChecked(true)
     click('#assignment_muted_check').then =>
       dialog = find('.ui-dialog:visible', 'body')
-      click('button', dialog)
+      click('[data-action="unmute"]', dialog)
       sendSuccess(server, "#{ENV.GRADEBOOK_OPTIONS.context_url}/assignments/#{@con.get('selectedAssignment.id')}/mute", false)
       andThen =>
         dialog = find('.ui-dialog:visible', 'body')
@@ -69,7 +98,7 @@ define [
         equal @con.get('selectedAssignment.muted'), false
         server.restore()
 
-  module 'screenreader_gradebook assignment_muter_component: unmuted',
+  QUnit.module 'screenreader_gradebook assignment_muter_component: unmuted',
     setup: ->
       fixtures.create()
       App = startApp()
@@ -82,12 +111,22 @@ define [
       @server.restore()
       Ember.run App, 'destroy'
 
+  test 'dialog cancels dialog without changes', ->
+    checkLabel(ariaUnmuted)
+    checkChecked(false)
+    click('#assignment_muted_check').then =>
+      dialog = find('.ui-dialog:visible', 'body')
+      click('[data-action="cancel"]', dialog)
+      checkDialogClosed()
+      checkChecked(false)
+      checkLabel(ariaUnmuted)
+
   test 'dialog opens and closes without changes', ->
     checkLabel(ariaUnmuted)
     checkChecked(false)
     click('#assignment_muted_check').then =>
       dialog = find('.ui-dialog:visible', 'body')
-      equal find('button', dialog).text(), dialogTitleUnmuted
+      equal find('[data-action="mute"]', dialog).text(), dialogTitleUnmuted
       closeDialog(dialog)
       checkChecked(false)
       checkLabel(ariaUnmuted)
@@ -98,7 +137,7 @@ define [
     checkChecked(false)
     click('#assignment_muted_check').then =>
       dialog = find('.ui-dialog:visible', 'body')
-      click('button', dialog)
+      click('[data-action="mute"]', dialog)
       sendSuccess(server, "#{ENV.GRADEBOOK_OPTIONS.context_url}/assignments/#{@con.get('selectedAssignment.id')}/mute", true)
       andThen =>
         dialog = find('.ui-dialog:visible', 'body')

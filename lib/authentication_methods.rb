@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -58,13 +58,13 @@ module AuthenticationMethods
     begin
       services_jwt = Canvas::Security::ServicesJwt.new(token_string)
       @current_user = User.find(services_jwt.user_global_id)
-      @current_pseudonym = @current_user.find_pseudonym_for_account(@domain_root_account, true)
+      @current_pseudonym = SisPseudonym.for(@current_user, @domain_root_account, type: :implicit, require_sis: false)
       unless @current_user && @current_pseudonym
         raise AccessTokenError
       end
       if services_jwt.masquerading_user_global_id
         @real_current_user = User.find(services_jwt.masquerading_user_global_id)
-        @real_current_pseudonym = @real_current_user.find_pseudonym_for_account(@domain_root_account, true)
+        @real_current_pseudonym = SisPseudonym.for(@real_current_user, @domain_root_account, type: :implicit, require_sis: false)
         logger.warn "#{@real_current_user.name}(#{@real_current_user.id}) impersonating #{@current_user.name} on page #{request.url}"
       end
       @authenticated_with_jwt = true
@@ -76,9 +76,7 @@ module AuthenticationMethods
       # and for some normal use cases (old token, access token),
       # so we can return and move on
       return
-    rescue  Faraday::ConnectionFailed,            # consul config present, but couldn't connect
-            Faraday::ClientError,                 # connetion established, but something went wrong
-            Diplomat::KeyNotFound => exception    # talked to consul, but data missing
+    rescue Imperium::TimeoutError => exception # Something went wrong in the Network
       # these are indications of infrastructure of data problems
       # so we should log them for resolution, but recover gracefully
       Canvas::Errors.capture_exception(:jwt_check, exception)
@@ -86,7 +84,9 @@ module AuthenticationMethods
   end
 
   def load_pseudonym_from_access_token
-    return unless api_request? || (params[:controller] == 'oauth2_provider' && params[:action] == 'destroy')
+    return unless api_request? ||
+      (params[:controller] == 'oauth2_provider' && params[:action] == 'destroy') ||
+      (params[:controller] == 'login' && params[:action] == 'session_token')
 
     token_string = AuthenticationMethods.access_token(request)
 
@@ -101,7 +101,7 @@ module AuthenticationMethods
       end
 
       @current_user = @access_token.user
-      @current_pseudonym = @current_user.find_pseudonym_for_account(@domain_root_account, true)
+      @current_pseudonym = SisPseudonym.for(@current_user, @domain_root_account, type: :implicit, require_sis: false)
 
       unless @current_user && @current_pseudonym
         raise AccessTokenError
@@ -207,7 +207,7 @@ module AuthenticationMethods
         params_without_become = params.dup
         params_without_become.delete_if {|k,v| [ 'become_user_id', 'become_teacher', 'become_student', 'me' ].include? k }
         params_without_become[:only_path] = true
-        session[:masquerade_return_to] = url_for(params_without_become)
+        session[:masquerade_return_to] = url_for(params_without_become.to_hash)
         return redirect_to user_masquerade_url(request_become_user.id)
       end
     end
@@ -223,7 +223,7 @@ module AuthenticationMethods
         @real_current_user = @current_user
         @current_user = user
         @real_current_pseudonym = @current_pseudonym
-        @current_pseudonym = @current_user.find_pseudonym_for_account(@domain_root_account, true)
+        @current_pseudonym = SisPseudonym.for(@current_user, @domain_root_account, type: :implicit, require_sis: false)
         logger.warn "#{@real_current_user.name}(#{@real_current_user.id}) impersonating #{@current_user.name} on page #{request.url}"
       elsif api_request?
         # fail silently for UI, but not for API
@@ -288,7 +288,7 @@ module AuthenticationMethods
       format.html {
         store_location
         flash[:warning] = I18n.t('lib.auth.errors.not_authenticated', "You must be logged in to access this page") unless request.path == '/'
-        redirect_to login_url(params.slice(:canvas_login, :authentication_provider))
+        redirect_to login_url(params.permit(:canvas_login, :authentication_provider))
       }
       format.json { render_json_unauthorized }
     end

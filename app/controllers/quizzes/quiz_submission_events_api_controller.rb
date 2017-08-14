@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -43,10 +43,10 @@ class Quizzes::QuizSubmissionEventsApiController < ApplicationController
   include ::Filters::Quizzes
   include ::Filters::QuizSubmissions
 
-  before_filter :require_user,
+  before_action :require_user,
     :require_context,
     :require_quiz,
-    :require_quiz_submission
+    :require_active_quiz_submission
 
   # @API Submit captured events
   # @beta
@@ -120,7 +120,7 @@ class Quizzes::QuizSubmissionEventsApiController < ApplicationController
   def index
     if authorized_action(@quiz_submission, @current_user, :view_log)
       unless @context.feature_enabled?(:quiz_log_auditing)
-        reject! 400, "quiz log auditing must be enabled"
+        reject! "quiz log auditing must be enabled", 400
       end
 
       if params.has_key?(:attempt)

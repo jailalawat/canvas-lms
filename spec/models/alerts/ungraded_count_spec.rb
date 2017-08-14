@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,9 +17,10 @@
 #
 
 require File.expand_path(File.dirname(__FILE__) + '../../../spec_helper.rb')
+require_dependency "alerts/ungraded_count"
 
 module Alerts
-  describe Alerts::UngradedCount do
+  describe UngradedCount do
 
     describe "#should_not_receive_message?" do
       before :once do

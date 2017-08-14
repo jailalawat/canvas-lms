@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/conversations_common')
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/assignment_overrides')
 
@@ -13,9 +30,9 @@ describe "conversations new" do
 
   before do
     conversation_setup
-    @s1 = user(name: "first student")
-    @s2 = user(name: "second student")
-    @s3 = user(name: 'third student')
+    @s1 = user_factory(name: "first student")
+    @s2 = user_factory(name: "second student")
+    @s3 = user_factory(name: 'third student')
     [@s1, @s2, @s3].each { |s| @course.enroll_student(s).update_attribute(:workflow_state, 'active') }
     cat = @course.group_categories.create(:name => "the groups")
     @group = cat.groups.create(:name => "the group", :context => @course)
@@ -30,7 +47,7 @@ describe "conversations new" do
     it "should allow a site admin to enable faculty journal", priority: "2", test_id: 75005 do
       get account_settings_url
       f('#account_enable_user_notes').click
-      f('.btn.btn-primary[type="submit"]').click
+      f('.Button.Button--primary[type="submit"]').click
       wait_for_ajaximations
       expect(is_checked('#account_enable_user_notes')).to be_truthy
     end
@@ -72,10 +89,11 @@ describe "conversations new" do
     it "should allow a new entry by an admin", priority: "1", test_id: 75702 do
       get student_user_notes_url
       f('#new_user_note_button').click
+      wait_for_ajaximations # wait for the form to `.slideDown()`
       replace_content(f('#user_note_title'),'FJ Title 2')
       replace_content(f('textarea'),'FJ Body text 2')
-      wait_for_ajaximations
       f('.send_button').click
+      wait_for_ajaximations
       time = format_time_for_view(UserNote.last.updated_at)
       get student_user_notes_url
       expect(f('.subject').text).to eq 'FJ Title 2'
@@ -187,7 +205,7 @@ describe "conversations new" do
       conversations
       # First verify teacher can send a message with faculty journal entry checked to one student
       compose course: @course, to: [@s1], body: 'hallo!', journal: true, send: true
-      expect_flash_message :success, /Message sent!/
+      expect_flash_message :success, "Message sent!"
       # Now verify adding another user while the faculty journal entry checkbox is checked doesn't uncheck it and
       #   still lets teacher know it was sent successfully.
       fj('.ic-flash-success:last').click
@@ -195,7 +213,7 @@ describe "conversations new" do
       add_message_recipient(@s2)
       expect(is_checked('.user_note')).to be_truthy
       click_send
-      expect_flash_message :success, /Message sent!/
+      expect_flash_message :success, "Message sent!"
     end
   end
 end

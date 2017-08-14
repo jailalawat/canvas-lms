@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -24,5 +24,4 @@ class ClonedItem < ActiveRecord::Base
   has_many :attachments, -> { order(:id) }
   has_many :discussion_topics, -> { order(:id) }
   has_many :wiki_pages, -> { order(:id) }
-  attr_accessible :original_item
 end

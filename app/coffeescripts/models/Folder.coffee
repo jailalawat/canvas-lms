@@ -1,12 +1,29 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'require'
   'compiled/models/FilesystemObject'
-  'underscore'
   'vendor/backbone-identity-map'
   'compiled/collections/PaginatedCollection'
   'compiled/collections/FilesCollection'
   'compiled/util/natcompare'
-], (require, FilesystemObject, _, identityMapMixin, PaginatedCollection, FilesCollection, natcompare) ->
+  'jsx/shared/helpers/urlHelper'
+], (require, FilesystemObject, identityMapMixin, PaginatedCollection, FilesCollection, natcompare, urlHelper) ->
 
 
   Folder = identityMapMixin class __Folder extends FilesystemObject
@@ -91,7 +108,7 @@ define [
     filesEnv = null
     urlPath: ->
       relativePath = (@get('full_name') or '').replace(EVERYTHING_BEFORE_THE_FIRST_SLASH, '')
-
+      relativePath = urlHelper.encodeSpecialChars(relativePath)
       relativePath = relativePath.split('/').map((component) ->
         encodeURIComponent(component)
       ).join('/')
@@ -107,8 +124,10 @@ define [
       relativePath
 
     @resolvePath = (contextType, contextId, folderPath) ->
+      folderPath = urlHelper.decodeSpecialChars(folderPath)
+
       url = "/api/v1/#{contextType}/#{contextId}/folders/by_path#{folderPath}"
-      $.get(url).pipe (folders) ->
+      $.getJSON(url).pipe (folders) ->
         folders.map (folderAttrs) ->
           new Folder(folderAttrs, {parse: true})
 
@@ -170,7 +189,7 @@ define [
 
     parse: (response) ->
       if response
-        _.each response, (folder) =>
+        response.forEach (folder) =>
           folder.contentTypes = @parentFolder.contentTypes
           folder.useVerifiers = @parentFolder.useVerifiers
       super

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 describe "external tool buttons" do
@@ -42,31 +59,29 @@ describe "external tool buttons" do
 
     in_frame('external_tool_button_frame') do
       f(element).click
-      wait_for_ajax_requests
     end
     expect(f("body")).not_to contain_jqcss("#external_tool_button_dialog:visible")
   end
 
-  it "should allow inserting basic lti links from external tool buttons" do
-    load_selection_test_tool("#basic_lti_link")
-    html = editor_html
-    expect(html).to match(/example/)
-    expect(html).to match(/lti link/)
-    expect(html).to match(/lti embedded link/)
+  it "should allow inserting basic lti links from external tool buttons", priority: "1", test_id: 2624914 do
+    load_selection_test_tool('#basic_lti_link')
+    expect(editor_html).to match(/example/)
+    expect(editor_html).to match(/lti link/)
+    expect(editor_html).to match(/lti embedded link/)
   end
 
-  it "should allow inserting iframes from external tool buttons" do
-    load_selection_test_tool("#iframe_link")
+  it "should allow inserting iframes from external tool buttons", priority: "1", test_id: 2624915 do
+    load_selection_test_tool('#iframe_link')
     expect(editor_html).to match(/iframe/)
   end
 
-  it "should allow inserting images from external tool buttons" do
-    load_selection_test_tool("#image_link")
+  it "should allow inserting images from external tool buttons", priority: "1", test_id: 2624916 do
+    load_selection_test_tool('#image_link')
     expect(editor_html).to match(/delete\.png/)
   end
 
-  it "should allow inserting links from external tool buttons" do
-    load_selection_test_tool("#link_link")
+  it "should allow inserting links from external tool buttons", priority: "1", test_id: 2624917 do
+    load_selection_test_tool('#link_link')
     expect(editor_html).to match(/delete link/)
   end
 

@@ -1,12 +1,30 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative 'common'
 require_relative 'helpers/shared_examples_common'
-include SharedExamplesCommon
 
 # ======================================================================================================================
 # Shared Examples
 # ======================================================================================================================
 
 shared_examples 'profile_settings_page' do |context|
+  include SharedExamplesCommon
+
   it 'should give option to change profile pic', priority: "2", test_id: pick_test_id(context, student: 68936, teacher: 352617, admin: 352618) do
     enable_avatars
     get "/profile/settings"
@@ -23,6 +41,8 @@ end
 
 
 shared_examples 'profile_user_about_page' do |context|
+  include SharedExamplesCommon
+
   it 'should give option to change profile pic', priority: "2", test_id: pick_test_id(context, student: 358573, teacher: 358574, admin: 358575) do
     enable_avatars
     get "/about/#{@user.id}"
@@ -37,6 +57,8 @@ shared_examples 'profile_user_about_page' do |context|
 end
 
 shared_examples 'user settings page change pic window' do |context|
+  include SharedExamplesCommon
+
   it 'should allow user to click to change profile pic', priority: "1", test_id: pick_test_id(context, student: 68938, teacher: 368784, admin: 368785) do
     enable_avatars
     get '/profile/settings'
@@ -59,13 +81,15 @@ shared_examples 'user settings page change pic window' do |context|
     expect(fj('.nav.nav-pills li :contains("Take a Picture")')).to include_text('Take a Picture')
 
     # There are 'X', Save, and Cancel buttons
-    expect(f('.ui-icon.ui-icon-closethick')).to be_truthy
+    expect(f('button.ui-dialog-titlebar-close')).to be_truthy
     expect(fj('.ui-button :contains("Cancel")')).to be_truthy
     expect(fj('.ui-button :contains("Save")')).to be_truthy
   end
 end
 
 shared_examples 'user settings change pic cancel' do |context|
+  include SharedExamplesCommon
+
   it 'closes window when cancel button is pressed', priority: "1", test_id: pick_test_id(context, student: 68939, teacher: 372132, admin: 372133) do
     enable_avatars
     get '/profile/settings'

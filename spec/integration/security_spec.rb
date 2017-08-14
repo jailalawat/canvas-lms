@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -31,16 +31,18 @@ describe "security" do
 
       https!
 
-      get_via_redirect "/login"
+      get "/login"
+      follow_redirect! while response.redirect?
       assert_response :success
       cookie = cookies['_normandy_session']
       expect(cookie).to be_present
       expect(path).to eq "/login/canvas"
 
-      post_via_redirect "/login/canvas", "pseudonym_session[unique_id]" => "nobody@example.com",
+      post "/login/canvas", "pseudonym_session[unique_id]" => "nobody@example.com",
                                   "pseudonym_session[password]" => "asdfasdf",
                                   "pseudonym_session[remember_me]" => "1",
                                   "redirect_to_ssl" => "1"
+      follow_redirect! while response.redirect?
       assert_response :success
       expect(request.fullpath).to eql("/?login_success=1")
       new_cookie = cookies['_normandy_session']
@@ -301,7 +303,7 @@ describe "security" do
       token = SessionPersistenceToken.generate(@p)
       creds = token.pseudonym_credentials
       pers1 = @p.persistence_token
-      @p.password = @p.password_confirmation = 'newpass'
+      @p.password = @p.password_confirmation = 'newpass1'
       @p.save!
       pers2 = @p.persistence_token
       expect(pers1).not_to eq pers2
@@ -338,9 +340,10 @@ describe "security" do
       end
 
       def bad_login(ip)
-        post_via_redirect "/login",
+        post "/login",
           { "pseudonym_session[unique_id]" => "nobody@example.com", "pseudonym_session[password]" => "failboat" },
           { "REMOTE_ADDR" => ip }
+        follow_redirect! while response.redirect?
       end
 
       it "should be limited for the same ip" do
@@ -349,9 +352,10 @@ describe "security" do
         bad_login("5.5.5.5")
         expect(response.body).to match(/Too many failed login attempts/)
         # should still fail
-        post_via_redirect "/login",
+        post "/login",
           { "pseudonym_session[unique_id]" => "nobody@example.com", "pseudonym_session[password]" => "asdfasdf" },
           { "REMOTE_ADDR" => "5.5.5.5" }
+        follow_redirect! while response.redirect?
         expect(response.body).to match(/Too many failed login attempts/)
       end
 
@@ -363,9 +367,10 @@ describe "security" do
         bad_login("5.5.5.7") # different IP, but too many total failures
         expect(response.body).to match(/Too many failed login attempts/)
         # should still fail
-        post_via_redirect "/login",
+        post "/login",
           { "pseudonym_session[unique_id]" => "nobody@example.com", "pseudonym_session[password]" => "asdfasdf" },
           { "REMOTE_ADDR" => "5.5.5.7" }
+        follow_redirect! while response.redirect?
         expect(response.body).to match(/Too many failed login attempts/)
       end
 
@@ -376,9 +381,10 @@ describe "security" do
         # schools like to NAT hundreds of people to the same IP, so we don't
         # ever block the IP address as a whole
         user_with_pseudonym(:active_user => true, :username => "second@example.com", :password => "12341234").save!
-        post_via_redirect "/login",
+        post "/login",
           { "pseudonym_session[unique_id]" => "second@example.com", "pseudonym_session[password]" => "12341234" },
           { "REMOTE_ADDR" => "5.5.5.5" }
+        follow_redirect! while response.redirect?
         expect(request.fullpath).to eql("/?login_success=1")
       end
 
@@ -394,9 +400,10 @@ describe "security" do
         bad_login("5.5.5.7") # different IP, but too many total failures
         expect(response.body).to match(/Too many failed login attempts/)
         # should still fail
-        post_via_redirect "/login",
+        post "/login",
           { "pseudonym_session[unique_id]" => "nobody@example.com", "pseudonym_session[password]" => "asdfasdf" },
           { "REMOTE_ADDR" => "5.5.5.5" }
+        follow_redirect! while response.redirect?
         expect(response.body).to match(/Too many failed login attempts/)
       end
     end
@@ -407,12 +414,12 @@ describe "security" do
     u.pseudonyms.create!(:unique_id => "A1234567", :account => Account.default)
     @course = Account.default.courses.create!
     @course.offer!
-    @teacher = user :active_all => true
+    @teacher = user_factory :active_all => true
     @course.enroll_teacher(@teacher).tap do |e|
       e.workflow_state = 'active'
       e.save!
     end
-    @student = user :active_all => true
+    @student = user_factory :active_all => true
     @course.enroll_student(@student).tap do |e|
       e.workflow_state = 'active'
       e.save!
@@ -651,7 +658,7 @@ describe "security" do
       it "read_course_list" do
         add_permission :view_statistics
 
-        course
+        course_factory
         get "/accounts/#{Account.default.id}"
         expect(response).to be_redirect
 
@@ -758,7 +765,7 @@ describe "security" do
 
     describe 'course' do
       before (:each) do
-        course(:active_all => 1)
+        course_factory(active_all: true)
         Account.default.update_attribute(:settings, { :no_enrollments_can_create_courses => false })
       end
 
@@ -930,7 +937,7 @@ describe "security" do
         expect(html.css('.section .discussions')).to be_empty
         expect(html.css('.section .files')).to be_empty
         expect(response.body).not_to match /Copy this Course/
-        expect(response.body).not_to match /Import Content into this Course/
+        expect(response.body).not_to match /Import Course Content/
         expect(response.body).not_to match /Export this Course/
 
         add_permission :read_course_content
@@ -979,7 +986,7 @@ describe "security" do
         expect(html.css('.section .discussions')).not_to be_empty
         expect(html.css('.section .files')).not_to be_empty
         expect(response.body).not_to match /Copy this Course/
-        expect(response.body).not_to match /Import Content into this Course/
+        expect(response.body).not_to match /Import Course Content/
         expect(response.body).to match /Export Course Content/
         expect(response.body).not_to match /Delete this Course/
         expect(response.body).not_to match /End this Course/
@@ -997,7 +1004,7 @@ describe "security" do
         get "/courses/#{@course.id}/details"
         expect(response).to be_success
         expect(response.body).to match /Copy this Course/
-        expect(response.body).not_to match /Import Content into this Course/
+        expect(response.body).not_to match /Import Course Content/
         expect(response.body).to match /Export Course Content/
         expect(response.body).to_not match /Delete this Course/
 
@@ -1023,7 +1030,7 @@ describe "security" do
       it 'manage_content' do
         get "/courses/#{@course.id}/details"
         expect(response).to be_success
-        expect(response.body).not_to match /Import Content into this Course/
+        expect(response.body).not_to match /Import Course Content/
 
         get "/courses/#{@course.id}/content_migrations"
         assert_status(401)
@@ -1032,7 +1039,7 @@ describe "security" do
 
         get "/courses/#{@course.id}/details"
         expect(response).to be_success
-        expect(response.body).to match /Import Content into this Course/
+        expect(response.body).to match /Import Course Content/
 
         get "/courses/#{@course.id}/content_migrations"
         expect(response).to be_success
@@ -1092,7 +1099,7 @@ describe "security" do
       it 'view_statistics' do
         course_with_teacher_logged_in(:active_all => 1)
 
-        @student = user :active_all => true
+        @student = user_factory :active_all => true
         @course.enroll_student(@student).tap do |e|
           e.workflow_state = 'active'
           e.save!

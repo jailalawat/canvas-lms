@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/course_copy_helper.rb')
 
 describe ContentMigration do
@@ -82,7 +99,6 @@ describe ContentMigration do
       expect(@copy_to.quizzes.first.quiz_groups.first.assessment_question_bank).to be_nil
 
       expect(@cm.warnings.detect { |w| w =~ /account External Tool.+must be configured/ }).not_to be_nil
-      expect(@cm.warnings.detect { |w| w =~ /external Rubric couldn't be found.+creating a copy/ }).not_to be_nil
       expect(@cm.warnings.detect { |w| w =~ /external Learning Outcome couldn't be found.+creating a copy/ }).not_to be_nil
       expect(@cm.warnings.detect { |w| w =~ /Couldn't find the question bank/ }).not_to be_nil
       expect(@cm.warnings.detect { |w| w =~ /referenced a grading scheme that was not found/ }).not_to be_nil

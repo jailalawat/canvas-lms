@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module DataFixup::RebuildQuizSubmissionsFromQuizSubmissionVersions
   LOG_PREFIX = "RebuildingQuizSubmissions - ".freeze
 
@@ -83,7 +100,7 @@ module DataFixup::RebuildQuizSubmissionsFromQuizSubmissionVersions
 
       if qs
         persisted_qs = Quizzes::QuizSubmission.where(id: qs_id).first || Quizzes::QuizSubmission.new
-        persisted_qs.assign_attributes(qs.attributes, without_protection: true)
+        persisted_qs.assign_attributes(qs.attributes)
       else
         Rails.logger.error LOG_PREFIX + "No matching version \tsubmission_id: #{submission.id}"
         return false

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -29,7 +29,7 @@ class Login::OauthController < Login::OauthBaseController
       }
       opts = {}
       opts[oauth_callback: callback_uri] unless request_token.callback_confirmed?
-      redirect_to request_token.authorize_url(opts)
+      redirect_to delegated_auth_redirect_uri(request_token.authorize_url(opts))
     end
   end
 
@@ -49,14 +49,16 @@ class Login::OauthController < Login::OauthBaseController
     end
 
     unique_id = nil
+    provider_attributes = {}
     return unless timeout_protection do
       token = request_token.get_access_token(opts)
       unique_id = @aac.unique_id(token)
+      provider_attributes = @aac.provider_attributes(token)
     end
 
     reset_session_for_login
 
-    find_pseudonym(unique_id)
+    find_pseudonym(unique_id, provider_attributes)
   end
 
   protected

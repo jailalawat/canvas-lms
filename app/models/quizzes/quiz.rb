@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -28,30 +28,23 @@ class Quizzes::Quiz < ActiveRecord::Base
   include ContextModuleItem
   include DatesOverridable
   include SearchTermHelper
+  include Plannable
   include Canvas::DraftStateValidations
 
-  attr_accessible :title, :description, :points_possible, :assignment_id, :shuffle_answers,
-    :show_correct_answers, :time_limit, :allowed_attempts, :scoring_policy, :quiz_type,
-    :lock_at, :unlock_at, :due_at, :access_code, :anonymous_submissions, :assignment_group_id,
-    :hide_results, :locked, :ip_filter, :require_lockdown_browser,
-    :require_lockdown_browser_for_results, :context, :notify_of_update,
-    :one_question_at_a_time, :cant_go_back, :show_correct_answers_at, :hide_correct_answers_at,
-    :require_lockdown_browser_monitor, :lockdown_browser_monitor_data,
-    :one_time_results, :only_visible_to_overrides, :show_correct_answers_last_attempt
-
   attr_readonly :context_id, :context_type
-  attr_accessor :notify_of_update
+  attr_accessor :notify_of_update, :todo_type
 
   has_many :quiz_questions, -> { order(:position) }, dependent: :destroy, class_name: 'Quizzes::QuizQuestion', inverse_of: :quiz
   has_many :quiz_submissions, :dependent => :destroy, :class_name => 'Quizzes::QuizSubmission'
   has_many :quiz_groups, -> { order(:position) }, dependent: :destroy, class_name: 'Quizzes::QuizGroup'
   has_many :quiz_statistics, -> { order(:created_at) }, class_name: 'Quizzes::QuizStatistics'
-  has_many :attachments, :as => :context, :dependent => :destroy
+  has_many :attachments, :as => :context, :inverse_of => :context, :dependent => :destroy
   has_many :quiz_regrades, class_name: 'Quizzes::QuizRegrade'
   has_many :quiz_student_visibilities
   belongs_to :context, polymorphic: [:course]
   belongs_to :assignment
   belongs_to :assignment_group
+  has_many :ignores, :as => :asset
 
   validates_length_of :description, :maximum => maximum_long_text_length, :allow_nil => true, :allow_blank => true
   validates_length_of :title, :maximum => maximum_string_length, :allow_nil => true
@@ -79,7 +72,7 @@ class Quizzes::Quiz < ActiveRecord::Base
 
   simply_versioned
 
-  has_many :context_module_tags, -> { where("content_tags.tag_type='context_module' AND content_tags.workflow_state<>'deleted'")}, as: :content, class_name: 'ContentTag'
+  has_many :context_module_tags, -> { where("content_tags.tag_type='context_module' AND content_tags.workflow_state<>'deleted'")}, as: :content, inverse_of: :content, class_name: 'ContentTag'
 
   # This callback is listed here in order for the :link_assignment_overrides
   # method to be called after the simply_versioned callbacks. We want the
@@ -89,6 +82,17 @@ class Quizzes::Quiz < ActiveRecord::Base
   # last version of the assignment, because the next callback would be a
   # simply_versioned callback updating the version.
   after_save :link_assignment_overrides, :if => :new_assignment_id?
+
+  include MasterCourses::Restrictor
+  restrict_columns :content, [:title, :description]
+  restrict_columns :settings, [
+    :quiz_type, :assignment_group_id, :shuffle_answers, :time_limit,
+    :anonymous_submissions, :scoring_policy, :allowed_attempts, :hide_results,
+    :one_time_results, :show_correct_answers, :show_correct_answers_last_attempt,
+    :hide_correct_answers_at, :one_question_at_a_time, :cant_go_back, :access_code,
+    :ip_filter, :require_lockdown_browser, :require_lockdown_browser_for_results
+  ]
+  restrict_assignment_columns
 
   # override has_one relationship provided by simply_versioned
   def current_version_unidirectional
@@ -102,10 +106,7 @@ class Quizzes::Quiz < ActiveRecord::Base
   end
 
   def set_defaults
-    self.one_question_at_a_time = false if self.one_question_at_a_time == nil
-    self.cant_go_back = false if self.cant_go_back == nil || self.one_question_at_a_time == false
-    self.shuffle_answers = false if self.shuffle_answers == nil
-    self.show_correct_answers = true if self.show_correct_answers == nil
+    self.cant_go_back = false unless self.one_question_at_a_time
     if !self.show_correct_answers
       self.show_correct_answers_last_attempt = false
       self.show_correct_answers_at = nil
@@ -138,6 +139,14 @@ class Quizzes::Quiz < ActiveRecord::Base
     self.question_count = self.question_count(true)
     @update_existing_submissions = true if self.for_assignment? && self.quiz_type_changed?
     @stored_questions = nil
+
+    [
+      :shuffle_answers, :could_be_locked, :anonymous_submissions,
+      :require_lockdown_browser, :require_lockdown_browser_for_results,
+      :one_question_at_a_time, :cant_go_back, :require_lockdown_browser_monitor,
+      :only_visible_to_overrides, :one_time_results, :show_correct_answers_last_attempt
+    ].each { |attr| self[attr] = false if self[attr].nil? }
+    self[:show_correct_answers] = true if self[:show_correct_answers].nil?
   end
 
   # quizzes differ from other publishable objects in that they require we
@@ -182,8 +191,8 @@ class Quizzes::Quiz < ActiveRecord::Base
     end
   end
 
-  def build_assignment
-    if !self.assignment_id && self.graded? && ![:assignment, :clone, :migration].include?(@saved_by)
+  def build_assignment(force: false)
+    if !self.assignment_id && self.graded? && (force || ![:assignment, :clone, :migration].include?(@saved_by))
       assignment = self.assignment
       assignment ||= self.context.assignments.build(:title => self.title, :due_at => self.due_at, :submission_types => 'online_quiz')
       assignment.assignment_group_id = self.assignment_group_id
@@ -210,18 +219,23 @@ class Quizzes::Quiz < ActiveRecord::Base
     end
   end
 
-  def current_points_possible
-    entries = self.root_entries
-    possible = 0
+  def self.count_points_possible(entries)
+    util = Quizzes::QuizQuestion::AnswerSerializers::Util
+    possible = BigDecimal('0.0')
     entries.each do |e|
-      if e[:question_points]
-        possible += (e[:question_points].to_f * e[:pick_count])
+      if e[:question_points] # QuizGroup
+        possible += (util.to_decimal(e[:question_points].to_s) * util.to_decimal(e[:pick_count].to_s))
       else
-        possible += e[:points_possible].to_f unless e[:unsupported]
+        possible += util.to_decimal(e[:points_possible].to_s) unless e[:unsupported]
       end
     end
-    possible = self.assignment.points_possible if entries.empty? && self.assignment
-    possible
+    possible.to_f
+  end
+
+  def current_points_possible
+    entries = self.root_entries
+    return self.assignment.points_possible if entries.empty? && self.assignment
+    self.class.count_points_possible(entries)
   end
 
   def set_unpublished_question_count
@@ -342,14 +356,22 @@ class Quizzes::Quiz < ActiveRecord::Base
     return true if self.one_time_results
 
     # Are we past the date the correct answers should no longer be shown after?
-    return false if hide_at.present? && Time.now > hide_at
+    return false if hide_at.present? && Time.zone.now > hide_at
 
-    show_at.present? ? Time.now > show_at : true
+    show_at.present? ? Time.zone.now > show_at : true
   end
 
-  def restrict_answers_for_concluded_course?
+  def restrict_answers_for_concluded_course?(user: nil)
     course = self.context
-    course.concluded? && course.root_account.settings[:restrict_quiz_questions]
+    return false unless course.root_account.settings[:restrict_quiz_questions]
+
+    if user.present?
+      quiz_eligibility = Quizzes::QuizEligibility.new(course: course, user: user)
+      user_in_active_section = quiz_eligibility.section_dates_currently_apply?
+      return false if user_in_active_section
+    end
+
+    !!course.concluded?
   end
 
   def update_existing_submissions
@@ -391,7 +413,7 @@ class Quizzes::Quiz < ActiveRecord::Base
         Quizzes::Quiz.where("assignment_id=? AND id<>?", self.assignment_id, self).update_all(:workflow_state => 'deleted', :assignment_id => nil, :updated_at => Time.now.utc) if self.assignment_id
         self.assignment = @assignment_to_set if @assignment_to_set && !self.assignment
         a = self.assignment
-        a.quiz.clear_changes_information if a.quiz && !CANVAS_RAILS4_0 # AR#changes persist in after_saves now - needed to prevent an autosave loop
+        a.quiz.clear_changes_information if a.quiz # AR#changes persist in after_saves now - needed to prevent an autosave loop
         a.points_possible = self.points_possible
         a.description = self.description
         a.title = self.title
@@ -407,11 +429,12 @@ class Quizzes::Quiz < ActiveRecord::Base
         end
         @notify_of_update ||= a.workflow_state_changed? && a.published?
         a.notify_of_update = @notify_of_update
+        a.mark_as_importing!(@importing_migration) if @importing_migration
         a.with_versioning(false) do
           @notify_of_update ? a.save : a.save_without_broadcasting!
         end
         self.assignment_id = a.id
-        Quizzes::Quiz.where(:id => self).update_all(:assignment_id => a)
+        Quizzes::Quiz.where(id: self).update_all(assignment_id: a.id)
       end
     end
   end
@@ -456,7 +479,7 @@ class Quizzes::Quiz < ActiveRecord::Base
   end
 
   def root_entries_max_position
-    question_max = self.active_quiz_questions.where(quiz_group_id: nil).maximum(:position)
+    question_max = self.quiz_questions.active.where(quiz_group_id: nil).maximum(:position)
     group_max = self.quiz_groups.maximum(:position)
     [question_max, group_max, 0].compact.max
   end
@@ -673,23 +696,17 @@ class Quizzes::Quiz < ActiveRecord::Base
   # be held in Quizzes::Quiz.quiz_data
   def generate_quiz_data(opts={})
     entries = self.root_entries(true)
-    possible = 0
     t = Time.now
     entries.each do |e|
-      if e[:question_points] #QuizGroup
-        possible += (e[:question_points].to_f * e[:pick_count])
-      else
-        possible += e[:points_possible].to_f
-      end
       e[:published_at] = t
     end
-    possible = 0 if possible < 0
     data = entries
     if opts[:persist] != false
       self.quiz_data = data
 
       if !self.survey?
-        self.points_possible = possible
+        possible = self.class.count_points_possible(data)
+        self.points_possible = [possible, 0].max
       end
       self.allowed_attempts ||= 1
       check_if_submissions_need_review
@@ -721,34 +738,37 @@ class Quizzes::Quiz < ActiveRecord::Base
 
 
   def locked_for?(user, opts={})
-    return false if opts[:check_policies] && self.grants_right?(user, :update)
     ::Rails.cache.fetch(locked_cache_key(user), :expires_in => 1.minute) do
-      locked = false
+      user_submission = user && quiz_submissions.where(user_id: user.id).first
+      return false if user_submission && user_submission.manually_unlocked
+
       quiz_for_user = self.overridden_for(user)
-      if (quiz_for_user.unlock_at && quiz_for_user.unlock_at > Time.now)
-        sub = user && quiz_submissions.where(user_id: user).first
-        if !sub || !sub.manually_unlocked
-          locked = {:asset_string => self.asset_string, :unlock_at => quiz_for_user.unlock_at}
-        end
-      elsif (quiz_for_user.lock_at && quiz_for_user.lock_at <= Time.now)
-        sub = user && quiz_submissions.where(user_id: user).first
-        if !sub || !sub.manually_unlocked
-          locked = {:asset_string => self.asset_string, :lock_at => quiz_for_user.lock_at, :can_view => true}
-        end
-      elsif !opts[:skip_assignment] && (self.for_assignment? && l = self.assignment.locked_for?(user, opts))
-        sub = user && quiz_submissions.where(user_id: user).first
-        if !sub || !sub.manually_unlocked
-          locked = l
-        end
-      elsif item = locked_by_module_item?(user, opts[:deep_check_if_needed])
-        sub = user && quiz_submissions.where(user_id: user).first
-        if !sub || !sub.manually_unlocked
-          locked = {:asset_string => self.asset_string, :context_module => item.context_module.attributes}
-        end
+
+      unlock_time_not_yet_reached = quiz_for_user.unlock_at && quiz_for_user.unlock_at > Time.zone.now
+      lock_time_already_occurred = quiz_for_user.lock_at && quiz_for_user.lock_at <= Time.zone.now
+
+      locked = false
+      lock_info = { asset_string: asset_string }
+      if unlock_time_not_yet_reached
+        locked = lock_info.merge({ unlock_at: quiz_for_user.unlock_at })
+      elsif lock_time_already_occurred
+        locked = lock_info.merge({ lock_at: quiz_for_user.lock_at, can_view: true })
+      elsif !opts[:skip_assignment] && (assignment_lock = locked_by_assignment?(user, opts))
+        locked = assignment_lock
+      elsif (module_lock = locked_by_module_item?(user, opts))
+        locked = lock_info.merge({ context_module: module_lock.context_module.attributes })
+      elsif !context.try_rescue(:is_public) && !context.grants_right?(user, :participate_as_student) && !opts[:is_observer]
+        locked = lock_info.merge({ missing_permission: :participate_as_student.to_s })
       end
 
     locked
     end
+  end
+
+  def locked_by_assignment?(user, opts = {})
+    return false unless for_assignment?
+
+    assignment.locked_for?(user, opts)
   end
 
   def clear_locked_cache(user)
@@ -823,7 +843,9 @@ class Quizzes::Quiz < ActiveRecord::Base
     old_version = self.versions.get(version_number).model
 
     needs_review = false
-    needs_review = true if old_version.points_possible != self.points_possible
+    # Allow for floating point rounding error comparing to versions created before BigDecimal was used
+    needs_review = true if [old_version.points_possible, self.points_possible].select(&:present?).count == 1 ||
+      ((old_version.points_possible || 0) - (self.points_possible || 0)).abs > 0.0001
     needs_review = true if (old_version.quiz_data || []).length != (self.quiz_data || []).length
     if !needs_review
       new_data = self.quiz_data
@@ -1005,13 +1027,23 @@ class Quizzes::Quiz < ActiveRecord::Base
 
   set_policy do
     given { |user, session| self.context.grants_right?(user, session, :manage_assignments) } #admins.include? user }
-    can :read_statistics and can :manage and can :read and can :update and can :delete and can :create and can :submit
+    can :read_statistics and can :manage and can :read and can :update and can :create and can :submit and can :preview
+
+    given do |user, session|
+      self.context.grants_right?(user, session, :manage_assignments) &&
+      (self.context.account_membership_allows(user) ||
+       !due_for_any_student_in_closed_grading_period?)
+    end
+    can :delete
 
     given { |user, session| self.context.grants_right?(user, session, :manage_grades) } #admins.include? user }
     can :read_statistics and can :read and can :submit and can :grade and can :review_grades
 
     given { |user| self.available? && self.context.try_rescue(:is_public) && !self.graded? && self.visible_to_user?(user) }
     can :submit
+
+    given { |user, session| context.grants_right?(user, session, :read_as_admin) }
+    can :read and can :submit and can :preview
 
     given do |user, session|
       published? && context.grants_right?(user, session, :read)
@@ -1051,6 +1083,48 @@ class Quizzes::Quiz < ActiveRecord::Base
     joins(:quiz_student_visibilities).
     where(:quiz_student_visibilities => { :user_id => student_ids, :course_id => course_ids })
   }
+
+  # Return all quizzes and their active overrides where either the
+  # quiz or one of its overrides is due between start and ending.
+  scope :due_between_with_overrides, lambda { |start, ending|
+    joins("LEFT OUTER JOIN #{AssignmentOverride.quoted_table_name} assignment_overrides
+          ON assignment_overrides.quiz_id = quizzes.id").
+    group("quizzes.id").
+    where('quizzes.due_at BETWEEN ? AND ?
+          OR assignment_overrides.due_at_overridden AND
+          assignment_overrides.due_at BETWEEN ? AND ?', start, ending, start, ending)
+  }
+
+  # Return quizzes (up to limit) that do not have any submissions
+  scope :need_submitting_info, lambda { |user_id, limit|
+    where("(SELECT COUNT(id) FROM #{Quizzes::QuizSubmission.quoted_table_name}
+            WHERE quiz_id = quizzes.id
+            AND workflow_state = 'complete'
+            AND user_id = ?) = 0", user_id).
+      limit(limit).
+      order("quizzes.due_at").
+      preload(:context)
+  }
+
+  scope :not_locked, -> {
+    where("(quizzes.unlock_at IS NULL OR quizzes.unlock_at<:now) AND (quizzes.lock_at IS NULL OR quizzes.lock_at>:now)",
+      :now => Time.zone.now)
+  }
+
+  scope :not_ignored_by, lambda { |user, purpose|
+    where("NOT EXISTS (?)",
+          Ignore.where(asset_type: 'Quizzes::Quiz',
+                       user_id: user,
+                       purpose: purpose).where('asset_id=quizzes.id'))
+  }
+
+  def peer_reviews_due_at
+    nil
+  end
+
+  def submission_action_string
+    t :submission_action_take_quiz, "Take %{title}", :title => title
+  end
 
   def teachers
     context.teacher_enrollments.map(&:user)
@@ -1249,6 +1323,20 @@ class Quizzes::Quiz < ActiveRecord::Base
     if assignment
       assignment.submission_for_student(student).excused?
     end
+  end
+
+  def due_for_any_student_in_closed_grading_period?(periods = nil)
+    return false unless self.due_at || self.has_overrides?
+
+    periods ||= GradingPeriod.for(self.course)
+    due_in_closed_period =
+      !self.only_visible_to_overrides &&
+      GradingPeriodHelper.date_in_closed_grading_period?(self.due_at, periods)
+    due_in_closed_period ||= self.active_assignment_overrides.any? do |override|
+      GradingPeriodHelper.date_in_closed_grading_period?(override.due_at, periods)
+    end
+
+    due_in_closed_period
   end
 
   delegate :feature_enabled?, to: :context

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../../qti_helper')
 if Qti.migration_executable
 describe "Converting Blackboard 8 qti" do
@@ -6,7 +23,7 @@ describe "Converting Blackboard 8 qti" do
     expect(get_question_hash(bb8_question_dir, 'multiple_choice')).to eq BB8Expected::MULTIPLE_CHOICE
   end
 
-  it "should convert multiple choice" do
+  it "should convert multiple choice with blanke answers" do
     expect(get_question_hash(bb8_question_dir, 'multiple_choice_blank_answers')).to eq BB8Expected::MULTIPLE_CHOICE_BLANK_ANSWERS
   end
 
@@ -437,7 +454,7 @@ module BB8Expected
                        :unit_required=>true,
                        :partial_credit_tolerance=>0.1,
                        :incorrect_comments=>"You got it wrong...",
-                       :formulas=>[],
+                       :formulas=>[{:formula => "<math><apply><minus/><cn>10</cn><ci>x</ci></apply></math>"}],
                        :unit_case_sensitive=>false,
                        :points_possible=>10}
 
@@ -463,7 +480,7 @@ module BB8Expected
                         :unit_required=>false,
                         :partial_credit_tolerance=>0,
                         :incorrect_comments=>"Wrong.",
-                        :formulas=>[],
+                        :formulas=>[{:formula => "<math><apply><times/><apply><power/><apply><times/><cn>10</cn><ci>F</ci></apply><apply><minus/><cn>1</cn></apply></apply><apply><plus/><apply><times/><cn>1000</cn><ci>F</ci><ci>r</ci><apply><power/><ci>i</ci><apply><minus/><cn>1</cn></apply></apply><apply><minus/><cn>1</cn><apply><power/><apply><plus/><cn>1</cn><apply><divide/><ci>i</ci><cn>200</cn></apply></apply><apply><minus/><apply><times/><cn>2</cn><apply><minus/><ci>Y</ci><cn>10</cn></apply></apply></apply></apply></apply></apply><apply><times/><cn>1000</cn><ci>F</ci><apply><power/><apply><plus/><cn>1</cn><apply><divide/><ci>i</ci><cn>200</cn></apply></apply><apply><minus/><apply><times/><cn>2</cn><apply><minus/><ci>Y</ci><cn>10</cn></apply></apply></apply></apply></apply></apply><apply><plus/><cn>1</cn><apply><times/><apply><divide/><ci>i</ci><cn>100</cn></apply><apply><divide/><ci>n</ci><cn>360</cn></apply></apply></apply></apply></math>"}],
                         :unit_case_sensitive=>false,
                         :points_possible=>10}
 

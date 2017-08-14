@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -46,7 +46,9 @@ describe Login::SamlController do
            sp_name_qualifier: nil,
            session_index: nil,
            process: nil,
-           issuer: "saml_entity"
+           issuer: "saml_entity",
+           saml_attributes: {},
+           used_key: nil
           )
     )
 
@@ -88,7 +90,9 @@ describe Login::SamlController do
              sp_name_qualifier: nil,
              session_index: nil,
              process: nil,
-             issuer: "such a lie"
+             issuer: "such a lie",
+             saml_attributes: {},
+             used_key: nil
         )
     )
 
@@ -114,7 +118,9 @@ describe Login::SamlController do
            sp_name_qualifier: nil,
            session_index: nil,
            process: nil,
-           issuer: "saml_entity"
+           issuer: "saml_entity",
+           saml_attributes: {},
+           used_key: nil
           )
     )
 
@@ -152,6 +158,8 @@ describe Login::SamlController do
     account = account_with_saml
     ap = account.authentication_providers.first
     ap.update_attribute(:jit_provisioning, true)
+    ap.federated_attributes = { 'display_name' => 'eduPersonNickname' }
+    ap.save!
 
     Onelogin::Saml::Response.stubs(:new).returns(
       stub('response',
@@ -163,7 +171,9 @@ describe Login::SamlController do
            sp_name_qualifier: nil,
            session_index: nil,
            process: nil,
-           issuer: "saml_entity"
+           issuer: "saml_entity",
+           saml_attributes: { 'eduPersonNickname' => 'Cody Cutrer' },
+           used_key: nil
           ))
 
     # We dont want to log them out of everything.
@@ -176,6 +186,70 @@ describe Login::SamlController do
     expect(response).to redirect_to(dashboard_url(login_success: 1))
     p = account.pseudonyms.active.by_unique_id(unique_id).first!
     expect(p.authentication_provider).to eq ap
+    expect(p.user.short_name).to eq 'Cody Cutrer'
+  end
+
+  it "updates federated attributes" do
+    account = account_with_saml
+    user_with_pseudonym(active_all: 1, account: account)
+
+    ap = account.authentication_providers.first
+    ap.federated_attributes = { 'display_name' => 'eduPersonNickname' }
+    ap.save!
+
+    Onelogin::Saml::Response.stubs(:new).returns(
+      stub('response',
+           is_valid?: true,
+           success_status?: true,
+           name_id: @pseudonym.unique_id,
+           name_identifier_format: nil,
+           name_qualifier: nil,
+           sp_name_qualifier: nil,
+           session_index: nil,
+           process: nil,
+           issuer: "saml_entity",
+           saml_attributes: { 'eduPersonNickname' => 'Cody Cutrer' },
+           used_key: nil)
+    )
+    LoadAccount.stubs(:default_domain_root_account).returns(account)
+
+    post :create, :SAMLResponse => "foo"
+    expect(response).to redirect_to(dashboard_url(login_success: 1))
+    expect(@user.reload.short_name).to eq 'Cody Cutrer'
+  end
+
+  it "handles student logout for parent registration" do
+    unique_id = 'foo@example.com'
+
+    account1 = account_with_saml(
+      parent_registration: true,
+      saml_log_out_url: "http://example.com/logout"
+    )
+    user1 = user_with_pseudonym({:active_all => true, :username => unique_id})
+    @pseudonym.account = account1
+    @pseudonym.save!
+
+    Onelogin::Saml::Response.stubs(:new).returns(
+        stub('response',
+             is_valid?: true,
+             success_status?: true,
+             name_id: unique_id,
+             name_identifier_format: nil,
+             name_qualifier: nil,
+             sp_name_qualifier: nil,
+             session_index: nil,
+             process: nil,
+             issuer: "such a lie",
+             saml_attributes: {},
+             used_key: nil
+        )
+    )
+
+    controller.request.env['canvas.domain_root_account'] = account1
+    session[:parent_registration] = { observee: { unique_id: 'foo@example.com' } }
+    post :create, :SAMLResponse => "foo"
+    expect(response).to be_redirect
+    expect(response.location).to match(/example.com\/logout/)
   end
 
   context "multiple authorization configs" do
@@ -200,6 +274,8 @@ describe Login::SamlController do
           sp_name_qualifier: nil,
           session_index: nil,
           process: nil,
+          saml_attributes: {},
+          used_key: nil
       }
     end
 
@@ -212,9 +288,9 @@ describe Login::SamlController do
     end
 
     it "should saml_logout with multiple authorization configs" do
-      Onelogin::Saml::LogoutResponse.stubs(:parse).returns(
-        stub('response', @stub_hash)
-      )
+      logout_response = SAML2::LogoutResponse.new
+      logout_response.issuer = SAML2::NameID.new(@aac2.idp_entity_id)
+      expect(SAML2::Bindings::HTTPRedirect).to receive(:decode).and_return(logout_response)
       controller.request.env['canvas.domain_root_account'] = @account
       get :destroy, :SAMLResponse => "foo", :RelayState => "/courses"
 
@@ -248,7 +324,9 @@ describe Login::SamlController do
         name_qualifier: nil,
         sp_name_qualifier: nil,
         session_index: nil,
-        process: nil
+        process: nil,
+        saml_attributes: {},
+        used_key: nil
       }
     end
 
@@ -319,10 +397,6 @@ describe Login::SamlController do
         )
         controller.request.env['canvas.domain_root_account'] = @account
         post :create, :SAMLResponse => "foo", :RelayState => "/courses"
-
-        expect(response).to redirect_to(courses_url)
-        expect(session[:saml_unique_id]).to eq @unique_id
-        expect(session[:login_aac]).to eq @aac2.id
       end
 
       describe '#destroy' do
@@ -333,12 +407,12 @@ describe Login::SamlController do
         end
 
         it "should find the correct AAC" do
-          @aac1.any_instantiation.expects(:saml_settings).never
-          @aac2.any_instantiation.expects(:saml_settings).at_least_once
+          expect(@aac1.any_instantiation).to receive(:debugging?).never
+          expect(@aac2.any_instantiation).to receive(:debugging?).at_least(1)
 
-          Onelogin::Saml::LogoutResponse.stubs(:parse).returns(
-            stub('response', @stub_hash)
-          )
+          logout_response = SAML2::LogoutResponse.new
+          logout_response.issuer = SAML2::NameID.new(@aac2.idp_entity_id)
+          expect(SAML2::Bindings::HTTPRedirect).to receive(:decode).and_return(logout_response)
 
           controller.request.env['canvas.domain_root_account'] = @account
           get :destroy, :SAMLResponse => "foo"
@@ -347,11 +421,9 @@ describe Login::SamlController do
 
         it "should redirect a response to idp on logout with a SAMLRequest parameter" do
           controller.expects(:logout_current_user)
-          @stub_hash[:id] = '_42'
-
-          Onelogin::Saml::LogoutRequest.stubs(:parse).returns(
-            stub('request', @stub_hash)
-          )
+          logout_request = SAML2::LogoutRequest.new
+          logout_request.issuer = SAML2::NameID.new(@aac2.idp_entity_id)
+          expect(SAML2::Bindings::HTTPRedirect).to receive(:decode).and_return(logout_request)
 
           controller.request.env['canvas.domain_root_account'] = @account
           get :destroy, :SAMLRequest => "foo"
@@ -361,11 +433,9 @@ describe Login::SamlController do
         end
 
         it "returns bad request if SAMLRequest parameter doesn't match an AAC" do
-          @stub_hash[:id] = '_42'
-          @stub_hash[:issuer] = "hahahahahahaha"
-          Onelogin::Saml::LogoutRequest.stubs(:parse).returns(
-            stub('request', @stub_hash)
-          )
+          logout_request = SAML2::LogoutRequest.new
+          logout_request.issuer = SAML2::NameID.new("hahahahahahaha")
+          expect(SAML2::Bindings::HTTPRedirect).to receive(:decode).and_return(logout_request)
 
           controller.request.env['canvas.domain_root_account'] = @account
           get :destroy, :SAMLRequest => "foo"
@@ -378,9 +448,9 @@ describe Login::SamlController do
 
   context "/saml_logout" do
     it "should return bad request if SAML is not configured for account" do
-      Onelogin::Saml::LogoutResponse.expects(:parse).returns(
-        stub('response', issuer: 'entity')
-      )
+      logout_response = SAML2::LogoutResponse.new
+      logout_response.issuer = SAML2::NameID.new('entity')
+      expect(SAML2::Bindings::HTTPRedirect).to receive(:decode).and_return(logout_response)
 
       controller.expects(:logout_user_action).never
       controller.request.env['canvas.domain_root_account'] = @account
@@ -434,7 +504,8 @@ SAML
              issuer: "saml_entity",
              saml_attributes: {
                  'eduPersonPrincipalName' => "#{@unique_id}@example.edu"
-             }
+             },
+             used_key: nil
             )
       )
 
@@ -458,7 +529,9 @@ SAML
              sp_name_qualifier: nil,
              session_index: nil,
              process: nil,
-             issuer: "saml_entity"
+             issuer: "saml_entity",
+             saml_attributes: {},
+             used_key: nil
             )
       )
 
@@ -494,7 +567,8 @@ SAML
            issuer: "saml_entity",
            saml_attributes: {
              'eduPersonPrincipalName' => "#{unique_id}@example.edu"
-           }
+           },
+           used_key: nil
           )
     )
 
@@ -522,7 +596,9 @@ SAML
            sp_name_qualifier: nil,
            session_index: nil,
            process: nil,
-           issuer: "saml_entity"
+           issuer: "saml_entity",
+           saml_attributes: {},
+           used_key: nil
           )
     )
 

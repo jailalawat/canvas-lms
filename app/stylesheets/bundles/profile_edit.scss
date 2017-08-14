@@ -1,6 +1,23 @@
+/*
+ * Copyright (C) 2013 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import 'base/environment';
-@import 'themes/feature_flags';
-@import 'vendor/jquery.jcrop';
+@import 'pages/shared/feature_flags';
 
 .profile_table {
   td {
@@ -23,7 +40,7 @@
   }
   .data_description {
     font-size: 0.8em;
-    color: $ic-color-dark;
+    color: $ic-font-color-dark;
   }
 }
 
@@ -263,13 +280,33 @@ li[id$=service_google_docs] {
 
 }
 
-.jcrop-holder > div > div {
-  border-radius: 100%;
-  border: 2px solid #D3D9D9;
-  box-sizing: border-box;
-  margin: -2px;
-}
-
 #disable_inbox {
   vertical-align: top;
+}
+
+a.delete_key_link {
+  color: $ic-color-medium-darker;
+}
+.avatar-preview .CanvasCropper {
+  max-width: 270px;
+  max-height: 270px;
+  overflow: hidden;
+  .Cropper {
+    max-width: 100%;
+    max-height: 100%;
+  }
+  // this rule does 2 things
+  // 1. makes the cropper-box round
+  // 2. attaches a translucent box shadow that's large
+  //    enough to extend beyond the bounds of the total cropper
+  .Cropper-box {
+    box-shadow: 0px 0px 0px 270px rgba(0,0,0,.7);
+    border-radius: 50%;
+  }
+  // this rule makes the 4 translucent divs that react-cropper
+  // originally used to mask the image transparent, because we don't
+  // need it any more and don't want to double up the mask
+  div[class^="DraggableResizable-"] {
+    background-color: initial !important;
+  }
 }

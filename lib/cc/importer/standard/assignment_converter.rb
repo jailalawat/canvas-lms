@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -107,16 +107,17 @@ module CC::Importer::Standard
         val = get_node_val(meta_doc, string_type)
         assignment[string_type] = val unless val.nil?
       end
-      ["turnitin_enabled", "peer_reviews",
+      ["turnitin_enabled", "vericite_enabled", "peer_reviews",
        "automatic_peer_reviews", "anonymous_peer_reviews", "freeze_on_copy",
        "grade_group_students_individually", "external_tool_new_tab", "moderated_grading",
-       "rubric_use_for_grading", "rubric_hide_score_total", "muted", "has_group_category"].each do |bool_val|
+       "rubric_use_for_grading", "rubric_hide_score_total", "muted", "has_group_category",
+       "omit_from_final_grade", "intra_group_peer_reviews", "only_visible_to_overrides"].each do |bool_val|
         val = get_bool_val(meta_doc, bool_val)
         assignment[bool_val] = val unless val.nil?
       end
       ['due_at', 'lock_at', 'unlock_at', 'peer_reviews_due_at'].each do |date_type|
         val = get_time_val(meta_doc, date_type)
-        assignment[date_type] = val unless val.nil?
+        assignment[date_type] = val
       end
       ['points_possible'].each do |f_type|
         val = get_float_val(meta_doc, f_type)
@@ -124,6 +125,21 @@ module CC::Importer::Standard
       end
       assignment['position'] = get_int_val(meta_doc, 'position')
       assignment['peer_review_count'] = get_int_val(meta_doc, 'peer_review_count')
+      if meta_doc.at_css("assignment_overrides override")
+        assignment[:assignment_overrides] = []
+        meta_doc.css("assignment_overrides override").each do |override_node|
+          override = {
+            set_type: override_node["set_type"],
+            set_id: override_node["set_id"],
+            title: override_node["title"]
+          }
+          AssignmentOverride.overridden_dates.each do |field|
+            next unless override_node.has_attribute?(field.to_s)
+            override[field] = override_node[field.to_s]
+          end
+          assignment[:assignment_overrides] << override
+        end
+      end
 
       assignment
     end

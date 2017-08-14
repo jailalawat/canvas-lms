@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/course_copy_helper.rb')
 
 describe ContentMigration do
@@ -449,6 +466,51 @@ describe ContentMigration do
       data = quiz_to.quiz_data.to_yaml
       expect(data).to_not include("LINK.PLACEHOLDER")
       expect(data).to include("courses/#{@copy_to.id}/discussion_topics/#{topic_to.id}")
+    end
+
+    it "should work on all_day calendar events" do
+      @old_start = DateTime.parse("01 Jul 2012 06:00:00 UTC +00:00")
+      @new_start = DateTime.parse("05 Aug 2012 06:00:00 UTC +00:00")
+
+      all_day_event = @copy_from.calendar_events.create!(:title => "an event",
+        :start_at => @old_start + 4.days, :all_day => true)
+
+      options = {
+        :everything => true,
+        :shift_dates => true,
+        :old_start_date => 'Jul 1, 2012',
+        :old_end_date => 'Jul 11, 2012',
+        :new_start_date => 'Aug 5, 2012',
+        :new_end_date => 'Aug 15, 2012'
+      }
+      @cm.copy_options = options
+      @cm.save!
+
+      run_course_copy
+
+      new_event = @copy_to.calendar_events.where(:migration_id => mig_id(all_day_event)).first
+      expect(new_event.all_day?).to be_truthy
+      expect(new_event.all_day_date).to eq (@new_start + 4.days).to_date
+    end
+
+    it "should remove dates for all-day events" do
+      @old_start = DateTime.parse("01 Jul 2012 06:00:00 UTC +00:00")
+
+      all_day_event = @copy_from.calendar_events.create!(:title => "an event",
+        :start_at => @old_start + 4.days, :all_day => true)
+
+      options = {
+        :everything => true,
+        :remove_dates => true
+      }
+      @cm.copy_options = options
+      @cm.save!
+
+      run_course_copy
+
+      new_event = @copy_to.calendar_events.where(:migration_id => mig_id(all_day_event)).first
+      expect(new_event.all_day?).to be_truthy
+      expect(new_event.all_day_date).to be_nil
     end
   end
 end

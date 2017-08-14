@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 class Quizzes::QuizQuestionBuilder
   QUIZ_GROUP_ENTRY = 'quiz_group'
   DEFAULT_OPTIONS = {
@@ -46,7 +63,7 @@ class Quizzes::QuizQuestionBuilder
 
   # Build the question data for a specific submission. This is what the user
   # will end up taking in their quiz.
-  # 
+  #
   # Based on the type of entries the quiz has in its quiz_data, each
   # submission's quiz_data construct may be unique since questions may be drawn
   # randomly out of pre-defined pools.
@@ -69,9 +86,9 @@ class Quizzes::QuizQuestionBuilder
     quiz_data.reduce([]) do |submission_questions, descriptor|
       # pulling from question bank
       questions = if descriptor[:entry_type] == QUIZ_GROUP_ENTRY && descriptor[:assessment_question_bank_id]
-        if bank = ::AssessmentQuestionBank.where(id: descriptor[:assessment_question_bank_id]).first
+        if (bank = ::AssessmentQuestionBank.where(id: descriptor[:assessment_question_bank_id]).first)
           pool = BankPool.new(bank, @picked, &method(:mark_picked))
-          pool.draw(quiz_id, descriptor[:pick_count]).each do |question|
+          pool.draw(quiz_id, descriptor[:id], descriptor[:pick_count]).each do |question|
             question[:points_possible] = descriptor[:question_points]
             question[:published_at] = descriptor[:published_at]
 
@@ -89,7 +106,7 @@ class Quizzes::QuizQuestionBuilder
       # pulling from questions defined directly in a group
       elsif descriptor[:entry_type] == QUIZ_GROUP_ENTRY
         pool = GroupPool.new(descriptor[:questions], @picked, &method(:mark_picked))
-        pool.draw(quiz_id, descriptor[:pick_count]).each do |question|
+        pool.draw(quiz_id, descriptor[:id], descriptor[:pick_count]).each do |question|
           question[:points_possible] = descriptor[:question_points]
         end
 
@@ -172,7 +189,7 @@ class Quizzes::QuizQuestionBuilder
       if q[:answers].first
         q[:answers].first[:variables].each do |variable|
           re = Regexp.new("\\[#{variable[:name]}\\]")
-          text = text.gsub(re, variable[:value].to_s)
+          text = text.gsub(re, TextHelper.round_if_whole(variable[:value]).to_s)
         end
       end
       q[:question_text] = text
@@ -202,7 +219,7 @@ class Quizzes::QuizQuestionBuilder
     ::ActiveRecord::Base.t(*args)
   end
 
-  # @property [Fixnum] submission_question_index
+  # @property [Integer] submission_question_index
   # @private
   #
   # A counter used in generating question names for students based on the

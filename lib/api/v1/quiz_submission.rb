@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2012 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -61,8 +61,12 @@ module Api::V1::QuizSubmission
     })
 
     hash.merge!({
-      html_url: course_quiz_quiz_submission_url(context, quiz, qs),
+      html_url: course_quiz_quiz_submission_url(context, quiz, qs)
     })
+
+    hash.merge!({
+      result_url: course_quiz_history_url(context, quiz, quiz_submission_id: qs.id, version: qs.version_number)
+    }) if qs.completed? || qs.needs_grading?
 
     hash
   end

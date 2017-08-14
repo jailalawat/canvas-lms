@@ -1,8 +1,25 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
 
 context "accessing public content" do
   before :each do
-    course(:active_all => true)
+    course_factory(active_all: true)
     @course.update_attribute(:is_public, true)
     @course.update_attribute(:is_public_to_auth_users, true)
   end
@@ -22,7 +39,7 @@ context "accessing public content" do
         assert_unauthorized
       end
 
-      user
+      user_factory
       user_session(@user)
 
       Timecop.freeze(5.seconds.ago) do
@@ -47,7 +64,7 @@ context "accessing public content" do
   end
 
   it "should show quizzes" do
-    quiz = @course.quizzes.create!(:name => "blah")
+    quiz = @course.quizzes.create!
     quiz.publish!
 
     test_public_access do

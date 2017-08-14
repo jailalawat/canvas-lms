@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'Backbone'
   'compiled/collections/AssignmentGroupCollection'
@@ -103,6 +120,7 @@ define [
     view = new AssignmentGroupListItemView
       model: model
       course: new Backbone.Model(id: 1)
+      userIsAdmin: options.userIsAdmin
     view.$el.appendTo $('#fixtures')
     view.render()
 
@@ -122,9 +140,35 @@ define [
     assignmentGroupsView.render()
     assignmentGroupsView
 
-  module 'AssignmentGroupListItemView',
+  test "shows imported icon when integration_data is not empty", ->
+    model = createAssignmentGroup()
+    model.set('integration_data', { property: 'value' })
+    view = createView(model)
+    ok view.$("#assignment_group_#{model.id} .ig-header-title .icon-sis-imported").length
+
+  test "shows imported icon with custom SIS_NAME when integration_data is not empty", ->
+    ENV.SIS_NAME = 'PowerSchool'
+    model = createAssignmentGroup()
+    model.set('integration_data', { property: 'value' })
+    view = createView(model)
+    equal view.$("#assignment_group_#{model.id} .ig-header-title .icon-sis-imported")[0].title, 'Imported from PowerSchool'
+
+  test "does not show imported icon when integration_data is not set", ->
+    model = createAssignmentGroup()
+    view = createView(model)
+    ok !view.$("#assignment_group_#{model.id} .ig-header-title .icon-sis-imported").length
+
+  test "does not show imported icon when integration_data is empty", ->
+    model = createAssignmentGroup()
+    model.set('integration_data', { })
+    view = createView(model)
+    ok !view.$("#assignment_group_#{model.id} .ig-header-title .icon-sis-imported").length
+
+  QUnit.module 'AssignmentGroupListItemView as a teacher',
     setup: ->
-      fakeENV.setup()
+      fakeENV.setup({
+        current_user_roles: ['teacher']
+      })
       @model = createAssignmentGroup()
       $(document).off()
       elementToggler.bind()
@@ -171,6 +215,12 @@ define [
     ok view.editGroupView
     ok view.createAssignmentView
     ok view.deleteGroupView
+
+  test "initializes editGroupView with userIsAdmin property", ->
+    view = createView(@model, userIsAdmin: true)
+    ok view.editGroupView.userIsAdmin
+    view = createView(@model, userIsAdmin: false)
+    notOk view.editGroupView.userIsAdmin
 
   test "initializes no child views if can't manage", ->
     view = createView(@model, canManage: false)
@@ -240,11 +290,39 @@ define [
     view = createView(@model)
     deepEqual view.cacheKey(), ["course", 1, "user", 1, "ag", 1, "expanded"]
 
-  test "not allow group to be deleted with frozen assignments", ->
+  test "disallows deleting groups with frozen assignments", ->
     assignments = @model.get('assignments')
     assignments.first().set('frozen', true)
     view = createView(@model)
-    ok !view.$("#assignment_group_#{@model.id} a.delete_group").length
+    ok view.$("#assignment_group_#{@model.id} a.delete_group.disabled").length
+
+  test "disallows deleting groups with assignments due in closed grading periods", ->
+    @model.set('any_assignment_in_closed_grading_period', true)
+    assignments = @model.get('assignments')
+    assignments.first().set('frozen', false)
+    view = createView(@model)
+    ok view.$("#assignment_group_#{@model.id} a.delete_group.disabled").length
+
+  test "allows deleting non-frozen groups without assignments due in closed grading periods", ->
+    @model.set('any_assignment_in_closed_grading_period', false)
+    view = createView(@model)
+    ok view.$("#assignment_group_#{@model.id} a.delete_group:not(.disabled)").length
+
+  test "allows deleting frozen groups for admins", ->
+    assignments = @model.get('assignments')
+    assignments.first().set('frozen', true)
+    view = createView(@model, userIsAdmin: true)
+    ok view.$("#assignment_group_#{@model.id} a.delete_group:not(.disabled)").length
+
+  test "allows deleting groups with assignments due in closed grading periods for admins", ->
+    @model.set('any_assignment_in_closed_grading_period', true)
+    view = createView(@model, userIsAdmin: true)
+    ok view.$("#assignment_group_#{@model.id} a.delete_group:not(.disabled)").length
+
+  test 'does not provide a view to delete a group with assignments due in a closed grading period', ->
+    @model.set('any_assignment_in_closed_grading_period', true)
+    view = createView(@model)
+    ok !view.deleteGroupView
 
   test "correctly displays rules tooltip", ->
     model = createAssignmentGroup(group3())
@@ -252,3 +330,43 @@ define [
     anchor = view.$("#assignment_group_3 .ag-header-controls .tooltip_link")
     equal anchor.text(), "2 Rules"
     equal anchor.attr("title"), "Drop the lowest score and Drop the highest score"
+
+  test "insertAssignment", ->
+    view = createView(@model)
+    newAssignment = -> buildAssignment
+      "id":99
+      "name":"Math HW"
+      "due_at":"2013-08-23T23:59:00-06:00"
+      "points_possible":10
+      "position":4
+
+    numVisibleAssignments = view.visibleAssignments().length
+    view.insertAssignment(newAssignment(), assignment2())
+    newAssignments = view.visibleAssignments()
+    # Check we have something new in the view
+    equal newAssignments.length, numVisibleAssignments + 1
+
+  QUnit.module 'AssignmentGroupListItemView as an admin',
+    setup: ->
+      @model = createAssignmentGroup()
+      $(document).off()
+      elementToggler.bind()
+
+    teardown: ->
+      $("form.dialogFormView").remove()
+      $('#fixtures').empty()
+      fakeENV.teardown()
+
+  test 'provides a view to delete a group when canDelete is true', ->
+    @stub @model, 'canDelete', -> true
+    @model.set('any_assignment_in_closed_grading_period', true)
+    view = createView(@model, userIsAdmin: true)
+    ok view.deleteGroupView
+    notOk view.$("#assignment_group_#{@model.id} a.delete_group.disabled").length
+
+  test 'provides a view to delete a group when canDelete is false', ->
+    @stub @model, 'canDelete', -> false
+    @model.set('any_assignment_in_closed_grading_period', true)
+    view = createView(@model, userIsAdmin: true)
+    ok view.deleteGroupView
+    notOk view.$("#assignment_group_#{@model.id} a.delete_group.disabled").length

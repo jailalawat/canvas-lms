@@ -1,14 +1,32 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'underscore'
   'i18n!react_files'
   'react'
+  'react-dom'
   '../mixins/BackboneMixin'
   'compiled/models/Folder'
   'compiled/fn/preventDefault'
   '../modules/FocusStore'
   'classnames'
   'compiled/jquery.rails_flash_notifications'
-], (_, I18n, React, BackboneMixin, Folder, preventDefault, FocusStore, classnames) ->
+], (_, I18n, React, ReactDOM, BackboneMixin, Folder, preventDefault, FocusStore, classnames) ->
 
   FolderChild =
     displayName: 'FolderChild'
@@ -36,22 +54,26 @@ define [
       # If the activeElement is currently the "body" that means they clicked on some type of cog to enable this state.
       # This is an edge case that ensures focus remains in context of whats being edited, in this case, the nameLink
       @previouslyFocusedElement = if document.activeElement.nodeName == "BODY"
-                                    @refs.nameLink?.getDOMNode()
+                                    ReactDOM.findDOMNode(@refs.nameLink)
                                   else
                                     document.activeElement
 
       setTimeout () =>
-        @refs.newName?.getDOMNode().focus()
+        input = @refs.newName
+        if input
+          ext = input.value.lastIndexOf('.')
+          input.setSelectionRange(0, if ext < 0 then input.value.length else ext)
+          input.focus()
       , 0
 
     focusNameLink: ->
       setTimeout () =>
-        React.findDOMNode(@refs.nameLink)?.focus()
-      , 0
+        ReactDOM.findDOMNode(@refs.nameLink)?.focus()
+      , 100
 
     saveNameEdit: ->
       @setState editing: false, @focusNameLink
-      newName = @refs.newName.getDOMNode().value
+      newName = ReactDOM.findDOMNode(@refs.newName).value
       @props.model.save(name: newName, {
         success: =>
           @focusNameLink()
@@ -93,7 +115,7 @@ define [
         attrs.onDrop = (event) =>
           @props.dndOptions.onItemDrop(event, @props.model, ({success, event}) =>
             toggleActive(false)
-            React.unmountComponentAtNode(@refs.FolderChild.getDOMNode().parentNode) if success
+            ReactDOM.unmountComponentAtNode(ReactDOM.findDOMNode(@refs.FolderChild).parentNode) if success
           )
       attrs
 
@@ -106,5 +128,5 @@ define [
         return false
 
     handleFileLinkClick: ->
-      FocusStore.setItemToFocus @refs.nameLink.getDOMNode()
+      FocusStore.setItemToFocus ReactDOM.findDOMNode(@refs.nameLink)
       @props.previewItem()

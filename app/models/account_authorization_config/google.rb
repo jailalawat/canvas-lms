@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -30,12 +30,10 @@ class AccountAuthorizationConfig::Google < AccountAuthorizationConfig::OpenIDCon
   end
 
   # Rename db field
-  def hosted_domain=(val)
-    self.auth_filter = val.presence
-  end
+  alias_attribute :hosted_domain, :auth_filter
 
-  def hosted_domain
-    auth_filter
+  def hosted_domain=(domain)
+    self.auth_filter = domain.presence
   end
 
   def self.login_attributes
@@ -43,8 +41,19 @@ class AccountAuthorizationConfig::Google < AccountAuthorizationConfig::OpenIDCon
   end
   validates :login_attribute, inclusion: login_attributes
 
+  def self.recognized_federated_attributes
+    [
+      'email'.freeze,
+      'family_name'.freeze,
+      'given_name'.freeze,
+      'locale'.freeze,
+      'name'.freeze,
+      'sub'.freeze,
+    ].freeze
+  end
+
   def unique_id(token)
-    id_token = JWT.decode(token.params['id_token'], nil, false).first
+    id_token = claims(token)
     if hosted_domain && id_token['hd'] != hosted_domain
       # didn't make a "nice" exception for this, cause it should never happen.
       # either we got MITM'ed (on the server side), or Google's docs lied;
@@ -56,6 +65,10 @@ class AccountAuthorizationConfig::Google < AccountAuthorizationConfig::OpenIDCon
 
   protected
 
+  def userinfo_endpoint
+    "https://www.googleapis.com/oauth2/v3/userinfo".freeze
+  end
+
   def authorize_options
     result = { scope: scope_for_options }
     result[:hd] = hosted_domain if hosted_domain
@@ -63,7 +76,12 @@ class AccountAuthorizationConfig::Google < AccountAuthorizationConfig::OpenIDCon
   end
 
   def scope
-    'email'.freeze if login_attribute == 'email'.freeze || hosted_domain
+    scopes = []
+    scopes << 'email' if login_attribute == 'email'.freeze ||
+        hosted_domain ||
+        federated_attributes.any? { |(_k, v)| v['attribute'] == 'email' }
+    scopes << 'profile' if federated_attributes.any? { |(_k, v)| v['attribute'] == 'name' }
+    scopes.join(' ')
   end
 
   def authorize_url

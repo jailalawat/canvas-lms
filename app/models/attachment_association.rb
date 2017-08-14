@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,5 +19,4 @@
 class AttachmentAssociation < ActiveRecord::Base
   belongs_to :attachment
   belongs_to :context, polymorphic: [:conversation_message, :submission, :course, :group]
-  attr_accessible :attachment, :context
 end

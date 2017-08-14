@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_dependency 'importers'
 
 module Importers
@@ -29,7 +46,7 @@ module Importers
         rubric = context.available_rubric(hash[:external_identifier]) unless migration.cross_institution?
 
         if !rubric
-          migration.add_warning(t(:no_context_found, %{The external Rubric couldn't be found for "%{title}", creating a copy.}, :title => hash[:title]))
+          Rails.logger.warn("The external Rubric couldn't be found for \"#{hash[:title]}\", creating a copy.")
         end
       end
 
@@ -42,6 +59,7 @@ module Importers
         item.migration_id = hash[:migration_id]
         item.workflow_state = 'active' if item.deleted?
         item.title = hash[:title]
+        item.populate_rubric_title # just in case
         item.description = hash[:description]
         item.points_possible = hash[:points_possible].to_f
         item.read_only = hash[:read_only] unless hash[:read_only].nil?
@@ -62,6 +80,7 @@ module Importers
           end
         end
 
+        item.skip_updating_points_possible = true
         migration.add_imported_item(item)
         item.save!
       end

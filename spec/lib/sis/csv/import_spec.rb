@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -33,7 +33,7 @@ describe SIS::CSV::Import do
   it "should error files with invalid UTF-8" do
     importer = process_csv_data(
       "xlist_course_id,section_id,status",
-      force_string_encoding("ABC2119_ccutrer_2012201_xlist,26076.20122\xA0,active")
+      "ABC2119_ccutrer_2012201_xlist,26076.20122\xA0,active".force_encoding("UTF-8")
     )
     expect(importer.errors.first.last).to eq "Invalid UTF-8"
   end
@@ -128,18 +128,12 @@ describe SIS::CSV::Import do
     process_csv_data_cleanly(
       "course_id,user_id,role,section_id,status,associated_user_id",
       ",U001,student,S001,active,",
-      ",U002,student,S002,active,",
-      ",U003,student,S003,active,",
-      ",U004,student,S004,active,",
       ",U005,student,S005,active,",
       ",U006,student,S006,deleted,",
       ",U007,student,S007,deleted,",
       ",U008,student,S008,deleted,",
       ",U009,student,S005,deleted,",
       ",U001,student,S001S,active,",
-      ",U002,student,S002S,active,",
-      ",U003,student,S003S,active,",
-      ",U004,student,S004S,active,",
       ",U005,student,S005S,active,",
       ",U006,student,S006S,deleted,",
       ",U007,student,S007S,deleted,",

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,7 +22,7 @@ describe 'MessageDispatcher' do
 
   describe ".dispatch" do
     before do
-      message_model(:dispatch_at => Time.now, :workflow_state => 'staged', :to => 'somebody', :updated_at => Time.now.utc - 11.minutes, :user => user, :path_type => 'email')
+      message_model(:dispatch_at => Time.now, :workflow_state => 'staged', :to => 'somebody', :updated_at => Time.now.utc - 11.minutes, :user => user_factory, :path_type => 'email')
     end
 
     it "should reschedule on Mailer delivery error" do
@@ -49,7 +49,7 @@ describe 'MessageDispatcher' do
 
   describe ".batch_dispatch" do
     before do
-      @messages = (0...3).map { message_model(:dispatch_at => Time.now, :workflow_state => 'staged', :to => 'somebody', :updated_at => Time.now.utc - 11.minutes, :user => user, :path_type => 'email') }
+      @messages = (0...3).map { message_model(:dispatch_at => Time.now, :workflow_state => 'staged', :to => 'somebody', :updated_at => Time.now.utc - 11.minutes, :user => user_factory, :path_type => 'email') }
     end
 
     it "should reschedule on Mailer delivery error, but not on canceled Message" do
@@ -59,7 +59,7 @@ describe 'MessageDispatcher' do
       @messages[0].cancel
 
       am_message = mock()
-      am_message.expects(:deliver).returns(true)
+      am_message.expects(:deliver_now).returns(true)
       Mailer.expects(:create_message).twice.raises(Timeout::Error).then.returns(am_message)
 
       track_jobs { Delayed::Worker.new.perform(job) }

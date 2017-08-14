@@ -1,13 +1,30 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'underscore'
   'react'
+  'react-dom'
+  'react-addons-test-utils'
   'jsx/files/UsageRightsSelectBox'
-  ], ($, _, React, UsageRightsSelectBox ) ->
+  ], ($, _, React, ReactDOM, TestUtils, UsageRightsSelectBox ) ->
 
-    TestUtils = React.addons.TestUtils
-
-    module "UsageRightsSelectBox",
+    QUnit.module "UsageRightsSelectBox",
       setup: ->
       teardown: ->
         $("div.error_box").remove()
@@ -19,7 +36,7 @@ define [
 
       uRSB = TestUtils.renderIntoDocument(React.createElement(UsageRightsSelectBox, props))
       ok uRSB.refs.showMessageAlert != undefined, "message is being shown"
-      React.unmountComponentAtNode(uRSB.getDOMNode().parentNode)
+      ReactDOM.unmountComponentAtNode(uRSB.getDOMNode().parentNode)
 
     test "fetches license options when component mounts", ->
       server = sinon.fakeServer.create()
@@ -36,7 +53,7 @@ define [
       equal uRSB.state.licenseOptions[0].id, "cc_some_option", 'sets data just fine'
 
       server.restore()
-      React.unmountComponentAtNode(uRSB.getDOMNode().parentNode)
+      ReactDOM.unmountComponentAtNode(uRSB.getDOMNode().parentNode)
 
     test "inserts copyright into textbox when passed in", ->
       copyright = "all dogs go to taco bell"
@@ -46,7 +63,7 @@ define [
 
       uRSB = TestUtils.renderIntoDocument(React.createElement(UsageRightsSelectBox, props))
       equal uRSB.refs.copyright.getDOMNode().value, copyright
-      React.unmountComponentAtNode(uRSB.getDOMNode().parentNode)
+      ReactDOM.unmountComponentAtNode(uRSB.getDOMNode().parentNode)
 
     test "shows creative commons options when set up", ->
       server = sinon.fakeServer.create()
@@ -65,4 +82,4 @@ define [
       equal uRSB.refs.creativeCommons.getDOMNode().value, "cc_some_option", "shows creative commons option"
 
       server.restore()
-      React.unmountComponentAtNode(uRSB.getDOMNode().parentNode)
+      ReactDOM.unmountComponentAtNode(uRSB.getDOMNode().parentNode)

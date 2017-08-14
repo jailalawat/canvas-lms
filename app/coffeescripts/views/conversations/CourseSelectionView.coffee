@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!conversations'
   'jquery'
@@ -43,12 +60,17 @@ define [
         collection = if is_complete then concluded else more
         collection.push(course.toJSON())
       )
+
+      group_json = @options.courses.groups.toJSON()
+      if @options.messageableOnly
+        group_json = _.filter(group_json, (g) -> g.can_message)
       data =
         defaultOption: @options.defaultOption,
         favorites: @options.courses.favorites.toJSON(),
         more: more,
         concluded: concluded,
-        groups: @options.courses.groups.toJSON()
+        groups: group_json
+
       @truncate_course_name_data(data)
       @$el.html(template(data))
       @$el.selectpicker('refresh')

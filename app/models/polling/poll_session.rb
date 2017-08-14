@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,8 +18,6 @@
 
 module Polling
   class PollSession < ActiveRecord::Base
-    attr_accessible :poll, :course, :course_section, :course_id, :course_section_id, :has_public_results
-
     belongs_to :course
     belongs_to :course_section
     belongs_to :poll, class_name: 'Polling::Poll'

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/conversations_common')
 
 describe "conversations new" do
@@ -36,7 +53,6 @@ describe "conversations new" do
     expect(f('#compose-message-subject')).to be_displayed
     # Send Individual messages checkbox displays and is unchecked
     expect(f('#bulk_message').selected?).to be_falsey
-    expect(f('.icon-question')).to have_attribute('title','This will send an individual message to each of the recipients')
     # Message field displays
     expect(f('.conversation_body')).to be_displayed
     # Attachment button displays
@@ -54,6 +70,7 @@ describe "conversations new" do
     script = "<IMG SRC=j&#X41vascript:alert('test2')> or <script>alert('xss');</script>"
     compose course: @course, to: [@s[0], @s[1]], subject: script, body: script
     wait_for_ajaximations
+    dismiss_flash_messages
     expect(alert_present?).to be_falsey
     select_view('sent')
     expect(alert_present?).to be_falsey
@@ -184,7 +201,7 @@ describe "conversations new" do
       select_message(0)
       reply_to_message
       expect(f('.message-count')).to include_text('2')
-
+      dismiss_flash_messages
       reply_to_message
       expect(f('.message-count')).to include_text('3')
     end
@@ -208,7 +225,7 @@ describe "conversations new" do
       f('#delete-btn').click
 
       driver.switch_to.alert.accept
-      expect_flash_message :success, /Message Deleted!/
+      expect_flash_message :success, "Message Deleted!"
     end
 
     it "should show a flash message when deleting a message via cog dropdown", priority: "1", test_id: 201493 do
@@ -219,7 +236,7 @@ describe "conversations new" do
       click_more_options(convo:true)
       f('.delete-btn.ui-corner-all').click
       driver.switch_to.alert.accept
-      expect_flash_message :success, /Message Deleted!/
+      expect_flash_message :success, "Message Deleted!"
     end
 
     it "should archive a message via the admin archive button", priority: "1", test_id: 201494 do

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
 
 describe SearchController do
@@ -56,7 +73,7 @@ describe SearchController do
     it "should allow filtering out non-messageable courses" do
       course_with_student_logged_in(:active_all => true)
       @course.update_attribute(:name, "course1")
-      @course2 = course(:active_all => 1)
+      @course2 = course_factory(active_all: true)
       @course2.enroll_student(@user).accept
       @course2.update_attribute(:name, "course2")
       term = @course2.root_account.enrollment_terms.create! :name => "Fall", :end_at => 1.day.ago
@@ -85,8 +102,8 @@ describe SearchController do
 
     context "with admin_context" do
       it "should return nothing if the user doesn't have rights" do
-        user_session(user)
-        course(:active_all => true).course_sections.create(:name => "other section")
+        user_session(user_factory)
+        course_factory(active_all: true).course_sections.create(:name => "other section")
         expect(response).to be_success
 
         get 'recipients', {
@@ -99,7 +116,7 @@ describe SearchController do
       it "should return sub-contexts" do
         account_admin_user()
         user_session(@user)
-        course(:active_all => true).course_sections.create(:name => "other section")
+        course_factory(active_all: true).course_sections.create(:name => "other section")
 
         get 'recipients', {
           :type => 'section', :skip_visibility_checks => true,
@@ -112,7 +129,7 @@ describe SearchController do
       it "should return sub-users" do
         account_admin_user
         user_session(@user)
-        course(:active_all => true).course_sections.create(:name => "other section")
+        course_factory(active_all: true).course_sections.create(:name => "other section")
         course_with_student(:active_all => true)
 
         get 'recipients', {
@@ -158,6 +175,35 @@ describe SearchController do
         expect(response.body).to include('Student1')
         expect(response.body).not_to include('Student2')
       end
+    end
+  end
+
+  describe "GET 'all_courses'" do
+    before(:once) do
+      @c1 = course_factory(course_name: 'foo', active_course: true)
+      @c2 = course_factory(course_name: 'bar', active_course: true)
+      @c2.update_attribute(:indexed, true)
+    end
+
+    it "returns indexed courses" do
+      get 'all_courses'
+      expect(assigns[:courses].map(&:id)).to eq [@c2.id]
+    end
+
+    it "searches" do
+      @c1.update_attribute(:indexed, true)
+      get 'all_courses', search: 'foo'
+      expect(assigns[:courses].map(&:id)).to eq [@c1.id]
+    end
+
+    it "doesn't explode with non-string searches" do
+      get 'all_courses', search: {'foo' => 'bar'}
+      expect(assigns[:courses].map(&:id)).to eq []
+    end
+
+    it "does not cache XHR requests" do
+      xhr :get, 'all_courses'
+      expect(response.headers["Pragma"]).to eq "no-cache"
     end
   end
 

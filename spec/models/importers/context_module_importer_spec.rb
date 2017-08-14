@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -40,6 +40,14 @@ describe "Importing modules" do
         expect(mod.name).to eq data[:title]
       end
     end
+  end
+
+  it "should import bb8 subitems" do
+    data = get_import_data('bb8', 'sub_items')
+    context = get_import_context('bb8')
+    migration = context.content_migrations.create!
+    Importers::ContextModuleImporter.import_from_migration(data, context, migration)
+    expect(context.context_module_tags.find_by_migration_id('res00796')).not_to be_deleted
   end
 
   it "should link to url objects" do

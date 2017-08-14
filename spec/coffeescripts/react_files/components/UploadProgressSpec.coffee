@@ -1,11 +1,29 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'react'
+  'react-dom'
   'jquery'
   'jsx/files/UploadProgress'
   'compiled/react_files/modules/FileUploader'
-], (React, $, UploadProgress, FileUploader) ->
+], (React, ReactDOM, $, UploadProgress, FileUploader) ->
 
-  module 'UploadProgress',
+  QUnit.module 'UploadProgress',
     setup: ->
       ProgressContainer = React.createClass
         getInitialState: ->
@@ -16,11 +34,11 @@ define [
 
       @uploader = @mockUploader('filename', 35)
       @node = $('<div>').appendTo('#fixtures')[0]
-      @progressContainer = React.render(React.createFactory(ProgressContainer)(uploader: @uploader), @node)
+      @progressContainer = ReactDOM.render(React.createFactory(ProgressContainer)(uploader: @uploader), @node)
       @prog = @progressContainer.refs.prog
 
     teardown: ->
-      React.unmountComponentAtNode(@progressContainer.getDOMNode().parentNode)
+      ReactDOM.unmountComponentAtNode(@progressContainer.getDOMNode().parentNode)
       $("#fixtures").empty()
 
     mockUploader: (name, progress) ->

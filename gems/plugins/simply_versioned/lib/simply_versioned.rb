@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 # SimplyVersioned 0.9.3
 #
 # Simple ActiveRecord versioning
@@ -113,7 +130,7 @@ module SimplyVersioned
 
       version = if version.kind_of?( Version )
         version
-      elsif version.kind_of?( Fixnum )
+      elsif version.kind_of?( Integer )
         self.versions.where(number: version).first
       end
 
@@ -171,6 +188,8 @@ module SimplyVersioned
     def version_number
       if @simply_versioned_version_number
         @simply_versioned_version_number
+      elsif @preloaded_current_version_number
+        @preloaded_current_version_number
       else
         self.versions.maximum(:number) || 0
       end
@@ -289,8 +308,11 @@ module SimplyVersioned
     alias_method :next, :next_version
 
     # Return the Version for this model with the next lower version
-    def previous_version( number )
-      populate_versionable reorder( 'number DESC' ).where( "number < ?", number ).limit(1).to_a.first
+    def previous_version(number = nil)
+      versions = reorder('number DESC')
+      versions = versions.where("number <= ?", number) if number
+      versions = versions.limit(2).to_a
+      populate_versionable versions.last if versions.length == 2
     end
     alias_method :previous, :previous_version
   end
@@ -299,7 +321,6 @@ module SimplyVersioned
     receiver.extend         ClassMethods
     receiver.send :include, InstanceMethods
   end
-
 end
 
 ActiveRecord::Base.send( :include, SimplyVersioned )

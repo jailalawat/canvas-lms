@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,8 +17,6 @@
 #
 
 class ExternalToolCollaboration < Collaboration
-  attr_accessible :url
-
   validates_presence_of :url
 
   def update_url

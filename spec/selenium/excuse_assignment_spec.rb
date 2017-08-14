@@ -1,9 +1,26 @@
-require File.expand_path(File.dirname(__FILE__) + '/helpers/gradebook2_common')
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
+require File.expand_path(File.dirname(__FILE__) + '/helpers/gradebook_common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/groups_common')
 
 describe 'Excuse an Assignment' do
   include_context "in-process server selenium tests"
-  include Gradebook2Common
+  include GradebookCommon
   include GroupsCommon
 
   before do |example|
@@ -16,7 +33,7 @@ describe 'Excuse an Assignment' do
   context 'Student view details' do
     before do
       @assignment = @course.assignments.create! title: 'Excuse Me', submission_types: 'online_text_entry', points_possible: 20
-      @assignment.grade_student @student, excuse: true
+      @assignment.grade_student @student, excuse: true, grader: @teacher
 
       user_session @student
     end
@@ -42,7 +59,7 @@ describe 'Excuse an Assignment' do
 
   it 'Gradebook export accounts for excused assignment', priority: "1", test_id: 209242 do
     assignment = @course.assignments.create! title: 'Excuse Me', points_possible: 20
-    assignment.grade_student @student, excuse: true
+    assignment.grade_student @student, excuse: true, grader: @teacher
 
     csv = CSV.parse(GradebookExporter.new(@course, @teacher).to_csv)
     _name, _id, _section, _sis_login_id, score = csv[-1]
@@ -74,7 +91,7 @@ describe 'Excuse an Assignment' do
 
     # Test case insensitivity on 'EX'
     assign = @course.assignments.create! title: 'Excuse Me 2', points_possible: 20
-    assign.grade_student @student, excuse: true
+    assign.grade_student @student, excuse: true, grader: @teacher
     rows = ['Student Name,ID,Section,Excuse Me 2',
             "Student,#{@student.id},,Ex"]
     _filename, fullpath, _data = get_file('gradebook.csv', rows.join("\n"))
@@ -105,8 +122,8 @@ describe 'Excuse an Assignment' do
     it 'excuses an assignment properly', priority: "1", test_id: 201949 do
       a1 = @course.assignments.create! title: 'Excuse Me', points_possible: 20
       a2 = @course.assignments.create! title: 'Don\'t Excuse Me', points_possible: 10
-      a1.grade_student(@student, {grade: 20})
-      a2.grade_student(@student, {grade: 5})
+      a1.grade_student(@student, grade: 20, grader: @teacher)
+      a2.grade_student(@student, grade: 5, grader: @teacher)
 
       get "/courses/#{@course.id}/gradebook/speed_grader?assignment_id=#{a2.id}"
       replace_content f('#grading-box-extended'), "EX\n"
@@ -131,7 +148,7 @@ describe 'Excuse an Assignment' do
       assignment = @course.assignments.build
       assignment.publish
 
-      assignment.grade_student(@student, {excuse: true})
+      assignment.grade_student(@student, excuse: true, grader: @teacher)
 
       get "/courses/#{@course.id}/gradebook/speed_grader?assignment_id=#{assignment.id}"
       expect(f('#combo_box_container .ui-selectmenu-item-icon i')).to have_class 'icon-check'
@@ -155,8 +172,8 @@ describe 'Excuse an Assignment' do
             points_possible: 20
         )
 
-        assignment.grade_student @students[1], {excuse: true}
-        assignment.grade_student @students[0], {grade: 15}
+        assignment.grade_student @students[1], excuse: true, grader: @teacher
+        assignment.grade_student @students[0], grade: 15, grader: @teacher
 
         score_values = []
 
@@ -194,11 +211,11 @@ describe 'Excuse an Assignment' do
         a2 = @course.assignments.create! title: 'Assignment', points_possible: 20
 
         @students.each do |student|
-          a1.grade_student student, grade: 5
-          a2.grade_student student, grade: 20
+          a1.grade_student student, grade: 5, grader: @teacher
+          a2.grade_student student, grade: 20, grader: @teacher
         end
 
-        a1.grade_student @students[1], excuse: true
+        a1.grade_student @students[1], excuse: true, grader: @teacher
 
         totals = []
         if view == 'srgb'
@@ -231,7 +248,7 @@ describe 'Excuse an Assignment' do
         replace_content f('#student_and_assignment_grade'), "EX\t"
         wait_for_ajaximations
       else
-        assignment.grade_student(@student, {excuse: true})
+        assignment.grade_student(@student, excuse: true, grader: @teacher)
       end
 
       user_session(@student)
@@ -253,11 +270,11 @@ describe 'Excuse an Assignment' do
         a2 = @course.assignments.create! title: 'Don\'t Excuse Me', grading_type: type, points_possible: 20
 
         if type == 'points'
-          a1.grade_student(@student, {grade: 13.2})
-          a2.grade_student(@student, {grade: 20})
+          a1.grade_student(@student, grade: 13.2, grader: @teacher)
+          a2.grade_student(@student, grade: 20, grader: @teacher)
         else
-          a1.grade_student(@student, {grade: '66%'})
-          a2.grade_student(@student, {grade: '100%'})
+          a1.grade_student(@student, grade: '66%', grader: @teacher)
+          a2.grade_student(@student, grade: '100%', grader: @teacher)
         end
 
         total = ''
@@ -310,7 +327,7 @@ describe 'Excuse an Assignment' do
 
     it 'excused grade shows up in grading modal', priority: "1", test_id: 209324 do
       assignment = @course.assignments.create! title: 'Excuse Me', points_possible: 20
-      assignment.grade_student @student, excuse: true
+      assignment.grade_student @student, excuse: true, grader: @teacher
 
       get "/courses/#{@course.id}/gradebook/"
       driver.action.move_to(f('.canvas_1 .slick-cell')).perform

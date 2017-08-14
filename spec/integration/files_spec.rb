@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
 
 require 'nokogiri'
@@ -9,9 +26,8 @@ describe FilesController do
 
   context "should support Submission as a context" do
     before(:each) do
-      course_with_teacher(:active_all => true, :user => @user)
+      course_with_teacher_logged_in(:active_all => true, :user => @user)
       host!("test.host")
-      login_as
       @me = @user
       submission_model
       @submission.attachment = attachment_model(:uploaded_data => stub_png_data, :content_type => 'image/png')
@@ -29,11 +45,11 @@ describe FilesController do
       expect(@me.valid_access_verifier?(qs['ts'], qs['sf_verifier'])).to be_truthy
       expect(qs['verifier']).to eq @submission.attachment.uuid
       location = response['Location']
-      reset!
+      remove_user_session
 
       get location
-      expect(response).to be_success
-      expect(response.content_type).to eq 'image/png'
+      # could be success or redirect, depending on S3 config
+      expect([200, 302]).to be_include(response.status)
       # ensure that the user wasn't logged in by the normal means
       expect(controller.instance_variable_get(:@current_user)).to be_nil
     end
@@ -41,8 +57,8 @@ describe FilesController do
     it "without safefiles" do
       HostUrl.stubs(:file_host_with_shard).returns(['test.host', Shard.default])
       get "http://test.host/files/#{@submission.attachment.id}/download", :inline => '1', :verifier => @submission.attachment.uuid
-      expect(response).to be_success
-      expect(response.content_type).to eq 'image/png'
+      # could be success or redirect, depending on S3 config
+      expect([200, 302]).to be_include(response.status)
       expect(response['Pragma']).to be_nil
       expect(response['Cache-Control']).not_to match(/no-cache/)
     end
@@ -51,7 +67,7 @@ describe FilesController do
   context "should support User as a context" do
     before(:each) do
       host!("test.host")
-      login_as
+      user_session(@user)
       @me = @user
       @att = @me.attachments.create(:uploaded_data => stub_png_data('my-pic.png'))
     end
@@ -67,7 +83,7 @@ describe FilesController do
       expect(uri.path).to eq "/users/#{@me.id}/files/#{@att.id}/my%20files/unfiled/my-pic.png"
       expect(@me.valid_access_verifier?(qs['ts'], qs['sf_verifier'])).to be_truthy
       location = response['Location']
-      reset!
+      remove_user_session
 
       get location
       expect(response).to be_success
@@ -132,9 +148,8 @@ describe FilesController do
   end
 
   it "should use relative urls for safefiles in course context" do
-    course_with_teacher(:active_all => true, :user => @user)
+    course_with_teacher_logged_in(:active_all => true, :user => @user)
     host!("test.host")
-    login_as
     a1 = attachment_model(:uploaded_data => stub_png_data, :content_type => 'image/png', :context => @course)
     HostUrl.stubs(:file_host_with_shard).returns(['files-test.host', Shard.default])
     get "http://test.host/courses/#{@course.id}/files/#{a1.id}/download", :inline => '1'
@@ -146,25 +161,24 @@ describe FilesController do
     expect(@user.valid_access_verifier?(qs['ts'], qs['sf_verifier'])).to be_truthy
     expect(qs['verifier']).to be_nil
     location = response['Location']
-    reset!
+    remove_user_session
 
     get location
-    expect(response).to be_success
-    expect(response.content_type).to eq 'image/png'
+    # could be success or redirect, depending on S3 config
+    expect([200, 302]).to be_include(response.status)
     # ensure that the user wasn't logged in by the normal means
     expect(controller.instance_variable_get(:@current_user)).to be_nil
   end
 
   it "logs user access with safefiles" do
-    course_with_teacher(:active_all => true, :user => @user)
+    course_with_teacher_logged_in(:active_all => true, :user => @user)
     host!("test.host")
-    login_as
     a1 = attachment_model(:uploaded_data => stub_png_data, :content_type => 'image/png', :context => @course)
 
     get "http://test.host/courses/#{@course.id}/files/#{a1.id}/download", :inline => '1'
     expect(response).to be_redirect
     location = response['Location']
-    reset!
+    remove_user_session
 
     Setting.set('enable_page_views', 'db')
     get location
@@ -188,7 +202,7 @@ describe FilesController do
     expect(uri.path).to eq "/courses/#{@course.id}/files/#{a1.id}/course%20files/test%20my%20file%3F%20hai!%26.png"
     expect(qs['verifier']).to eq a1.uuid
     location = response['Location']
-    reset!
+    remove_user_session
 
     get location
     expect(response).to be_success
@@ -210,7 +224,7 @@ describe FilesController do
     expect(uri.path).to eq "/courses/#{@course.id}/files/#{a1.id}/course%20files/test%20my%20file%3F%20hai!%26.png"
     expect(qs['verifier']).to eq a1.uuid
     location = response['Location']
-    reset!
+    remove_user_session
 
     get location
     expect(response).to be_success
@@ -221,9 +235,8 @@ describe FilesController do
 
   it "should update module progressions for html safefiles iframe" do
     HostUrl.stubs(:file_host_with_shard).returns(['files-test.host', Shard.default])
-    course_with_student(:active_all => true, :user => @user)
+    course_with_student_logged_in(:active_all => true, :user => @user)
     host!("test.host")
-    login_as
     @att = @course.attachments.create(:uploaded_data => stub_file_data("ohai.html", "<html><body>ohai</body></html>", "text/html"))
     @module = @course.context_modules.create!(:name => "module")
     @tag = @module.add_item({:type => 'attachment', :id => @att.id})
@@ -243,17 +256,17 @@ describe FilesController do
 
     # now reset the user session (simulating accessing via a separate domain), grab the document,
     # and verify the module progress was recorded
-    reset!
+    remove_user_session
     get location
-    expect(response).to be_success
+    # could be success or redirect, depending on S3 config
+    expect([200, 302]).to be_include(response.status)
     expect(@module.evaluate_for(@user).state).to eql(:completed)
   end
 
   context "should support AssessmentQuestion as a context" do
     before do
-      course_with_teacher(:active_all => true, :user => @user)
+      course_with_teacher_logged_in(:active_all => true, :user => @user)
       host!("test.host")
-      login_as
       bank = @course.assessment_question_banks.create!
       @aq = assessment_question_model(:bank => bank)
       @att = @aq.attachments.create!(:uploaded_data => stub_png_data)
@@ -270,7 +283,7 @@ describe FilesController do
       expect(@user.valid_access_verifier?(qs['ts'], qs['sf_verifier'])).to be_truthy
       expect(qs['verifier']).to eq @att.uuid
       location = response['Location']
-      reset!
+      remove_user_session
 
       get location
       expect(response).to be_success
@@ -323,7 +336,7 @@ describe FilesController do
     expect(uri.path).to eq "/files/#{@submission.attachment.id}/download"
     expect(qs['verifier']).to eq @submission.attachment.uuid
     location = response['Location']
-    reset!
+    remove_user_session
 
     get location
     expect(response).to be_success
@@ -340,7 +353,8 @@ describe FilesController do
   it "should return the dynamically generated thumbnail of the size given" do
     attachment_model(:uploaded_data => stub_png_data)
     sz = "640x>"
-    @attachment.any_instantiation.expects(:create_or_update_thumbnail).with(anything, sz, sz).returns { @attachment.thumbnails.create!(:thumbnail => "640x>", :uploaded_data => stub_png_data) }
+    expect(@attachment.any_instantiation).to receive(:create_or_update_thumbnail).
+      with(anything, sz, sz) { @attachment.thumbnails.create!(:thumbnail => "640x>", :uploaded_data => stub_png_data) }
     get "/images/thumbnails/#{@attachment.id}/#{@attachment.uuid}?size=640x#{URI.encode '>'}"
     thumb = @attachment.thumbnails.where(thumbnail: "640x>").first
     expect(response).to redirect_to(thumb.authenticated_s3_url)
@@ -355,5 +369,38 @@ describe FilesController do
     expect(response).to be_success
 
     expect(@folder.file_attachments.by_position_then_display_name).to eq [att2, att1]
+  end
+
+  it "should allow file previews for public-to-auth courses" do
+    course_factory(active_all: true)
+    @course.update_attribute(:is_public_to_auth_users, true)
+
+    att = attachment_model(:uploaded_data => stub_png_data, :context => @course)
+
+    user_factory(active_all: true)
+    user_session(@user)
+
+    ts, sf_verifier = @user.access_verifier
+    get "/files/#{att.id}", :user_id => @user.id, :ts => ts, :sf_verifier => sf_verifier # set the file access session tokens
+    expect(session['file_access_user_id']).to be_present
+
+    get "/courses/#{@course.id}/files/#{att.id}/file_preview"
+    expect(response.body).to_not include("This file has not been unlocked yet")
+    expect(response.body).to include("/courses/#{@course.id}/files/#{att.id}")
+  end
+
+  it "should allow downloads from assignments without context" do
+    host!("test.host")
+    allow(HostUrl).to receive(:file_host_with_shard).and_return(['files-test.host', Shard.default])
+    course_with_teacher_logged_in(:active_all => true, :user => @user)
+    assignment = assignment_model(:course => @course)
+    attachment = attachment_model(:context => assignment, :uploaded_data => stub_png_data, :content_type => 'image/png')
+
+    get "http://test.host/assignments/#{assignment.id}/files/#{attachment.id}/download"
+    expect(response).to be_redirect
+    expect(response['Location']).to include("files/#{attachment.id}")
+
+    get response['Location']
+    expect(response).to be_success
   end
 end

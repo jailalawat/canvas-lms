@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -36,6 +36,7 @@ describe AssetUserAccess do
   it "should update existing records that have changed display names" do
     @assignment.title = 'My changed Assignment'
     @assignment.save!
+    @asset = AssetUserAccess.find(@asset.id)
     @asset.log @course, { :level => 'view' }
     expect(@asset.display_name).to eq 'My changed Assignment'
   end
@@ -297,6 +298,18 @@ describe AssetUserAccess do
       subject.stubs(:asset_group_code).returns('quizzes')
 
       expect(subject.corrected_view_score).to eq -4
+    end
+  end
+
+  describe '#icon' do
+    it 'works for quizzes' do
+      quiz = @course.quizzes.create!(:title => 'My Quiz')
+
+      asset = factory_with_protected_attributes(AssetUserAccess, :user => @user, :context => @course, :asset_code => quiz.asset_string)
+      asset.log(@course, { category: 'quizzes' })
+      asset.save!
+
+      expect(asset.icon).to eq 'icon-quiz'
     end
   end
 end

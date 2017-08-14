@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -54,6 +54,21 @@ describe SectionTabPresenter do
       )
       expect(new_presenter.screenreader?).to be_truthy
     end
+  end
+
+  describe '#target?' do
+    it 'returns true if the tab has a target attribute' do
+      expect(SectionTabPresenter.new(tab.merge(target: '_blank'), course).target?).to eq true
+    end
+
+    it 'returns false if the tab does not contain a target' do
+      expect(SectionTabPresenter.new(tab, course).target?).to eq false
+    end
+
+    it 'returns false if the tab target is nil' do
+      expect(SectionTabPresenter.new(tab.merge(target: nil), course).target?).to eq false
+    end
+
   end
 
   describe '#hide?' do

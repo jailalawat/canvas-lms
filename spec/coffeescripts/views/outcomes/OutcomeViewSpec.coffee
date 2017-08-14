@@ -1,10 +1,29 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
+  'underscore'
   'Backbone'
   'helpers/fakeENV'
   'compiled/models/Outcome'
   'compiled/views/outcomes/OutcomeView'
-], ($, Backbone, fakeENV, Outcome, OutcomeView) ->
+  'helpers/I18nStubber'
+], ($, _, Backbone, fakeENV, Outcome, OutcomeView, I18nStubber) ->
 
   newOutcome = (outcomeOptions, outcomeLinkOptions) ->
     new Outcome(buildOutcome(outcomeOptions, outcomeLinkOptions), { parse: true })
@@ -46,7 +65,7 @@ define [
     view.$el.appendTo($("#fixtures"))
     view.render()
 
-  module 'OutcomeView',
+  QUnit.module 'OutcomeView',
     setup: ->
       fakeENV.setup()
       ENV.PERMISSIONS = {manage_outcomes: true}
@@ -83,6 +102,13 @@ define [
     ok @outcome1.outcomeLink.outcome.context_type
     ok @outcome1.outcomeLink.outcome.title
     ok @outcome1.outcomeLink.outcome.id
+
+  test 'dropdown includes available calculation methods', ->
+    view = createView(model: @outcome1, state: 'edit')
+    methods = $.map $('#calculation_method option'), (option) ->
+      option.value
+    ok _.isEqual(["decaying_average", "n_mastery", "latest", "highest"], methods)
+    view.remove()
 
   test 'calculation method of decaying_average is rendered properly on show', ->
     view = createView(model: @outcome1, state: 'show')
@@ -158,6 +184,11 @@ define [
     ok view.$('#calculation_int_left_side').is(':visible')
     view.remove()
 
+  test 'placeholder text is rendered properly for new outcomes', ->
+    view = createView(model: newOutcome(), state: 'add')
+    equal view.$('input[name="title"]').attr("placeholder"), 'New Outcome'
+    view.remove()
+
   test 'calculation int updates when the calculation method is changed', ->
     view = createView(model: newOutcome('calculation_method' : 'decaying_average', 'calculation_int' : 75), state: 'edit')
     equal view.$('#calculation_method').val(), 'decaying_average'
@@ -197,6 +228,16 @@ define [
     ok view.$('.delete_button').length > 0
     ok not view.$('.edit_button').attr('disabled')
     ok not view.$('.delete_button').attr('disabled')
+    view.remove()
+
+  test 'edit is disabled when viewing an assessed account outcome in its native context', ->
+    view = createView
+      model: newOutcome(
+        { 'assessed' : true, 'native' : true, 'can_edit' : true, 'can_remove' : true  },
+        { 'assessed' : false, 'can_unlink': true}),
+      state: 'show'
+    ok view.$('.edit_button').length > 0
+    ok view.$('.edit_button').attr('disabled')
     view.remove()
 
   test 'delete button is not shown for outcomes that cannot be unlinked', ->
@@ -285,13 +326,48 @@ define [
     ok not view.$el.find('.delete_button').attr('disabled')
     view.remove()
 
+  test 'validates title is present', ->
+    view = createView(model: @outcome1, state: 'edit')
+    view.$('#title').val("")
+    view.$('#dtitle').trigger('change')
+    ok !view.isValid()
+    ok view.errors.title
+    view.remove()
+
+  test 'validates title length', ->
+    long_name = "long outcome name "
+    long_name += long_name for _ in [1..5]
+    ok long_name.length > 256
+    view = createView(model: @outcome1, state: 'edit')
+    view.$('#title').val(long_name)
+    ok !view.isValid()
+    ok view.errors.title
+    view.remove()
+
   test 'validates display_name length', ->
     long_name = "long outcome name "
     long_name += long_name for _ in [1..5]
     ok long_name.length > 256
     view = createView(model: @outcome1, state: 'edit')
     view.$('#display_name').val(long_name)
-    view.$('#display_name').trigger('change')
     ok !view.isValid()
     ok view.errors.display_name
     view.remove()
+
+  test 'validates mastery points', ->
+    view = createView(model: @outcome1, state: 'edit')
+    view.$('input[name="mastery_points"]').val('-1')
+    ok !view.isValid()
+    ok view.errors.mastery_points
+    view.remove()
+
+  test 'validates i18n mastery points', ->
+    view = createView(model: @outcome1, state: 'edit')
+    I18nStubber.pushFrame();
+    I18nStubber.setLocale('fr_FR');
+    I18nStubber.stub('fr_FR', {'number.format.delimiter': ' ', 'number.format.separator': ','})
+    view.$('input[name="mastery_points"]').val('1 234,5')
+    ok view.isValid()
+    view.remove()
+    I18nStubber.popFrame();
+

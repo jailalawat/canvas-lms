@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,22 +12,20 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'INST' /* INST */,
-  'i18n!instructure',
-  'jquery' /* $ */,
-  'underscore',
-  'str/htmlEscape',
-  'compiled/str/TextHelper',
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.instructure_forms',
-  'jqueryui/dialog',
-  'vendor/jquery.scrollTo' /* /\.scrollTo/ */
-], function(INST, I18n, $, _, htmlEscape, TextHelper) {
+import INST from './INST'
+import I18n from 'i18n!instructure'
+import $ from 'jquery'
+import _ from 'underscore'
+import htmlEscape from './str/htmlEscape'
+import TextHelper from 'compiled/str/TextHelper'
+import './jquery.ajaxJSON'
+import './jquery.instructure_forms'
+import 'jqueryui/dialog'
+import './vendor/jquery.scrollTo'
 
   // Return the first value which passes a truth test
   $.detect = function(collection, callback) {
@@ -47,7 +45,7 @@ define([
     var c = 0;
     var h;
     for (var i = 0; i < str.length; i++) {
-      part = str.charCodeAt(i).toString(16);
+      var part = str.charCodeAt(i).toString(16);
       while (part.length < 2) {
         part = "0" + part;
       }
@@ -102,46 +100,6 @@ define([
       return $.replaceOneTag(text, mapping_or_name, maybe_value)
     }
   }
-
-  var scrollSideBarIsBound = false;
-  $.scrollSidebar = function(){
-    if(!scrollSideBarIsBound && !ENV.use_new_styles){
-      var $right_side = $("#right-side"),
-          $main = $('#main'),
-          $not_right_side = $("#not_right_side"),
-          $window = $(window),
-          $rightSideWrapper = $("#right-side-wrapper"),
-          headerHeight = $right_side.offset().top,
-          rightSideMarginBottom = $rightSideWrapper.height() - $right_side.outerHeight(),
-          rightSideMarginTop = $right_side.offset().top - $rightSideWrapper.offset().top;
-
-      function onScroll(){
-        var windowScrollTop = $window.scrollTop(),
-            windowScrollIsBelowHeader = (windowScrollTop > headerHeight - rightSideMarginTop);
-
-        if (windowScrollIsBelowHeader) {
-          var notRightSideHeight = $not_right_side.height(),
-              rightSideHeight = $right_side.height(),
-              notRightSideIsTallerThanRightSide = notRightSideHeight > rightSideHeight,
-              rightSideBottomIsBelowMainBottom = ( headerHeight + $main.height() - windowScrollTop ) <= ( rightSideHeight + rightSideMarginBottom );
-        }
-
-        // windows chrome repaints when you set the class, even if the classes
-        // aren't truly changing, which wreaks havoc on open select elements.
-        // so we only toggle if we really need to
-        if ((windowScrollIsBelowHeader && notRightSideIsTallerThanRightSide && !rightSideBottomIsBelowMainBottom) ^ $rightSideWrapper.hasClass('with-scrolling-right-side')) {
-          $rightSideWrapper.toggleClass('with-scrolling-right-side');
-        }
-        if ((windowScrollIsBelowHeader && notRightSideIsTallerThanRightSide && rightSideBottomIsBelowMainBottom) ^ $rightSideWrapper.hasClass('with-sidebar-pinned-to-bottom')) {
-          $rightSideWrapper.toggleClass('with-sidebar-pinned-to-bottom');
-        }
-      }
-      var throttledOnScroll = _.throttle(onScroll, 50);
-      throttledOnScroll();
-      $window.scroll(throttledOnScroll);
-      scrollSideBarIsBound = true;
-    }
-  };
 
   $.underscore = function(string) {
     return (string || "").replace(/([A-Z])/g, "_$1").replace(/^_/, "").toLowerCase();
@@ -432,4 +390,3 @@ define([
     }
     return null;
   };
-});

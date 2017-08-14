@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,7 +20,7 @@ require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
 
 describe DataFixup::UndeleteSomeOutcomeAlignments do
   before do
-    course_with_teacher_logged_in(:active_all => true)
+    course_with_teacher(:active_all => true)
     outcome_with_rubric
     @rubric_association_object = @course.assignments.create!(:title => 'blah')
     @rubric_association = @rubric.rubric_associations.create!({

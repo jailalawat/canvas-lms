@@ -1,11 +1,29 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'react'
+  'react-dom'
+  'react-addons-test-utils'
   'react-modal'
   'jsx/external_apps/components/DeleteExternalToolButton'
   'jsx/external_apps/lib/ExternalAppsStore'
-], (React, Modal, DeleteExternalToolButton, store) ->
+], (React, ReactDOM, TestUtils, Modal, DeleteExternalToolButton, store) ->
 
-  TestUtils = React.addons.TestUtils
   Simulate = TestUtils.Simulate
   wrapper = document.getElementById('fixtures')
 
@@ -13,18 +31,19 @@ define [
 
   createElement = (data) ->
     React.createElement(DeleteExternalToolButton, {
-      tool: data.tool
+      tool: data.tool,
+      canAddEdit: true
     })
 
   renderComponent = (data) ->
-    React.render(createElement(data), wrapper)
+    ReactDOM.render(createElement(data), wrapper)
 
   getDOMNodes = (data) ->
     component        = renderComponent(data)
     btnTriggerDelete = component.refs.btnTriggerDelete?.getDOMNode()
     [component, btnTriggerDelete]
 
-  module 'ExternalApps.DeleteExternalToolButton',
+  QUnit.module 'ExternalApps.DeleteExternalToolButton',
     setup: ->
       @tools = [
         {
@@ -48,7 +67,7 @@ define [
       store.setState({ externalTools: @tools })
     teardown: ->
       store.reset()
-      React.unmountComponentAtNode wrapper
+      ReactDOM.unmountComponentAtNode wrapper
 
   test 'open and close modal', ->
     data = { tool: @tools[1] }

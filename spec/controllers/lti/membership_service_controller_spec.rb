@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,6 +17,7 @@
 #
 
 require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper')
+require_dependency "lti/membership_service_controller"
 
 module Lti
   describe MembershipServiceController do
@@ -125,6 +126,34 @@ module Lti
             expect(member.fetch(:resultSourcedId)).to be_nil
             expect(member.fetch(:sourcedId)).to be_nil
             expect(member.fetch(:userId)).to eq(@teacher.lti_context_id)
+          end
+
+          context 'course with a group' do
+            before(:each) do
+              @group_category = @course.group_categories.create!(name: 'Membership')
+              @group = @course.groups.create!(name: "Group", group_category: @group_category)
+            end
+
+            it 'outputs the expected data in the expected format at the membership level' do
+              get 'course_index', course_id: @course.id, role: IMS::LIS::ContextType::URNs::Group
+              hash = json_parse.with_indifferent_access
+              @group.reload
+              memberships = hash[:pageOf][:membershipSubject][:membership]
+
+              expect(memberships.size).to eq 1
+
+              membership = memberships[0]
+
+              expect(membership.size).to eq 4
+              expect(membership.fetch(:@id)).to be_nil
+              expect(membership.fetch(:status)).to eq IMS::LIS::Statuses::SimpleNames::Active
+              expect(membership.fetch(:role)).to match_array([IMS::LIS::ContextType::URNs::Group])
+
+              member = membership.fetch(:member)
+              expect(member.fetch(:@id)).to be_nil
+              expect(member.fetch(:name)).to eq @group.name
+              expect(member.fetch(:contextId)).to eq @group.lti_context_id
+            end
           end
         end
       end
@@ -300,7 +329,7 @@ module Lti
             expect(membership.size).to eq 4
             expect(membership.fetch(:@id)).to be_nil
             expect(membership.fetch(:status)).to eq IMS::LIS::Statuses::SimpleNames::Active
-            expect(membership.fetch(:role)).to match_array([IMS::LIS::Roles::Context::URNs::Learner])
+            expect(membership.fetch(:role)).to match_array([IMS::LIS::Roles::Context::URNs::Member])
 
             member = membership.fetch(:member)
             expect(member.fetch(:@id)).to be_nil

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,8 +17,6 @@
 #
 
 class SisPostGradesStatus < ActiveRecord::Base
-  strong_params
-
   ALLOWED_STATUSES = %w{success warning failed}
   belongs_to :course
   belongs_to :course_section

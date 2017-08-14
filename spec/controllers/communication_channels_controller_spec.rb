@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,7 +16,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
+require File.expand_path(File.dirname(__FILE__) + '/../sharding_spec_helper')
 
 describe CommunicationChannelsController do
   before :once do
@@ -113,9 +113,10 @@ describe CommunicationChannelsController do
       end
 
       it "does not confirm invalid email addresses" do
-        user_with_pseudonym(:active_user => 1, :username => 'not-an-email')
+        user_with_pseudonym(active_user: 1, username: 'not-an-email@example.com')
+        CommunicationChannel.where(id: @cc).update_all(path: 'not-an-email')
         user_session(@user, @pseudonym)
-        get 'confirm', :nonce => @cc.confirmation_code
+        get 'confirm', nonce: @cc.confirmation_code
         expect(response).not_to be_success
         expect(response).to render_template("confirm_failed")
       end
@@ -135,8 +136,8 @@ describe CommunicationChannelsController do
     describe "open registration" do
       before :once do
         @account = Account.create!
-        course(:active_all => 1, :account => @account)
-        user
+        course_factory(active_all: true, :account => @account)
+        user_factory
       end
 
       it "should show a pre-registered user the confirmation form" do
@@ -158,6 +159,19 @@ describe CommunicationChannelsController do
         @user.accept_terms
         @user.save
         expect(@user).to be_pre_registered
+
+        post 'confirm', :nonce => @cc.confirmation_code, :register => 1, :pseudonym => {:password => 'asdfasdf', :password_confirmation => 'asdfasdf'}
+        expect(response).to be_redirect
+        @user.reload
+        expect(@user).to be_registered
+        @cc.reload
+        expect(@cc).to be_active
+      end
+
+      it "should not break when trying to register when psuedonym is not a valid email" do
+        user_with_pseudonym(:password => :autogenerate, :username => 'notanemail')
+        @user.accept_terms
+        @user.save
 
         post 'confirm', :nonce => @cc.confirmation_code, :register => 1, :pseudonym => {:password => 'asdfasdf', :password_confirmation => 'asdfasdf'}
         expect(response).to be_redirect
@@ -372,7 +386,7 @@ describe CommunicationChannelsController do
       end
 
       it "should show the confirm form for old creation_pending users that have a pseudonym" do
-        course(:active_all => 1)
+        course_factory(active_all: true)
         @user.accept_terms
         @user.update_attribute(:workflow_state, 'creation_pending')
         @cc = @user.communication_channels.create!(:path => 'jt@instructure.com')
@@ -386,7 +400,7 @@ describe CommunicationChannelsController do
       end
 
       it "should work for old creation_pending users that have a pseudonym" do
-        course(:active_all => 1)
+        course_factory(active_all: true)
         @user.accept_terms
         @user.update_attribute(:workflow_state, 'creation_pending')
         @cc = @user.communication_channels.create!(:path => 'jt@instructure.com')
@@ -413,8 +427,8 @@ describe CommunicationChannelsController do
 
       it "should allow the user to pick a new pseudonym if a conflict already exists" do
         user_with_pseudonym(:active_all => 1, :username => 'jt@instructure.com')
-        course(:active_all => 1)
-        user
+        course_factory(active_all: true)
+        user_factory
         @user.accept_terms
         @user.update_attribute(:workflow_state, 'creation_pending')
         @cc = @user.communication_channels.create!(:path => 'jt@instructure.com')
@@ -430,8 +444,8 @@ describe CommunicationChannelsController do
 
       it "should force the user to provide a unique_id if a conflict already exists" do
         user_with_pseudonym(:active_all => 1, :username => 'jt@instructure.com')
-        course(:active_all => 1)
-        user
+        course_factory(active_all: true)
+        user_factory
         @user.accept_terms
         @user.update_attribute(:workflow_state, 'creation_pending')
         @cc = @user.communication_channels.create!(:path => 'jt@instructure.com')
@@ -538,8 +552,8 @@ describe CommunicationChannelsController do
         @account1.authentication_providers.create!(:auth_type => 'cas')
         user_with_pseudonym(:active_all => 1, :account => @account1, :username => 'jt@instructure.com')
 
-        course(:active_all => 1, :account => @account2)
-        user
+        course_factory(active_all: true, :account => @account2)
+        user_factory
         @user.update_attribute(:workflow_state, 'creation_pending')
         @cc = @user.communication_channels.create!(:path => 'jt@instructure.com')
         @enrollment = @course.enroll_user(@user)
@@ -554,8 +568,8 @@ describe CommunicationChannelsController do
         user_with_pseudonym(:active_all => 1, :username => 'jt@instructure.com')
         @old_user = @user
 
-        course(:active_all => 1, :account => @account2)
-        user
+        course_factory(active_all: true, :account => @account2)
+        user_factory
         @user.update_attribute(:workflow_state, 'creation_pending')
         @cc = @user.communication_channels.create!(:path => 'jt@instructure.com')
         @enrollment = @course.enroll_user(@user)
@@ -635,7 +649,17 @@ describe CommunicationChannelsController do
         expect(@cc).to be_active
       end
 
-      it "should accept an invitation when merging with the current user" do
+      it "should reject pseudonym unique_id changes when creating a new user" do
+        @user.accept_terms
+        @user.update_attribute(:workflow_state, 'creation_pending')
+        @cc = @user.communication_channels.create!(:path => 'jt@instructure.com')
+
+        post 'confirm', :nonce => @cc.confirmation_code, :enrollment => @enrollment.uuid, :register => 1, :pseudonym => {:unique_id => "haxxor@example.com", :password => 'asdfasdf', :password_confirmation => 'asdfasdf'}
+
+        expect(@user.reload.pseudonyms.first.unique_id).to eq "jt@instructure.com"
+      end
+
+      it "should preview acceptance of an invitation when merging with the current user" do
         @user.update_attribute(:workflow_state, 'creation_pending')
         @old_cc = @user.communication_channels.create!(:path => 'jt@instructure.com')
         @old_user = @user
@@ -1080,9 +1104,10 @@ describe CommunicationChannelsController do
           @c3 = @user.communication_channels.create!(path: 'baz@example.com', path_type: 'email') do |cc|
             cc.workflow_state = 'active'
           end
-          @c4 = @user.communication_channels.create!(path: 'qux@.', path_type: 'email') do |cc|
+          @c4 = @user.communication_channels.create!(path: 'qux@example.com', path_type: 'email') do |cc|
             cc.workflow_state = 'unconfirmed'
           end
+          CommunicationChannel.where(id: @c4).update_all(path: 'qux@.')
           @c5 = @user.communication_channels.create!(path: '+18015550100', path_type: 'sms') do |cc|
             cc.workflow_state = 'unconfirmed'
           end
@@ -1164,7 +1189,7 @@ describe CommunicationChannelsController do
   end
 
   it "should re-send enrollment invitation for an invited user" do
-    course(:active_all => true)
+    course_factory(active_all: true)
     @enrollment = @course.enroll_user(@user)
     expect(@enrollment.context).to eql(@course)
     Notification.create(:name => 'Enrollment Invitation')
@@ -1178,7 +1203,7 @@ describe CommunicationChannelsController do
   context "cross-shard user" do
     specs_require_sharding
     it "should re-send enrollment invitation for a cross-shard user" do
-      course(:active_all => true)
+      course_factory(active_all: true)
       enrollment = nil
       @shard1.activate do
         user_with_pseudonym :active_cc => true

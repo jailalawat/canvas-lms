@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,14 +23,17 @@ describe "one time passwords" do
   before do
     Account.default.settings[:mfa_settings] = :required
     Account.default.save!
-    user_with_pseudonym(:active_all => 1, :password => 'qwerty')
+    user_with_pseudonym(:active_all => 1, :password => 'qwertyuiop')
     @user.otp_secret_key = ROTP::Base32.random_base32
     @user.save!
   end
 
   context "mid-login" do
     before do
-      post '/login/canvas', :pseudonym_session => { :unique_id => @pseudonym.unique_id, :password => 'qwerty' }
+      post '/login/canvas', :pseudonym_session => { :unique_id => @pseudonym.unique_id, :password => 'qwertyuiop' }
+    end
+
+    it "should redirect" do
       expect(response).to redirect_to(otp_login_url)
     end
 

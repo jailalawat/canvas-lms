@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/assignments_common')
 
@@ -69,7 +86,7 @@ describe "assignments" do
       expect(f('.submit_online_upload_option')).to be_displayed
     end
 
-    it "should validate an assignment created with the type of external tool" do
+    it "should validate an assignment created with the type of external tool", priority: "1", test_id: 2624905 do
       t1 = factory_with_protected_attributes(@course.context_external_tools, :url => "http://www.example.com/", :shared_secret => 'test123', :consumer_key => 'test123', :name => 'tool 1')
       external_tool_assignment = assignment_model(:course => @course, :title => "test2", :submission_types => 'external_tool')
       external_tool_assignment.create_external_tool_tag(:url => t1.url)

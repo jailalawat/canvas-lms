@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -47,7 +47,7 @@ module CC
       resources << File.join(CCHelper::COURSE_SETTINGS_DIR, CCHelper::MEDIA_TRACKS)
 
       # Create the syllabus resource
-      if export_symbol?(:syllabus_body) || export_symbol?(:all_syllabus_body)
+      if @course.syllabus_body && (export_symbol?(:syllabus_body) || export_symbol?(:all_syllabus_body))
         syl_rel_path = create_syllabus
         @resources.resource(
           :identifier => migration_id + "_syllabus",
@@ -146,6 +146,15 @@ JOKE
         atts -= Canvas::Migration::MigratorHelper::COURSE_NO_COPY_ATTS
         atts << :grading_standard_enabled
         atts << :storage_quota
+
+        if @course.image_url.present?
+          atts << :image_url
+        elsif @course.image_id.present?
+          if image_att = @course.attachments.active.where(id: @course.image_id).first
+            c.image_identifier_ref(create_key(image_att))
+          end
+        end
+
         @course.disable_setting_defaults do # so that we don't copy defaulted settings
           atts.each do |att|
             c.tag!(att, @course.send(att)) unless @course.send(att).nil? || @course.send(att) == ''

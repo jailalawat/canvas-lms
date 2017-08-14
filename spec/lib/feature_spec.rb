@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,10 +22,11 @@ describe Feature do
   let(:t_site_admin) { Account.site_admin }
   let(:t_root_account) { account_model }
   let(:t_sub_account) { account_model parent_account: t_root_account }
-  let(:t_course) { course account: t_sub_account, active_all: true }
+  let(:t_course) { course_factory account: t_sub_account, active_all: true }
   let(:t_user) { user_with_pseudonym account: t_root_account }
 
   before do
+    User.any_instance.stubs(:set_default_feature_flags)
     Feature.stubs(:definitions).returns({
         'RA' => Feature.new(feature: 'RA', applies_to: 'RootAccount', state: 'hidden'),
         'A' => Feature.new(feature: 'A', applies_to: 'Account', state: 'on'),
@@ -148,7 +149,6 @@ describe Feature do
       expect(fd.default_transitions(t_user, 'off')).to eql({'on'=>{'locked'=>false}})
     end
   end
-
 end
 
 describe "Feature.register" do
@@ -226,5 +226,27 @@ describe "Feature.register" do
       Feature.register({dev_feature: t_hidden_in_prod_feature_hash})
       expect(Feature.definitions['dev_feature']).to be_hidden
     end
+  end
+end
+
+describe "new_gradebook" do
+  let(:ngb_trans_proc) { Feature.definitions["new_gradebook"].custom_transition_proc }
+  let(:root_account) { account_model }
+  let(:trans_empty) { { "on" => {}, "allowed" => {}, "off" => {} } }
+  let(:locked) { { "locked" => true } }
+
+  it "only allows admins to enable the new gradebook" do
+    test_course = course_factory(account: root_account, active_all: true)
+    teacher = teacher_in_course(course: test_course)
+    transitions = trans_empty
+    ngb_trans_proc.call(teacher, test_course, nil, transitions)
+    expect(transitions).to include({ "on" => locked, "off" => locked })
+  end
+
+  it "does not allow enabling new gradebook on an entire account" do
+    admin = user_factory(account: root_account)
+    transitions = trans_empty
+    ngb_trans_proc.call(admin, root_account, nil, transitions)
+    expect(transitions).to include({ "on" => locked })
   end
 end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,6 +17,7 @@
 #
 
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
+require_relative '../sharding_spec_helper'
 
 describe AssignmentOverrideStudent do
   describe "validations" do
@@ -66,6 +67,44 @@ describe AssignmentOverrideStudent do
     end
   end
 
+  describe 'recalculation of cached due dates' do
+    before(:once) do
+      course = Course.create!
+      @student = User.create!
+      course.enroll_student(@student, active_all: true)
+      @assignment = course.assignments.create!
+      @assignment_override = @assignment.assignment_overrides.create!
+    end
+
+    it 'on creation, recalculates cached due dates on the assignment' do
+      expect(DueDateCacher).to receive(:recompute).with(@assignment)
+      @assignment_override.assignment_override_students.create!(user: @student)
+    end
+
+    it 'on destroy, recalculates cached due dates on the assignment' do
+      override_student = @assignment_override.assignment_override_students.create!(user: @student)
+      expect(DueDateCacher).to receive(:recompute).with(@assignment)
+      override_student.destroy
+    end
+  end
+
+  describe "cross sharded users" do
+    specs_require_sharding
+    it "should work outside of the users native account" do
+      course_with_student(account: @account, active_all: true, user: @student)
+      @shard1.activate do
+        account = Account.create!
+        course = account.courses.create!
+        e2 = course.enroll_student(@student)
+        e2.update_attribute(:workflow_state, 'active')
+        override = assignment_override_model(:course => course)
+        override_student = override.assignment_override_students.build
+        override_student.user = @student
+        expect(override_student).to be_valid
+      end
+    end
+  end
+
   it "should maintain assignment from assignment_override" do
     student_in_course
     @override1 = assignment_override_model(:course => @course)
@@ -109,7 +148,8 @@ describe AssignmentOverrideStudent do
     it "if callbacks arent run clean_up_for_assignment should delete invalid overrides" do
       adhoc_override_with_student
       #no callbacks
-      @user.enrollments.delete_all
+      Score.where(enrollment_id: @user.enrollments).delete_all
+      @user.enrollments.each(&:destroy_permanently!)
 
       expect(@ao.workflow_state).to eq("active")
       AssignmentOverrideStudent.clean_up_for_assignment(@assignment)

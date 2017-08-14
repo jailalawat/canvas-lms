@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 class SplitUsers
   ENROLLMENT_DATA_UPDATES = [
     {table: 'asset_user_accesses',
@@ -41,18 +58,12 @@ class SplitUsers
      context_id: 'groups.context_id'}.freeze,
     {table: 'page_views',
      scope: -> { where(context_type: 'Course') }}.freeze,
-    {table: 'quizzes/quiz_submissions',
-     scope: -> { joins(:quiz) },
-     context_id: 'quizzes.context_id'}.freeze,
     {table: 'rubric_assessments',
      scope: -> { joins({submission: :assignment}) },
      context_id: 'assignments.context_id'}.freeze,
     {table: 'rubric_assessments', foreign_key: :assessor_id,
      scope: -> { joins({submission: :assignment}) },
      context_id: 'assignments.context_id'}.freeze,
-    {table: 'submission_comment_participants',
-     scope: -> { joins(:submission_comment) },
-     context_id: 'submission_comments.context_id'}.freeze,
     {table: 'submission_comments', foreign_key: :author_id}.freeze,
     {table: 'web_conference_participants',
      scope: -> { joins(:web_conference).where(web_conferences: {context_type: 'Course'}) },
@@ -75,7 +86,7 @@ class SplitUsers
       users = split_users(user, merge_data)
     else
       users = []
-      UserMergeData.active.splitable.where(user_id: user).find_each do |data|
+      UserMergeData.active.splitable.where(user_id: user).shard(user).find_each do |data|
         splitters = split_users(user, data)
         users = splitters | users
       end
@@ -105,27 +116,68 @@ class SplitUsers
     end
 
     def move_records_to_old_user(source_user, user, records)
+      fix_communication_channels(source_user, user, records.where(context_type: 'CommunicationChannel'))
       move_user_observers(source_user, user, records.where(context_type: 'UserObserver', previous_user_id: user))
+      move_attachments(source_user, user, records.where(context_type: 'Attachment'))
       enrollment_ids = records.where(context_type: 'Enrollment', previous_user_id: user).pluck(:context_id)
-      enrollments = Enrollment.where(id: enrollment_ids)
-      enrollments.update_all(user_id: user)
-      transfer_enrollment_data(source_user, user, Course.where(id: enrollments.pluck(:course_id)))
+      enrollments = Enrollment.where(id: enrollment_ids).where.not(user_id: user)
+      courses = []
+      enrollments.each do |e|
+        # skip conflicting enrollments
+        next if Enrollment.where(user_id: user,
+                                 course_section_id: e.course_section_id,
+                                 type: e.type,
+                                 role_id: e.role_id).where.not(id: e).shard(e.shard).exists?
+
+        e.user_id = user
+        e.save_without_callbacks
+        courses << e.course_id
+      end
+      transfer_enrollment_data(source_user, user, Course.where(id: courses))
 
       account_users_ids = records.where(context_type: 'AccountUser').pluck(:context_id)
-      AccountUser.where(id: account_users_ids).update_all(user_id: user)
+      AccountUser.where(id: account_users_ids).update_all(user_id: user.id)
       restore_worklow_states_from_records(records)
     end
 
+    def fix_communication_channels(source_user, user, cc_records)
+      if source_user.shard != user.shard
+        user.shard.activate do
+          # remove communication channels that didn't exist prior to the merge
+          CommunicationChannel.where(id: cc_records.where(previous_workflow_state: 'non_existent').pluck(:context_id)).delete_all
+        end
+      end
+      # move moved communication channels back
+      max_position = user.communication_channels.last.try(:position) || 0
+      scope = source_user.communication_channels.where(id: cc_records.where(previous_user_id: user).pluck(:context_id))
+      scope.update_all(["user_id=?, position=position+?", user.id, max_position]) unless scope.empty?
+
+      cc_records.where.not(previous_workflow_state: 'non existent').each do |cr|
+        CommunicationChannel.where(id: cr.context_id).update_all(workflow_state: cr.previous_workflow_state)
+      end
+    end
+
     def move_user_observers(source_user, user, records)
-      source_user.user_observers.where(id: records.pluck(:context_id)).update_all(user_id: user)
-      source_user.user_observees.where(id: records.pluck(:context_id)).update_all(observer_id: user)
+      # skip when the user observer is between the two users. Just undlete the record
+      not_obs = UserObserver.where(user_id: [source_user, user], observer_id: [source_user, user])
+      obs = UserObserver.where(id: records.pluck(:context_id)).where.not(id: not_obs)
+
+      source_user.user_observers.where(id: obs).update_all(user_id: user.id)
+      source_user.user_observees.where(id: obs).update_all(observer_id: user.id)
+    end
+
+    def move_attachments(source_user, user, records)
+      attachments = source_user.attachments.where(id: records.pluck(:context_id))
+      Attachment.migrate_attachments(source_user, user, attachments)
     end
 
     def update_grades(users, records)
       users.each do |user|
-        e_ids =records.where(previous_user_id: user, context_type: 'Enrollment').pluck(:context_id)
-        user.enrollments.where(id: e_ids).select(&:student?).uniq { |e| [e.user_id, e.course_id] }.
-          each { |e| Enrollment.recompute_final_score(e.user_id, e.course_id) }
+        e_ids = records.where(previous_user_id: user, context_type: 'Enrollment').pluck(:context_id)
+        user.enrollments.where(id: e_ids).joins(:course).
+          where.not(courses: {workflow_state: 'deleted'}).
+          select(&:student?).uniq { |e| [e.user_id, e.course_id] }.
+          each { |e| Enrollment.recompute_final_score_in_singleton(e.user_id, e.course_id) }
       end
     end
 
@@ -142,13 +194,6 @@ class SplitUsers
     def move_pseudonyms_to_user(pseudonyms, target_user)
       pseudonyms.each do |pseudonym|
         pseudonym.update_attribute(:user_id, target_user.id)
-        # try to grab the email
-        pseudonym.sis_communication_channel.try(:update_attribute, :user_id, target_user.id)
-        next unless pseudonym.communication_channel_id
-        if pseudonym.communication_channel_id != pseudonym.sis_communication_channel_id
-          cc = CommunicationChannel.where(id: pseudonym.communication_channel_id).first
-          cc.update_attribute(:user_id, target_user.id) if cc
-        end
       end
     end
 
@@ -166,18 +211,26 @@ class SplitUsers
             update_all((update[:foreign_key] || :user_id) => target_user_id)
         end
         # avoid conflicting submissions for the unique index on user and assignment
-        source_user.submissions.where(assignment_id: Assignment.where(context_id: courses)).
-          where.not(assignment_id: target_user.submissions.select(:assignment_id)).
-          update_all(user_id: target_user_id)
+        handle_submissions(courses, source_user, target_user, target_user_id)
       end
+    end
+
+    def handle_submissions(courses, source_user, target_user, target_user_id)
+      source_user.submissions.where(assignment_id: Assignment.where(context_id: courses)).
+        where.not(assignment_id: target_user.submissions.select(:assignment_id)).
+        update_all(user_id: target_user_id)
+      source_user.quiz_submissions.where(quiz_id: Quizzes::Quiz.where(context_id: courses)).
+        where.not(quiz_id: target_user.quiz_submissions.select(:quiz_id)).
+        update_all(user_id: target_user_id)
     end
 
     def restore_worklow_states_from_records(records)
       records.each do |r|
         c = r.context
         next unless c && c.class.columns_hash.key?('workflow_state')
-        c.workflow_state = r.previous_workflow_state
-        c.save! if c.changed?
+        c.workflow_state = r.previous_workflow_state unless c.class == Attachment
+        c.file_state = r.previous_workflow_state if c.class == Attachment
+        c.save! if c.changed? && c.valid?
       end
     end
   end

@@ -1,4 +1,24 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 class AccountAuthorizationConfigsPresenter
+  include ActionView::Helpers::FormTagHelper
+  include ActionView::Helpers::FormOptionsHelper
+
   attr_reader :account
 
   def initialize(acc)
@@ -115,6 +135,30 @@ class AccountAuthorizationConfigsPresenter
 
   def parent_reg_selected
     account.parent_registration?
+  end
+
+  def available_federated_attributes(aac)
+    AccountAuthorizationConfig::CANVAS_ALLOWED_FEDERATED_ATTRIBUTES - aac.federated_attributes.keys
+  end
+
+  def federated_provider_attribute(aac, canvas_attribute = nil, selected = nil)
+    name = "authentication_provider[federated_attributes][#{canvas_attribute}][attribute]" if selected
+    id = "aacfa_#{canvas_attribute}_attribute_#{id_suffix(aac)}"
+    if aac.class.recognized_federated_attributes.nil?
+      if selected
+        text_field_tag(name, selected, id: id)
+      else
+        text_field_tag(nil)
+      end
+    else
+      select_tag(name, options_for_select(aac.class.recognized_federated_attributes, selected), class: 'ic-Input', id: id)
+    end
+  end
+
+  def id_suffix(aac)
+    suf = aac.class.sti_name
+    suf += "_#{aac.id}" unless aac.new_record?
+    suf
   end
 
   private

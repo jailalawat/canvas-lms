@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 describe "self enrollment" do
@@ -6,7 +23,7 @@ describe "self enrollment" do
   context "in a full course" do
     it "should not be allowed" do
       Account.default.allow_self_enrollment!
-      course(:active_all => true)
+      course_factory(active_all: true)
       @course.self_enrollment = true
       @course.self_enrollment_limit = 0
       @course.save!
@@ -19,7 +36,7 @@ describe "self enrollment" do
     before do
       Account.default.update_attribute(:settings, :self_enrollment => 'any', :open_registration => true)
       Account.default.canvas_authentication_provider.update_attribute(:self_registration, true)
-      course(:active_all => active_course)
+      course_factory(:active_all => active_course)
       set_up_course
       @course.update_attribute(:self_enrollment, true)
     end
@@ -93,7 +110,7 @@ describe "self enrollment" do
   shared_examples_for "closed registration" do
     before do
       Account.default.allow_self_enrollment!
-      course(:active_all => active_course)
+      course_factory(:active_all => active_course)
       set_up_course
       @course.update_attribute(:self_enrollment, true)
     end
@@ -157,7 +174,7 @@ describe "self enrollment" do
     let(:set_up_course){ }
     let(:primary_action){ "Go to the Course" }
     let(:assert_valid_dashboard) {
-      expect(f(ENV['CANVAS_FORCE_USE_NEW_STYLES'] ? '#global_nav_courses_link' : '#courses_menu_item')).to include_text("Courses")
+      expect(f('#global_nav_courses_link')).to include_text("Courses")
     }
 
     context "with open registration" do
@@ -177,7 +194,7 @@ describe "self enrollment" do
     }
     let(:primary_action){ "Go to your Dashboard" }
     let(:assert_valid_dashboard) {
-      expect(f(ENV['CANVAS_FORCE_USE_NEW_STYLES'] ? '#global_nav_courses_link' : '#courses_menu_item')).to include_text("Courses") # show for future course
+      expect(f('#global_nav_courses_link')).to include_text("Courses") # show for future course
       expect(f('#dashboard')).to include_text("You've enrolled in one or more courses that have not started yet")
     }
     context "with open registration" do
@@ -193,7 +210,7 @@ describe "self enrollment" do
     let(:set_up_course){ }
     let(:primary_action){ "Go to your Dashboard" }
     let(:assert_valid_dashboard) {
-      expect(f(ENV['CANVAS_FORCE_USE_NEW_STYLES'] ? '#global_nav_courses_link' : '#courses_menu_item')).to include_text("Courses")
+      expect(f('#global_nav_courses_link')).to include_text("Courses")
       expect(f('#dashboard')).to include_text("You've enrolled in one or more courses that have not started yet")
     }
     context "with open registration" do

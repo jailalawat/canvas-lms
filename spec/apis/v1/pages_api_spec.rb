@@ -50,7 +50,7 @@ describe "Pages API", type: :request do
   end
 
   before :once do
-    course
+    course_factory
     @course.offer!
     @wiki = @course.wiki
     @wiki.set_front_page_url!('front-page')
@@ -111,7 +111,7 @@ describe "Pages API", type: :request do
     end
 
     example 'does not create a version when just the user_id changes' do
-      user1 = user(:active_all => true)
+      user1 = user_factory(active_all: true)
       @page.user_id = user1.id
       @page.title = 'New Title'
       @page.save!
@@ -119,7 +119,7 @@ describe "Pages API", type: :request do
       current_version = @page.current_version.model
       expect(current_version.user_id).to eq user1.id
 
-      user2 = user(:active_all => true)
+      user2 = user_factory(active_all: true)
       @page.user_id = user2.id
       @page.save!
       expect(@page.versions.count).to eq 2
@@ -215,6 +215,46 @@ describe "Pages API", type: :request do
                           :controller=>'wiki_pages_api', :action=>'index', :format=>'json', :course_id=>@course.to_param,
                           :sort=>'updated_at', :order=>'desc')
           expect(json.map {|page|page['url']}).to eq [@front_page.url, @hidden_page.url]
+        end
+        context 'planner feature enabled' do
+          before { @course.root_account.enable_feature!(:student_planner) }
+          it 'should create a page with a todo_date' do
+            todo_date = Time.zone.local(2008, 9, 1, 12, 0, 0)
+            Timecop.freeze(todo_date) {
+              json = api_call(:post, "/api/v1/courses/#{@course.id}/pages",
+                    { :controller => 'wiki_pages_api', :action => 'create', :format => 'json',
+                      :course_id => @course.to_param },
+                    { :wiki_page => { :title => 'New Wiki Page!', :student_planner_checkbox => '1',
+                                      :body => 'hello new page', :student_todo_at => Time.zone.now}})
+              page = @course.wiki.wiki_pages.where(url: json['url']).first!
+              expect(page.todo_date).to eq Time.zone.now
+            }
+          end
+          it 'should update a page with a todo_date' do
+            todo_date = Time.zone.local(2008, 9, 1, 12, 0, 0)
+            Timecop.freeze(todo_date) {
+              page = @course.wiki.wiki_pages.create!(:title => "hrup", :todo_date => Time.zone.now)
+
+              api_call(:put, "/api/v1/courses/#{@course.id}/pages/#{page.url}",
+                       { :controller => 'wiki_pages_api', :action => 'update',
+                         :format => 'json', :course_id => @course.to_param,
+                         :url => page.url },
+                       { :wiki_page => { :student_todo_at => Time.zone.now + 1, :student_planner_checkbox => '1' }})
+
+              page.reload
+              expect(page.todo_date).to eq Time.zone.now + 1
+            }
+          end
+          it 'should unset page todo_date' do
+            page = @course.wiki.wiki_pages.create!(:title => "hrup", :todo_date => Time.zone.now)
+            api_call(:put, "/api/v1/courses/#{@course.id}/pages/#{page.url}",
+                     { :controller => 'wiki_pages_api', :action => 'update',
+                       :format => 'json', :course_id => @course.to_param,
+                       :url => page.url },
+                     { :wiki_page => { :student_planner_checkbox => "0" }})
+            page.reload
+            expect(page.todo_date).to eq nil
+          end
         end
       end
     end
@@ -856,6 +896,7 @@ describe "Pages API", type: :request do
         end
       end
 
+
       context 'feature enabled' do
         before { @course.enable_feature!(:conditional_release) }
 
@@ -905,7 +946,7 @@ describe "Pages API", type: :request do
                                           :assignment => { :only_visible_to_overrides => true } }})
         page = @course.wiki.wiki_pages.where(url: json['url']).first!
         expect(page.assignment.title).to eq 'Content Page Assignment'
-        expect(page.assignment.only_visible_to_overrides).to eq nil
+        expect(page.assignment.only_visible_to_overrides).to eq false
       end
 
       it 'should not destroy linked assignment' do
@@ -1005,6 +1046,19 @@ describe "Pages API", type: :request do
           [{"hide_from_students" => false, "url" => @front_page.url, "created_at" => @front_page.created_at.as_json, "updated_at" => @front_page.revised_at.as_json, "title" => @front_page.title}]
       )
     end
+    it 'should not allow update to page todo_date if student' do
+      todo_date = Time.zone.local(2008, 9, 1, 12, 0, 0)
+      Timecop.freeze(todo_date) {
+        page = @course.wiki.wiki_pages.create!(:title => "hrup", :todo_date => Time.zone.now)
+        api_call(:put, "/api/v1/courses/#{@course.id}/pages/#{page.url}",
+                 { :controller => 'wiki_pages_api', :action => 'update',
+                   :format => 'json', :course_id => @course.to_param,
+                   :url => page.url },
+                 { :wiki_page => { :student_planner_checkbox => "0" }})
+        page.reload
+        expect(page.todo_date).to eq Time.zone.now
+      }
+    end
 
     it "should paginate, excluding hidden" do
       2.times { |i| @wiki.wiki_pages.create!(:title => "New Page #{i}") }
@@ -1036,7 +1090,7 @@ describe "Pages API", type: :request do
     end
 
     it "should deny access to wiki in an unenrolled course" do
-      other_course = course
+      other_course = course_factory
       other_course.offer!
       other_wiki = other_course.wiki
       other_wiki.set_front_page_url!('front-page')
@@ -1054,7 +1108,7 @@ describe "Pages API", type: :request do
     end
 
     it "should allow access to a wiki in a public unenrolled course" do
-      other_course = course
+      other_course = course_factory
       other_course.is_public = true
       other_course.offer!
       other_wiki = other_course.wiki

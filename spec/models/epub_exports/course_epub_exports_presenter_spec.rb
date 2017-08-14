@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -31,6 +31,10 @@ describe EpubExports::CourseEpubExportsPresenter do
       active_all: true,
       user: @student
     ).course
+    @course_as_ta = course_with_user('TaEnrollment',
+      active_all: true,
+      user: @student
+    ).course
   end
 
   describe "#courses" do
@@ -40,7 +44,7 @@ describe EpubExports::CourseEpubExportsPresenter do
 
     context 'when feature is enabled' do
       before do
-        [@course_with_epub, @course_without_epub, @course_as_obsever].map {|course| course.enable_feature!(:epub_export) }
+        [@course_with_epub, @course_without_epub, @course_as_obsever, @course_as_ta].map {|course| course.enable_feature!(:epub_export) }
       end
 
       it "sets latest_epub_export for course with epub_export" do
@@ -55,8 +59,19 @@ describe EpubExports::CourseEpubExportsPresenter do
         end.latest_epub_export).to be_nil
       end
 
+      it 'does not include web zip exports' do
+        @course_with_epub.web_zip_exports.create!(user: @student)
+        expect(courses.find do |course|
+          course.id == @course_with_epub.id
+        end.latest_epub_export).to eq @epub_export
+      end
+
       it 'does not include course for which user is an observer' do
         expect(courses).not_to include(@course_as_observer)
+      end
+
+      it 'includes courses for which the user is a ta' do
+        expect(courses).to include(@course_as_ta)
       end
     end
 

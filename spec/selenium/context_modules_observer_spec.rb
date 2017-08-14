@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/helpers/context_modules_common')
 
 describe "context modules" do
@@ -6,9 +23,9 @@ describe "context modules" do
 
   context "as an observer" do
     before(:each) do
-      @course = course(:active_all => true)
-      @student = user(:active_all => true, :active_state => 'active')
-      @observer = user(:active_all => true, :active_state => 'active')
+      @course = course_factory(active_all: true)
+      @student = user_factory(active_all: true, :active_state => 'active')
+      @observer = user_factory(active_all: true, :active_state => 'active')
 
       @student_enrollment = @course.enroll_user(@student, 'StudentEnrollment', :enrollment_state => 'active')
 
@@ -73,7 +90,7 @@ describe "context modules" do
     it "should indicate multiple due dates for multiple observed students" do
       section2 = section_due_date_override(@due_at + 1.day)
 
-      student2 = user(:active_all => true, :active_state => 'active', :section => section2)
+      student2 = user_factory(active_all: true, :active_state => 'active', :section => section2)
       @course.enroll_user(student2, 'StudentEnrollment', :enrollment_state => 'active')
       @course.enroll_user(@observer, 'ObserverEnrollment', :enrollment_state => 'active', :associated_user_id => @student.id)
       @course.enroll_user(@observer, 'ObserverEnrollment', :enrollment_state => 'active', :allow_multiple_enrollments => true, :associated_user_id => student2.id)

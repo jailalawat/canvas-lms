@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative 'common'
 require_relative 'helpers/groups_common'
 require_relative 'helpers/announcements_common'
@@ -21,11 +38,16 @@ describe "groups" do
   setup_group_page_urls
 
   context "as a teacher" do
-    before do
-      course_with_teacher_logged_in(active_all: true)
+    before :once do
+      @course = course_model.tap(&:offer!)
+      @teacher = teacher_in_course(course: @course, name: 'teacher', active_all: true).user
       group_test_setup(4,1,1)
       # adds all students to the group
       add_users_to_group(@students,@testgroup.first)
+    end
+
+    before :each do
+      user_session(@teacher)
     end
 
     #-------------------------------------------------------------------------------------------------------------------
@@ -38,7 +60,7 @@ describe "groups" do
       it_behaves_like 'announcements_page', :teacher
 
       it "should allow teachers to see announcements", priority: "1", test_id: 287049 do
-        @announcement = @testgroup.first.announcements.create!(title: 'Group Announcement', message: 'Group',user: @students.first)
+        @announcement = @testgroup.first.announcements.create!(title: 'Group Announcement', message: 'Group', user: @students.first)
         verify_member_sees_announcement
       end
 
@@ -50,7 +72,7 @@ describe "groups" do
       end
 
       it "should allow teachers to delete their own group announcements", priority: "1", test_id: 326522 do
-        @testgroup.first.announcements.create!(title: 'Student Announcement', message: 'test message', User: @teacher)
+        @testgroup.first.announcements.create!(title: 'Student Announcement', message: 'test message', user: @teacher)
 
         get announcements_page
         expect(ff('.discussion-topic').size).to eq 1
@@ -59,7 +81,7 @@ describe "groups" do
       end
 
       it "should allow teachers to delete group member announcements", priority: "1", test_id: 326523 do
-        @testgroup.first.announcements.create!(title: 'Student Announcement', message: 'test message', User: @students.first)
+        @testgroup.first.announcements.create!(title: 'Student Announcement', message: 'test message', user: @students.first)
 
         get announcements_page
         expect(ff('.discussion-topic').size).to eq 1
@@ -68,12 +90,12 @@ describe "groups" do
       end
 
       it "should let teachers edit their own announcements", priority: "1", test_id: 312865 do
-        @testgroup.first.announcements.create!(title: 'Test Announcement', message: 'test message', User: @teacher)
+        @testgroup.first.announcements.create!(title: 'Test Announcement', message: 'test message', user: @teacher)
         edit_group_announcement
       end
 
       it "should let teachers edit group member announcements", priority: "2", test_id: 323325 do
-        @testgroup.first.announcements.create!(title: 'Your Announcement', message: 'test message', User: @students.first)
+        @testgroup.first.announcements.create!(title: 'Your Announcement', message: 'test message', user: @students.first)
         edit_group_announcement
       end
     end
@@ -87,6 +109,16 @@ describe "groups" do
         # Checks that all students and teachers created in setup are listed on page
         expect(ff('.student_roster .user_name').size).to eq 4
         expect(ff('.teacher_roster .user_name').size).to eq 2
+      end
+
+      it "shows both active and inactive members in groups to teachers", priority: "2", test_id: 2771091 do
+        get people_page
+        expect(ff('.student_roster .user_name').size).to eq 4
+        student_enrollment = StudentEnrollment.last
+        student_enrollment.workflow_state = "inactive"
+        student_enrollment.save!
+        refresh_page
+        expect(ff('.student_roster .user_name').size).to eq 4
       end
     end
 
@@ -145,6 +177,20 @@ describe "groups" do
         # Verifies teacher can access the group page & that it's the correct page
         verify_member_sees_group_page
       end
+
+      it "has unique pages in the cloned groups", priority: "2", test_id: 1041949 do
+        @page = @testgroup.first.wiki.wiki_pages.create!(title: "Page", user: @students.first)
+        get pages_page
+        expect(f('.index-content')).to contain_css('.wiki-page-link')
+
+        category = @course.group_categories.create!(:name => "Group Category")
+        @group_category.first.clone_groups_and_memberships(category)
+        category.reload
+        new_group = category.groups.first
+
+        get "/groups/#{new_group.id}/pages"
+        expect(f('.index-content')).not_to contain_css('.wiki-page-link')
+      end
     end
 
     #-------------------------------------------------------------------------------------------------------------------
@@ -154,14 +200,14 @@ describe "groups" do
       it "should allow teacher to add a new folder", priority: "2", test_id: 303703 do
         get files_page
         add_folder
-        expect(ff('.media-body').first.text).to eq 'new folder'
+        expect(ff('.ef-name-col__text').first.text).to eq 'new folder'
       end
 
       it "should allow teacher to delete a folder", priority: "2", test_id: 304184 do
         get files_page
         add_folder
         delete(0, :toolbar_menu)
-        expect(all_files_folders.count).to eq 0
+        expect(f("body")).not_to contain_css('.ef-item-row')
       end
 
       it "should allow a teacher to delete a file", priority: "2", test_id: 304183 do
@@ -169,7 +215,7 @@ describe "groups" do
         get files_page
         delete(0, :toolbar_menu)
         wait_for_ajaximations
-        expect(all_files_folders.count).to eq 0
+        expect(f("body")).not_to contain_css('.ef-item-row')
       end
 
       it "should allow teachers to move a file", priority: "2", test_id: 304185 do
@@ -185,20 +231,18 @@ describe "groups" do
         move_folder(@inner_folder)
       end
 
-      it "should allow teachers to publish and unpublish a file", priority: "2", test_id: 304673 do
+      it "hides the publish cloud", priority: "1", test_id: 304673 do
         add_test_files
         get files_page
-        set_item_permissions(:unpublish,:toolbar_menu)
-        expect(f('.btn-link.published-status.unpublished')).to be_displayed
-        set_item_permissions(:publish,:toolbar_menu)
-        expect(f('.btn-link.published-status.published')).to be_displayed
+        expect(f('#content')).not_to contain_css('.btn-link.published-status')
       end
 
-      it "should allow teachers to restrict access to a file", priority: "2", test_id: 304900 do
+      it "does not allow teachers to restrict access to a file", priority: "1", test_id: 304900 do
         add_test_files
         get files_page
-        set_item_permissions(:restricted_access, :available_with_link, :cloud_icon)
-        expect(f('.btn-link.published-status.hiddenState')).to be_displayed
+        f('.ef-item-row .ef-date-created-col').click
+        expect(f('.ef-header')).to contain_css('.ef-header__secondary')
+        expect(f('.ef-header__secondary')).not_to contain_css('.btn-restrict')
       end
     end
 

@@ -17,6 +17,7 @@
 #
 
 require File.expand_path(File.dirname(__FILE__) + '/../api_spec_helper')
+require_relative '../../sharding_spec_helper'
 
 describe "Admins API", type: :request do
   before :once do
@@ -26,7 +27,7 @@ describe "Admins API", type: :request do
 
   describe "create" do
     before :once do
-      @new_user = user(:name => 'new guy')
+      @new_user = user_factory(:name => 'new guy')
       @admin.account.root_account.pseudonyms.create!(unique_id: 'user', user: @new_user)
       @user = @admin
     end
@@ -148,7 +149,7 @@ describe "Admins API", type: :request do
     context "unauthorized caller" do
       before do
         @au = @account.account_users.create! :user => @new_user
-        @user = user :account => @account
+        @user = user_factory :account => @account
       end
 
       it "should 401" do
@@ -250,7 +251,7 @@ describe "Admins API", type: :request do
 
     context "unauthorized caller" do
       before do
-        @user = user :account => @account
+        @user = user_factory :account => @account
       end
 
       it "should 401" do
@@ -262,7 +263,7 @@ describe "Admins API", type: :request do
       before :once do
         @roles = {}
         2.times do |x|
-          u = user(:name => "User #{x}", :account => @account)
+          u = user_factory(:name => "User #{x}", :account => @account)
           @roles[x] = custom_account_role("MT #{x}", :account => @account)
           @account.account_users.create!(:user => u, :role => @roles[x])
         end
@@ -315,6 +316,20 @@ describe "Admins API", type: :request do
                              "name"=>@another_admin.name,
                              "sortable_name"=>@another_admin.sortable_name,
                              "short_name"=>@another_admin.short_name}}]
+      end
+
+      context 'sharding' do
+        specs_require_sharding
+
+        it "should work with cross-shard users" do
+          @shard1.activate { @other_admin = user_factory }
+          au = Account.default.account_users.create!(:user => @other_admin)
+
+          @user = @admin
+          json = api_call(:get, @path, @path_opts.merge(user_id: [@other_admin.id]))
+
+          expect(json.first["id"]).to eq au.id
+        end
       end
 
       it "should paginate" do

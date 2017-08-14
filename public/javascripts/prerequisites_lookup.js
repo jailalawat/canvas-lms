@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,19 +12,17 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'i18n!prerequisites_lookup',
-  'jquery',
-  'str/htmlEscape',
-  'vendor/spin',
-  'context_modules',
-  'jquery.ajaxJSON',
-  'jquery.instructure_misc_helpers'
-], function(I18n, $, htmlEscape, Spinner) {
+import I18n from 'i18n!prerequisites_lookup'
+import $ from 'jquery'
+import htmlEscape from './str/htmlEscape'
+import Spinner from 'spin.js'
+import './context_modules'
+import './jquery.ajaxJSON'
+import './jquery.instructure_misc_helpers'
 
   var lookupStarted = false;
 
@@ -55,11 +53,14 @@ define([
       for(var idx in data.modules) {
         var module = data.modules[idx];
         var $li = $("<li/>");
+        var $i = $("<i/>");
         $li.addClass('module');
         $li.click(function() {
           $(this).find("ul").toggle();
         });
         $li.toggleClass('locked', !!module.locked);
+        if (module.locked) { $i.addClass('icon-lock'); }
+        $li.append($i);
         var $h3 = $("<h3/>");
         $h3.text(module.name);
         $li.append($h3);
@@ -73,6 +74,7 @@ define([
             var $a = $("<a/>");
             $a.attr('href', pre.url);
             $a.text(pre.title);
+            $a.toggleClass('icon-lock', !pre.available);
             $pre.append($a);
             var desc = pre.requirement_description;
             if(desc) {
@@ -98,5 +100,3 @@ define([
     })
   }
   $(document).ready(INST.lookupPrerequisites);
-
-});

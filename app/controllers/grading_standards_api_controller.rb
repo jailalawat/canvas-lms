@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -73,8 +73,8 @@
 class GradingStandardsApiController < ApplicationController
   include Api::V1::GradingStandard
 
-  before_filter :require_user
-  before_filter :require_context
+  before_action :require_user
+  before_action :require_context
 
   # @API Create a new grading standard
   # Create a new grading standard
@@ -139,7 +139,7 @@ class GradingStandardsApiController < ApplicationController
         if @standard.save
           format.json{ render :json => grading_standard_json(@standard, @current_user, session) }
         else
-          format.json{ render :json => @standard.errors.to_json, :status => :bad_request }
+          format.json{ render :json => @standard.errors, :status => :bad_request }
         end
       end
     end
@@ -153,7 +153,7 @@ class GradingStandardsApiController < ApplicationController
   #   curl https://<canvas>/api/v1/courses/1/grading_standards \
   #     -H 'Authorization: Bearer <token>'
   #
-  # @returns [Grading Standard]
+  # @returns [GradingStandard]
   def context_index
     if authorized_action(@context, @current_user, :read)
       grading_standards_json = @context.grading_standards.map do |g|
@@ -166,11 +166,12 @@ class GradingStandardsApiController < ApplicationController
   private
 
   def build_grading_scheme(params)
-    grading_standard_params = params.slice('title')
-    grading_standard_params['standard_data']={}
+    grading_standard_params = params.permit('title')
+    grading_standard_params['standard_data'] = {}
+    grading_standard_params['standard_data'].permit!
     if params['grading_scheme_entry']
       params['grading_scheme_entry'].each_with_index do |scheme, index|
-        grading_standard_params['standard_data']["scheme_#{index}"] = scheme
+        grading_standard_params['standard_data']["scheme_#{index}"] = scheme.permit(:name, :value)
       end
     end
     grading_standard_params

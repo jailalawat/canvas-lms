@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -46,6 +46,11 @@ module CC::Importer::Canvas
       wiki[:front_page] = meta['front_page'] == 'true'
       wiki[:text] = body
       wiki[:url_name] = wiki_name
+      wiki[:assignment] = nil
+      wiki[:todo_date] = meta['todo_date']
+      if asg_id = meta['assignment_identifier']
+        wiki[:assignment] = { migration_id: asg_id }
+      end
       wiki
     end
 

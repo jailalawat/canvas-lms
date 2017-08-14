@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative "../../support/call_stack_utils"
 
 module SeleniumExtensions
@@ -32,7 +49,7 @@ module SeleniumExtensions
       yield
     rescue Selenium::WebDriver::Error::StaleElementReferenceError
       raise unless finder_proc
-      location = CallStackUtils.best_line_for($ERROR_INFO.backtrace, /test_setup/)
+      location = CallStackUtils.best_line_for($ERROR_INFO.backtrace)
       $stderr.puts "WARNING: StaleElementReferenceError at #{location}, attempting to recover..."
       @id = finder_proc.call.ref
       retry
@@ -60,57 +77,68 @@ module SeleniumExtensions
       ]
     ).each do |method|
       define_method(method) do |*args|
-        raise 'need to do a `get` before you can interact with the page' unless ready_for_interaction
+        raise Error, 'need to do a `get` before you can interact with the page' unless ready_for_interaction
         super(*args)
       end
     end
   end
 
-  module PreventNestedWaiting
-    def prevent_nested_waiting(method)
-      prevent_nested_waiting!(method)
-      begin
-        @outer_wait_method = method
+  module FinderWaiting
+    def find_element(*args)
+      FinderWaiting.wait_for method: :find_element do
+        super
+      end or raise Selenium::WebDriver::Error::NoSuchElementError, "Unable to locate element: #{args.map(&:inspect).join(", ")}"
+    end
+    alias first find_element
+
+    def find_elements(*args)
+      result = []
+      FinderWaiting.wait_for method: :find_elements do
+        result = super
+        result.present?
+      end
+      result.present? or raise Selenium::WebDriver::Error::NoSuchElementError, "Unable to locate element: #{args.map(&:inspect).join(", ")}"
+      result
+    end
+    alias all find_elements
+
+    class << self
+      attr_accessor :timeout
+
+      def wait_for(method:, timeout: self.timeout, ignore: nil)
+        return yield if timeout == 0
+        prevent_nested_waiting(method) do
+          Selenium::WebDriver::Wait.new(timeout: timeout, ignore: ignore).until do
+            yield
+          end
+        end
+      rescue Selenium::WebDriver::Error::TimeOutError
+        false
+      end
+
+      def disable
+        original_wait = self.timeout
+        self.timeout = 0
         yield
       ensure
-        @outer_wait_method = nil
+        self.timeout = original_wait
       end
-    end
 
-    def prevent_nested_waiting!(method)
-      return unless @outer_wait_method
-      return if manage.timeouts.implicit_wait == 0
-      raise NestedWaitError, "`#{method}` will wait for you; don't nest it in `#{@outer_wait_method}`"
-    end
-
-    (
-      %i[
-        first
-        find_element
-        all
-        find_elements
-      ]
-    ).each do |method|
-      define_method(method) do |*args|
+      def prevent_nested_waiting(method)
         prevent_nested_waiting!(method)
-        super(*args)
+        begin
+          @outer_wait_method = method
+          yield
+        ensure
+          @outer_wait_method = nil
+        end
       end
-    end
-  end
 
-  module GettableTimeouts
-    attr_reader :implicit_wait, :script_timeout, :page_load
-
-    def implicit_wait=(seconds)
-      super(@implicit_wait = seconds)
-    end
-
-    def script_timeout=(seconds)
-      super(@script_timeout = seconds)
-    end
-
-    def page_load=(seconds)
-      super(@page_load = seconds)
+      def prevent_nested_waiting!(method)
+        return unless @outer_wait_method
+        return if timeout == 0
+        raise NestedWaitError, "`#{method}` will wait for you; don't nest it in `#{@outer_wait_method}`"
+      end
     end
   end
 
@@ -127,6 +155,6 @@ module SeleniumExtensions
 end
 
 Selenium::WebDriver::Element.prepend(SeleniumExtensions::StaleElementProtection)
+Selenium::WebDriver::Element.prepend(SeleniumExtensions::FinderWaiting)
 Selenium::WebDriver::Driver.prepend(SeleniumExtensions::PreventEarlyInteraction)
-Selenium::WebDriver::Driver.prepend(SeleniumExtensions::PreventNestedWaiting)
-Selenium::WebDriver::Timeouts.prepend(SeleniumExtensions::GettableTimeouts)
+Selenium::WebDriver::Driver.prepend(SeleniumExtensions::FinderWaiting)

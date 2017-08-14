@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -125,18 +125,18 @@ class ConversationsController < ApplicationController
   include Api::V1::Conversation
   include Api::V1::Progress
 
-  before_filter :require_user, :except => [:public_feed]
-  before_filter :reject_student_view_student
-  before_filter :get_conversation, :only => [:show, :update, :destroy, :add_recipients, :remove_messages]
-  before_filter :infer_scope, :only => [:index, :show, :create, :update, :add_recipients, :add_message, :remove_messages]
-  before_filter :normalize_recipients, :only => [:create, :add_recipients]
-  before_filter :infer_tags, :only => [:create, :add_message, :add_recipients]
+  before_action :require_user, :except => [:public_feed]
+  before_action :reject_student_view_student
+  before_action :get_conversation, :only => [:show, :update, :destroy, :add_recipients, :remove_messages]
+  before_action :infer_scope, :only => [:index, :show, :create, :update, :add_recipients, :add_message, :remove_messages]
+  before_action :normalize_recipients, :only => [:create, :add_recipients]
+  before_action :infer_tags, :only => [:create, :add_message, :add_recipients]
 
   # whether it's a bulk private message, or a big group conversation,
   # batch up all delayed jobs to make this more responsive to the user
   batch_jobs_in_actions :only => :create
 
-  API_ALLOWED_FIELDS = %w{workflow_state subscribed starred scope filter}.freeze
+  API_ALLOWED_FIELDS = %w{workflow_state subscribed starred}.freeze
 
   # @API List conversations
   # Returns the list of conversations for the current user, most recent ones first.
@@ -167,6 +167,9 @@ class ConversationsController < ApplicationController
   #   paged conversation data, and "conversation_ids" which will contain the
   #   ids of all conversations under this scope/filter in the same order.
   #
+  # @argument include[] [Optional, String, "participant_avatars"]
+  #   "participant_avatars":: Optionally include an "avatar_url" key for each user participanting in the conversation
+  #
   # @response_field id The unique identifier for the conversation.
   # @response_field subject The subject of the conversation.
   # @response_field workflow_state The current state of the conversation
@@ -194,7 +197,9 @@ class ConversationsController < ApplicationController
   # @response_field avatar_url URL to appropriate icon for this conversation
   #   (custom, individual or group avatar, depending on audience)
   # @response_field participants Array of users (id, name) participating in
-  #   the conversation. Includes current user.
+  #   the conversation. Includes current user. If `include[]=participant_avatars`
+  #   was passed as an argument, each user in the array will also have an
+  #   "avatar_url" field
   # @response_field visible Boolean, indicates whether the conversation is
   #   visible under the current scope and filter. This attribute is always
   #   true in the index API response, and is primarily useful in create/update
@@ -232,7 +237,7 @@ class ConversationsController < ApplicationController
       # optimize loading the most recent messages for each conversation into a single query
       ConversationParticipant.preload_latest_messages(conversations, @current_user)
       @conversations_json = conversations_json(conversations, @current_user,
-        session, include_participant_avatars: false,
+        session, include_participant_avatars: (Array(params[:include]).include? "participant_avatars"),
         include_participant_contexts: false, visible: true,
         include_context_name: true, include_beta: params[:include_beta])
 
@@ -246,7 +251,7 @@ class ConversationsController < ApplicationController
       @current_user.reload
 
       hash = {
-        :ATTACHMENTS_FOLDER_ID => @current_user.conversation_attachments_folder.id,
+        :ATTACHMENTS_FOLDER_ID => @current_user.conversation_attachments_folder.id.to_s,
         :ACCOUNT_CONTEXT_CODE => "account_#{@domain_root_account.id}",
         :CAN_MESSAGE_ACCOUNT_CONTEXT => valid_account_context?(@domain_root_account),
         :MAX_GROUP_CONVERSATION_SIZE => Conversation.max_group_conversation_size
@@ -422,7 +427,7 @@ class ConversationsController < ApplicationController
   end
 
   # @API Get a single conversation
-  # Returns information for a single conversation. Response includes all
+  # Returns information for a single conversation for the current user. Response includes all
   # fields that are present in the list/index action as well as messages
   # and extended participant information.
   #
@@ -541,14 +546,13 @@ class ConversationsController < ApplicationController
                                       messages: messages,
                                       submissions: [],
                                       include_beta: params[:include_beta],
-                                      include_context_name: true)
+                                      include_context_name: true,
+                                      include_reply_permission_check: true
+    )
   end
 
   # @API Edit a conversation
   # Updates attributes for a single conversation.
-  #
-  # @argument conversation[subject] [String]
-  #   Change the subject of this conversation
   #
   # @argument conversation[workflow_state] [String, "read"|"unread"|"archived"]
   #   Change the state of this conversation
@@ -590,7 +594,7 @@ class ConversationsController < ApplicationController
   #     "participants": [{"id": 1, "name": "Joe TA"}]
   #   }
   def update
-    if @conversation.update_attributes(params[:conversation].slice(*API_ALLOWED_FIELDS))
+    if @conversation.update_attributes(params.require(:conversation).permit(*API_ALLOWED_FIELDS))
       render :json => conversation_json(@conversation, @current_user, session)
     else
       render :json => @conversation.errors, :status => :bad_request
@@ -640,6 +644,60 @@ class ConversationsController < ApplicationController
 
     render :json => {}
   end
+
+  # internal api
+  def deleted_index
+    return render_unauthorized_action unless @current_user.roles(Account.site_admin).include? 'admin'
+
+    query = lambda {
+      participants = ConversationMessageParticipant.query_deleted(params['user_id'], params)
+
+      Api.paginate(
+        participants,
+        self,
+        api_v1_deleted_conversations_url
+      )
+
+      participants.map { |p| deleted_conversation_json(p, @current_user, session) }
+    }
+
+    if (params['conversation_id'])
+      conversation_messages = Conversation.find(params['conversation_id']).shard.activate { query.call }
+    else
+      conversation_messages = query.call
+    end
+
+    render :json => conversation_messages
+  end
+
+  #internal api
+  def restore_message
+    return render_unauthorized_action unless @current_user.roles(Account.site_admin).include? 'admin'
+    return render_error('message_id', 'required') unless params['message_id']
+    return render_error('user_id', 'required') unless params['user_id']
+    return render_error('conversation_id', 'required') unless params['conversation_id']
+
+    Conversation.find(params['conversation_id']).shard.activate do
+      cmp = ConversationMessageParticipant
+              .where(:user_id => params['user_id'])
+              .where(:conversation_message_id => params['message_id'])
+
+      cmp.update_all(:workflow_state => 'active', :deleted_at => nil)
+
+      participant = ConversationParticipant
+                      .where(:conversation_id => params['conversation_id'])
+                      .where(:user_id => params['user_id'])
+                      .first()
+      messages = participant.messages
+
+      participant.message_count = messages.count(:id)
+      participant.last_message_at = messages.first().created_at
+      participant.save!
+
+      render :json => cmp.map { |c| conversation_message_json(c.conversation_message, @current_user, session) }
+    end
+  end
+
 
   # @API Add recipients
   # Add recipients to an existing group conversation. Response is similar to
@@ -758,10 +816,13 @@ class ConversationsController < ApplicationController
   #
   def add_message
     get_conversation(true)
+    if @conversation.conversation.replies_locked_for?(@current_user)
+      return render_unauthorized_action
+    end
     if params[:body].present?
       # allow responses to be sent to anyone who is already a conversation participant.
       params[:from_conversation_id] = @conversation.conversation_id
-      # not a before_filter because we need to set the above parameter.
+      # not a before_action because we need to set the above parameter.
       normalize_recipients
       # find included_messages
       message_ids = params[:included_messages]
@@ -778,8 +839,11 @@ class ConversationsController < ApplicationController
         message_ids = db_ids
 
         # sanity check: can the user see the included messages?
-        unless ConversationMessageParticipant.where(:conversation_message_id => message_ids,
-            :user_id => @current_user.id).count == message_ids.count
+        found_count = 0
+        Shard.partition_by_shard(message_ids) do |shard_message_ids|
+          found_count += ConversationMessageParticipant.where(:conversation_message_id => shard_message_ids, :user_id => @current_user).count
+        end
+        unless found_count == message_ids.count
           return render_error('included_messages', 'not a participant')
         end
       end
@@ -851,7 +915,7 @@ class ConversationsController < ApplicationController
   # @returns Progress
   def batch_update
     conversation_ids = params[:conversation_ids]
-    update_params = params.slice(:event).with_indifferent_access
+    update_params = params.slice(:event).to_hash.with_indifferent_access
 
     allowed_events = %w(mark_as_read mark_as_unread star unstar archive destroy)
     return render(:json => {:message => 'conversation_ids not specified'}, :status => :bad_request) unless params[:conversation_ids].is_a?(Array)
@@ -905,7 +969,7 @@ class ConversationsController < ApplicationController
       end
     end
     respond_to do |format|
-      format.atom { render :text => feed.to_xml }
+      format.atom { render :plain => feed.to_xml }
     end
   end
 
@@ -985,10 +1049,10 @@ class ConversationsController < ApplicationController
     multiple = conversations.is_a?(Enumerable) || conversations.is_a?(ActiveRecord::Relation)
     conversations = [conversations] unless multiple
     result = Hash.new(false)
-    visible_conversations = @current_user.shard.activate do
-        @conversations_scope.select(:conversation_id).where(:conversation_id => conversations.map(&:conversation_id)).to_a
-      end
-    visible_conversations.each { |c| result[c.conversation_id] = true }
+    visible_conversation_ids = @current_user.shard.activate do
+      @conversations_scope.where(:conversation_id => conversations.map(&:conversation_id)).pluck(:conversation_id)
+    end
+    visible_conversation_ids.each { |c_id| result[Shard.relative_id_for(c_id, @current_user.shard, Shard.current)] = true }
     if !multiple
       result[conversations.first.conversation_id]
     else
@@ -998,32 +1062,25 @@ class ConversationsController < ApplicationController
 
   def normalize_recipients
     return unless params[:recipients]
+
     unless params[:recipients].is_a? Array
       params[:recipients] = params[:recipients].split ","
     end
 
-    recipient_ids = MessageableUser.individual_recipients(params[:recipients])
-    contexts      = MessageableUser.context_recipients(params[:recipients])
-
-    if params[:context_code] =~ MessageableUser::Calculator::CONTEXT_RECIPIENT
-      is_admin = Context.
-        find_by_asset_string(params[:context_code]).
-        grants_right?(@current_user, :read_as_admin)
-      @recipients = @current_user.
-        messageable_user_calculator.
-        messageable_users_in_context(
-          params[:context_code],
-          admin_context: is_admin
-        ).select { |user| recipient_ids.include? user.id }
-    else
-      @recipients = @current_user.load_messageable_users(recipient_ids, conversation_id: params[:from_conversation_id])
+    # unrecognized context codes are ignored
+    if AddressBook.valid_context?(params[:context_code])
+      context = AddressBook.load_context(params[:context_code])
+      if context.nil?
+        # recognized context code must refer to a valid course or group
+        return render json: { message: 'invalid context_code' }, status: :bad_request
+      end
     end
 
-    contexts.map do |context|
-      @recipients.concat @current_user.messageable_users_in_context(context)
-    end
-
-    @recipients.uniq!(&:id)
+    users, contexts = AddressBook.partition_recipients(params[:recipients])
+    known = @current_user.address_book.known_users(users, context: context, conversation_id: params[:from_conversation_id])
+    contexts.each{ |context| known.concat(@current_user.address_book.known_in_context(context)) }
+    @recipients = known.uniq(&:id)
+    @recipients.reject!{|u| u.id == @current_user.id} unless @recipients == [@current_user]
   end
 
   def infer_tags
@@ -1074,11 +1131,6 @@ class ConversationsController < ApplicationController
       media_comment.save
       media_comment
     end
-  end
-
-  # Obsolete. Forced to false until we go through and clean it up thoroughly
-  def interleave_submissions
-    false
   end
 
   def include_private_conversation_enrollments

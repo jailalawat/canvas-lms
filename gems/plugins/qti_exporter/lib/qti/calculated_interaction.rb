@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'cgi'
 module Qti
 class CalculatedInteraction < AssessmentItemConverter
@@ -15,6 +32,7 @@ class CalculatedInteraction < AssessmentItemConverter
     if @question[:answer_tolerance] && !@question[:answer_tolerance].to_s.match(/[^\d\.]/)
       @question[:answer_tolerance] = @question[:answer_tolerance].to_f
     end
+
     get_calculated_property('unit_points_percent')
     @question[:unit_points_percent] = @question[:unit_points_percent].to_f if @question[:unit_points_percent]
     get_calculated_property('unit_value')
@@ -29,7 +47,19 @@ class CalculatedInteraction < AssessmentItemConverter
     get_answer_sets()
     get_feedback()
     get_formulas()
-    
+
+    if !@question[:answer_tolerance] && tolerance = get_node_att(@doc, 'instructureMetadata instructureField[name=formula_tolerance]', 'value')
+      @question[:answer_tolerance] = tolerance
+    end
+    if !@question[:formula_decimal_places] && precision = get_node_att(@doc, 'instructureMetadata instructureField[name=formula_precision]', 'value')
+      @question[:formula_decimal_places] = precision.to_i
+    end
+
+    apply_d2l_fixes if @flavor == Qti::Flavors::D2L
+
+    if @question[:formulas].empty? && @question[:imported_formula]
+      @question[:formulas] << {:formula => @question[:imported_formula]}
+    end
     @question
   end
 
@@ -56,7 +86,7 @@ class CalculatedInteraction < AssessmentItemConverter
       set = {:variables=>[], :id=>unique_local_id, :weight=>100}
       @question[:answers] << set
       set[:answer] = vs.at_css('answer').text.to_f if vs.at_css('answer')
-      
+
       vs.css('var').each do |v|
         var = {}
         set[:variables] << var
@@ -65,7 +95,7 @@ class CalculatedInteraction < AssessmentItemConverter
       end
     end
   end
-  
+
   def get_formulas
     @question[:formulas] = []
     if formulas_node = @doc.at_css('formulas')
@@ -77,6 +107,22 @@ class CalculatedInteraction < AssessmentItemConverter
       end
     end
     @question[:formulas]
+  end
+
+  def apply_d2l_fixes
+    @question[:variables].each do |v|
+      v_name = v[:name]
+      # substitute {var} for [var]
+      @question[:question_text].gsub!("{#{v_name}}", "[#{v_name}]") if @question[:question_text]
+      # substitute {var} for var
+      @question[:imported_formula].gsub!("{#{v_name}}", "#{v_name}") if @question[:imported_formula]
+    end
+    if @question[:imported_formula]
+      method_substitutions = {"sqr" => "sqrt", "Factorial" => "fact", "exp" => "e"}
+      method_substitutions.each do |orig_method, new_method|
+        @question[:imported_formula].gsub!("#{orig_method}(", "#{new_method}(")
+      end
+    end
   end
 
 end

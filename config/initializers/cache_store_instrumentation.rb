@@ -1,22 +1,22 @@
-# In rails 4.2, this is always true, and in rails 5, this setter is removed.
-# In other words, just remove this whole block of code when we drop rails 4.0 support.
-if CANVAS_RAILS4_0
-  ActiveSupport::Cache::Store.instrument = true
-  if defined?(PhusionPassenger)
-    # For whatever reason this is a thread-local setting, so under Passenger we
-    # need to set it on each handler thread. Note that even in process mode,
-    # Passenger spins up a separate thread in each process for the actual rack
-    # handler.
-    PhusionPassenger.on_event(:starting_request_handler_thread) do
-      ActiveSupport::Cache::Store.instrument = true
-    end
-  end
-end
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 
-%w[read write delete exist? generate].each do |method|
-  ActiveSupport::Notifications.subscribe("cache_#{method}.active_support") do |_name, start, finish, _id, options|
-    key = options[:key]
-    elapsed_time = finish - start
-    Rails.logger.debug("CacheStore: #{method} #{key.inspect} #{"%.4f" % elapsed_time}")
-  end
+ActiveSupport::Notifications.subscribe("cache_generate.active_support") do |_name, start, finish, _id, _options|
+  elapsed_time = finish - start
+  # used by Redis::Client#log_request_response added in lib/canvas/redis.rb
+  Thread.current[:last_cache_generate] = elapsed_time
 end

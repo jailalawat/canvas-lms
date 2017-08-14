@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2012 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,7 +22,7 @@ describe Quizzes::OutstandingQuizSubmissionManager do
 
   describe "outstanding submissions by quiz" do
     before do
-      course
+      course_factory
       @user = student_in_course.user
       @quiz = @course.quizzes.create!(:title => "Outstanding")
       @quiz.quiz_questions.create!(:question_data => multiple_choice_question_data)

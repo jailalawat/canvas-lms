@@ -1,4 +1,4 @@
 test:
-  host: selenium
-  port: 4444
-  browser: "firefox"
+  remote_url_firefox: http://seleniumff.docker/wd/hub
+  remote_url_chrome: http://seleniumch.docker/wd/hub
+  browser: chrome

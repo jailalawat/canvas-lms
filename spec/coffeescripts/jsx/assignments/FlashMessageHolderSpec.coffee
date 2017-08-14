@@ -1,12 +1,29 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'react'
+  'react-dom'
   'jsx/assignments/FlashMessageHolder'
   'jsx/assignments/store/configureStore'
-], (React, FlashMessageHolder, configureStore) ->
+], (React, ReactDOM, FlashMessageHolder, configureStore) ->
 
-  TestUtils = React.addons.TestUtils
 
-  module 'FlashMessageHolder',
+  QUnit.module 'FlashMessageHolder',
     setup: ->
       @props =
         time: 123
@@ -15,15 +32,15 @@ define [
         onError: ->
         onSuccess: ->
 
-      @flashMessageHolder = React.render(React.createElement(FlashMessageHolder, @props), document.getElementById('fixtures'))
+      @flashMessageHolder = ReactDOM.render(React.createElement(FlashMessageHolder, @props), document.getElementById('fixtures'))
 
     teardown: ->
       @props = null
-      React.unmountComponentAtNode(document.getElementById('fixtures'))
+      ReactDOM.unmountComponentAtNode(document.getElementById('fixtures'))
 
 
   test 'renders nothing', ->
-    ok @flashMessageHolder.getDOMNode() == null, 'nothing was rendered'
+    ok ReactDOM.findDOMNode(@flashMessageHolder) == null, 'nothing was rendered'
 
   test 'calls proper function when state is an error', ->
     called = false
@@ -31,7 +48,7 @@ define [
     @props.message = 'error'
     @props.time = 125
     @props.onError = -> called = true
-    React.render(React.createElement(FlashMessageHolder, @props), document.getElementById('fixtures'))
+    ReactDOM.render(React.createElement(FlashMessageHolder, @props), document.getElementById('fixtures'))
 
     ok called, 'called error'
 
@@ -42,7 +59,7 @@ define [
     @props.message = 'success'
     @props.time = 125
     @props.onSuccess = -> called = true
-    React.render(React.createElement(FlashMessageHolder, @props), document.getElementById('fixtures'))
+    ReactDOM.render(React.createElement(FlashMessageHolder, @props), document.getElementById('fixtures'))
 
     ok called, 'called success'
 
@@ -54,7 +71,7 @@ define [
     @props.time = 1
     @props.onSuccess = -> called = true
     @props.onError = -> errCalled = true
-    React.render(React.createElement(FlashMessageHolder, @props), document.getElementById('fixtures'))
+    ReactDOM.render(React.createElement(FlashMessageHolder, @props), document.getElementById('fixtures'))
 
 
 

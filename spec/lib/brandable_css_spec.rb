@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,22 +21,23 @@ require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
 describe BrandableCSS do
   describe "all_brand_variable_values" do
     it "returns defaults if called without a brand config" do
-      expect(BrandableCSS.all_brand_variable_values["ic-link-color"]).to eq '#0081bd'
+      expect(BrandableCSS.all_brand_variable_values["ic-link-color"]).to eq '#008EE2'
     end
 
     it "includes image_url asset path for default images" do
       # un-memoize so it calls image_url stub
-      BrandableCSS.remove_instance_variable(:@variables_map_with_image_urls)
-      image_name = "image.png"
-      BrandableCSS.stubs(:image_url).returns(image_name)
+      if BrandableCSS.instance_variable_get(:@variables_map_with_image_urls)
+        BrandableCSS.remove_instance_variable(:@variables_map_with_image_urls)
+      end
+      url = "https://test.host/image.png"
+      ActionController::Base.helpers.stubs(:image_url).returns(url)
       tile_wide = BrandableCSS.all_brand_variable_values["ic-brand-msapplication-tile-wide"]
-      expect(tile_wide).to eq image_name
+      expect(tile_wide).to eq url
     end
 
     describe "when called with a brand config" do
       before :once do
         parent_account = Account.default
-        parent_account.enable_feature!(:use_new_styles)
         parent_config = BrandConfig.create(variables: {"ic-brand-primary" => "#321"})
 
         subaccount_bc = BrandConfig.for(
@@ -60,20 +61,27 @@ describe BrandableCSS do
       end
 
       it "includes default variables not found in brand config" do
-        expect(@brand_variables["ic-link-color"]).to eq '#0081bd'
+        expect(@brand_variables["ic-link-color"]).to eq '#008EE2'
       end
+    end
+  end
+
+  describe "all_brand_variable_values_as_js" do
+    it "eports the default js to the right global variable" do
+      expected_js = "CANVAS_ACTIVE_BRAND_VARIABLES = #{BrandableCSS.default_json};"
+      expect(BrandableCSS.default_js).to eq expected_js
     end
   end
 
   describe "default_json" do
     it "includes default variables not found in brand config" do
       brand_variables = JSON.parse(BrandableCSS.default_json)
-      expect(brand_variables["ic-link-color"]).to eq '#0081bd'
+      expect(brand_variables["ic-link-color"]).to eq '#008EE2'
     end
   end
 
-  describe "save_default_file!" do
-    it "writes the default json represendation to the default json file" do
+  describe "save_default_json!" do
+    it "writes the default json representation to the default json file" do
       Canvas::Cdn.stubs(:enabled?).returns(false)
       file = StringIO.new
       BrandableCSS.stubs(:default_brand_json_file).returns(file)
@@ -81,8 +89,10 @@ describe BrandableCSS do
       expect(file.string).to eq BrandableCSS.default_json
     end
 
-    it 'uploads file to s3 if cdn is enabled' do
+    it 'uploads json file to s3 if cdn is enabled' do
       Canvas::Cdn.stubs(:enabled?).returns(true)
+      Canvas::Cdn.stubs(:config).returns(ActiveSupport::OrderedOptions.new.merge(region: 'us-east-1', aws_access_key_id: 'id', aws_secret_access_key: 'secret', bucket: 'cdn'))
+
       file = StringIO.new
       BrandableCSS.stubs(:default_brand_json_file).returns(file)
       File.stubs(:delete)
@@ -90,13 +100,45 @@ describe BrandableCSS do
       BrandableCSS.save_default_json!
     end
 
-    it 'delete the local file if cdn is enabled' do
+    it 'deletes the local json file if cdn is enabled' do
       Canvas::Cdn.stubs(:enabled?).returns(true)
+      Canvas::Cdn.stubs(:config).returns(ActiveSupport::OrderedOptions.new.merge(region: 'us-east-1', aws_access_key_id: 'id', aws_secret_access_key: 'secret', bucket: 'cdn'))
       file = StringIO.new
       BrandableCSS.stubs(:default_brand_json_file).returns(file)
       File.expects(:delete).with(BrandableCSS.default_brand_json_file)
       BrandableCSS.s3_uploader.expects(:upload_file)
       BrandableCSS.save_default_json!
+    end
+  end
+
+  describe "save_default_js!" do
+    it "writes the default javascript representation to the default js file" do
+      Canvas::Cdn.stubs(:enabled?).returns(false)
+      file = StringIO.new
+      BrandableCSS.stubs(:default_brand_js_file).returns(file)
+      BrandableCSS.save_default_js!
+      expect(file.string).to eq BrandableCSS.default_js
+    end
+
+    it 'uploads javascript file to s3 if cdn is enabled' do
+      Canvas::Cdn.stubs(:enabled?).returns(true)
+      Canvas::Cdn.stubs(:config).returns(ActiveSupport::OrderedOptions.new.merge(region: 'us-east-1', aws_access_key_id: 'id', aws_secret_access_key: 'secret', bucket: 'cdn'))
+
+      file = StringIO.new
+      BrandableCSS.stubs(:default_brand_js_file).returns(file)
+      File.stubs(:delete)
+      BrandableCSS.s3_uploader.expects(:upload_file).with(BrandableCSS.public_default_js_path)
+      BrandableCSS.save_default_js!
+    end
+
+    it 'delete the local javascript file if cdn is enabled' do
+      Canvas::Cdn.stubs(:enabled?).returns(true)
+      Canvas::Cdn.stubs(:config).returns(ActiveSupport::OrderedOptions.new.merge(region: 'us-east-1', aws_access_key_id: 'id', aws_secret_access_key: 'secret', bucket: 'cdn'))
+      file = StringIO.new
+      BrandableCSS.stubs(:default_brand_js_file).returns(file)
+      File.expects(:delete).with(BrandableCSS.default_brand_js_file)
+      BrandableCSS.s3_uploader.expects(:upload_file)
+      BrandableCSS.save_default_js!
     end
   end
 end

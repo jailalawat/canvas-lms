@@ -1,10 +1,28 @@
 /*
+ * Copyright (C) 2014 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+/*
 @styleguide Tab Navigation
 
 
 ## Regular Tabs
 
-Our default tabs come complete with a panel attached to the tabs that displays the content inside each tab. 
+Our default tabs come complete with a panel attached to the tabs that displays the content inside each tab.
 
 jQueryUI adds all the classes, once you initialize the tabs using the script and markup.
 
@@ -25,7 +43,7 @@ jQueryUI adds all the classes, once you initialize the tabs using the script and
 
 ## Minimal Tabs
 
-Don't want the bordered box around each tab panel? 
+Don't want the bordered box around each tab panel?
 
 Simply add the **.ui-tabs-minimal** class to the parent tab element.
 
@@ -57,7 +75,7 @@ Simply add the **.ui-tabs-minimal** class to the parent tab element.
   }
   .ui-tabs-nav {
     border-bottom-color: $ic-border-light;
-    li { 
+    li {
       background: transparent;
       border-color: transparent;
       box-shadow: none;
@@ -68,10 +86,10 @@ Simply add the **.ui-tabs-minimal** class to the parent tab element.
         padding: 8px 14px;
         text-shadow: none;
         @if $use_high_contrast { text-decoration: underline; }
-        &:focus { 
+        &:focus {
           @if $use_high_contrast { @include ic-focus-variant($ic-link-color, -4px); }
-          @else { 
-            text-decoration: underline; 
+          @else {
+            text-decoration: underline;
             outline: none;
           }
         }
@@ -84,9 +102,9 @@ Simply add the **.ui-tabs-minimal** class to the parent tab element.
         background: $ic-color-light;
         border-color: $ic-border-light;
         a {
-          color: $ic-color-dark;
+          color: $ic-font-color-dark;
           @if $use_high_contrast { text-decoration: none; }
-          
+
           // special handling for Calendar tabs with solid-color header backgrounds
           #edit_event & { color: $ic-link-color; }
         }
@@ -98,10 +116,10 @@ Simply add the **.ui-tabs-minimal** class to the parent tab element.
         background: $ic-color-light;
         a {
           @if $use_high_contrast { @include ic-focus-variant($ic-link-color, -4px); }
-          @else { 
+          @else {
             text-decoration: underline;
-            outline: none; 
-          }  
+            outline: none;
+          }
         }
       }
       &.ui-tabs-active,
@@ -113,16 +131,26 @@ Simply add the **.ui-tabs-minimal** class to the parent tab element.
           @if $use_high_contrast { text-decoration: none; }
 
           // special handling for Calendar tabs with solid-color header backgrounds
-          #edit_event & { color: $ic-color-dark; }
+          #edit_event & { color: $ic-font-color-dark; }
         }
       }
     }
   }
+
   &.ui-tabs--mini {
     .ui-tabs-nav {
-      li { 
+      li {
         a { padding: 4px 8px; }
       }
+    }
+  }
+
+  &.ui-tabs-minimal {
+    .ui-tabs-panel {
+      border-width: 0;
+      padding-left: 0;
+      padding-right: 0;
+      padding-bottom: 0;
     }
   }
 }

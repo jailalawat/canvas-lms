@@ -1,4 +1,22 @@
 <%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
+<%
    rubric_association ||= nil; editable ||= false; association_object = nil; edit_view ||= false
    rubric ||= nil; assessing ||= false; assessment ||= nil; has_assessments ||= false
    for_context ||= false
@@ -134,13 +152,20 @@
       <div style="float: right;" class="total_points_holder">
         <span style="padding-right: 10px;"><%= before_label :total_points, "Total Points" %>
           <% ot(:out_of, "%{points} *out of %{total}*", :points => capture { %>
-            <span class="rubric_total"><%= assessment ? assessment.score : (rubric.points_possible rescue 5) %></span><% },
-            :wrapper => '<span class="assessing">\1</span>',
-            :total => (rubric.points_possible rescue 5)) %>
+            <span class="rubric_total">
+              <%=
+                assessment ? n(assessment.score) : n((rubric.points_possible rescue 5))
+              %>
+            </span>
+            <%
+              },
+              wrapper: '<span class="assessing">\1</span>',
+              total: n((rubric.points_possible rescue 5)))
+            %>
         </span>
       </div>
       <div style="float: left;" class="editing">
-      <a href="#" class="icon-plus add_criterion_link"><%= t 'links.add_criterion', "Criterion" %></a>
+      <a href="#" aria-label='<%= t("Add Criterion") %>' class="icon-plus add_criterion_link"><%= t("Criterion") %></a>
       &nbsp;&nbsp;<a href="#" class="icon-search find_outcome_link outcome"><%= t 'links.find_outcome', "Find Outcome" %></a>
       </div>
       <div class="clear"></div>
@@ -167,9 +192,11 @@
           <input type="checkbox" id="totalling_rubric" class="totalling_rubric_checkbox" <%= 'checked' if rubric_association && rubric_association.hide_score_total %>/>
           <label for="totalling_rubric"><%= t 'labels.totallying_rubric', "Hide score total for assessment results" %></label>
         </div>
-        <div class="button-container">
-          <button type="button" class="btn btn-small cancel_button"><%= t '#buttons.cancel', "Cancel" %></button>
-          <button type="submit" class="btn btn-small save_button btn-primary"><%= t 'buttons.create', "Create Rubric" %></button>
+        <div class="ic-Action-header ic-Action-header--half-margin">
+          <div class="ic-Action-header__Primary">
+            <button type="button" class="Button cancel_button"><%= t '#buttons.cancel', "Cancel" %></button>
+            <button type="submit" class="Button Button--primary save_button"><%= t 'buttons.create', "Create Rubric" %></button>
+          </div>
         </div>
       </form>
     </td>

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -37,7 +37,7 @@ class ConversationParticipant < ActiveRecord::Base
   scope :sent, -> { where("visible_last_authored_at IS NOT NULL").order("visible_last_authored_at DESC, conversation_id DESC") }
   scope :for_masquerading_user, lambda { |user|
     # site admins can see everything
-    return all if user.account_users.map(&:account_id).include?(Account.site_admin.id)
+    next all if user.account_users.map(&:account_id).include?(Account.site_admin.id)
 
     # we need to ensure that the user can access *all* of each conversation's
     # accounts (and that each conversation has at least one account). so given
@@ -144,10 +144,10 @@ class ConversationParticipant < ActiveRecord::Base
         [sanitize_sql(shard_conditions)]
       else
         ConversationParticipant.unscoped do
-          conversation_ids = ConversationParticipant.where(shard_conditions).select(:conversation_id).map do |c|
-            Shard.relative_id_for(c.conversation_id, Shard.current, scope_shard)
+          conversation_ids = ConversationParticipant.where(shard_conditions).pluck(:conversation_id).map do |id|
+            Shard.relative_id_for(id, Shard.current, scope_shard)
           end
-          [sanitize_sql(:conversation_id => conversation_ids)]
+          ["conversation_id IN (#{conversation_ids.join(',')})"]
         end
       end
     end
@@ -184,8 +184,6 @@ class ConversationParticipant < ActiveRecord::Base
 
   before_update :update_unread_count_for_update
   before_destroy :update_unread_count_for_destroy
-
-  attr_accessible :subscribed, :starred, :workflow_state, :user
 
   validates_presence_of :conversation_id, :user_id, :workflow_state
   validates_inclusion_of :label, :in => ['starred'], :allow_nil => true
@@ -236,27 +234,24 @@ class ConversationParticipant < ActiveRecord::Base
   end
 
   def participants(options = {})
-    options = {
-      :include_participant_contexts => false,
-      :include_indirect_participants => false
-    }.merge(options)
-
-    shard.activate do
-      Rails.cache.fetch([conversation, user, 'participants', options].cache_key) do
+    participants = shard.activate do
+      include_indirect_participants = options[:include_indirect_participants] || false
+      Rails.cache.fetch([conversation, user, 'participants', include_indirect_participants].cache_key) do
         participants = conversation.participants
-        if options[:include_indirect_participants]
+        if include_indirect_participants
           user_ids = messages.map(&:all_forwarded_messages).flatten.map(&:author_id)
           user_ids -= participants.map(&:id)
-          participants += Shackles.activate(:slave) { MessageableUser.available.where(:id => user_ids).to_a }
+          participants += AddressBook.available(user_ids)
         end
-        if options[:include_participant_contexts]
-          # we do this to find out the contexts they share with the user
-          user.load_messageable_users(participants, :strict_checks => false)
-        else
-          participants
-        end
+        participants
       end
     end
+
+    if options[:include_participant_contexts]
+      user.address_book.preload_users(participants)
+    end
+
+    participants
   end
 
   def properties(latest = last_message)
@@ -345,13 +340,13 @@ class ConversationParticipant < ActiveRecord::Base
         if operation == :delete
           scope.delete_all
         else
-          scope.update_all(:workflow_state => 'deleted')
+          scope.update_all(:workflow_state => 'deleted', :deleted_at => Time.now)
         end
       else
         if operation == :delete
           scope.where(:conversation_message_id => to_delete).delete_all
         else
-          scope.where(:conversation_message_id => to_delete).update_all(:workflow_state => 'deleted')
+          scope.where(:conversation_message_id => to_delete).update_all(:workflow_state => 'deleted', :deleted_at => Time.now)
         end
         # if the only messages left are generated ones, e.g. "added
         # bob to the conversation", delete those too
@@ -486,14 +481,14 @@ class ConversationParticipant < ActiveRecord::Base
     conversation.shard.activate do
       self.class.unscoped do
         old_shard = self.user.shard
-        conversation.conversation_messages.where(:author_id => user_id).update_all(:author_id => new_user)
+        conversation.conversation_messages.where(:author_id => user_id).update_all(:author_id => new_user.id)
         if existing = conversation.conversation_participants.where(user_id: new_user).first
           existing.update_attribute(:workflow_state, workflow_state) if unread? || existing.archived?
           destroy
         else
           ConversationMessageParticipant.joins(:conversation_message).
               where(:conversation_messages => { :conversation_id => self.conversation_id }, :user_id => self.user_id).
-              update_all(:user_id => new_user)
+              update_all(:user_id => new_user.id)
           update_attribute :user, new_user
           existing = self
         end
@@ -528,7 +523,8 @@ class ConversationParticipant < ActiveRecord::Base
   end
 
   def self.conversation_ids
-    raise "conversation_ids needs to be scoped to a user" unless all.where_values.any? do |v|
+    where_predicates = CANVAS_RAILS4_2 ? all.where_values : all.where_clause.instance_variable_get(:@predicates)
+    raise "conversation_ids needs to be scoped to a user" unless where_predicates.any? do |v|
       if v.is_a?(Arel::Nodes::Binary) && v.left.is_a?(Arel::Attributes::Attribute)
         v.left.name == 'user_id'
       else
@@ -608,7 +604,7 @@ class ConversationParticipant < ActiveRecord::Base
 
   def update_unread_count(direction=:up, user_id=self.user_id)
     User.where(:id => user_id).
-        update_all(["unread_conversations_count = unread_conversations_count + ?, updated_at = ?", direction == :up ? 1 : -1, Time.now.utc])
+        update_all(["unread_conversations_count = GREATEST(unread_conversations_count + ?, 0), updated_at = ?", direction == :up ? 1 : -1, Time.now.utc])
   end
 
   def update_unread_count_for_update

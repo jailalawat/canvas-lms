@@ -1,13 +1,30 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'timezone'
-  'vendor/timezone/America/Detroit'
-  'vendor/timezone/America/Juneau'
-  'vendor/timezone/pt_PT'
+  'timezone/America/Detroit'
+  'timezone/America/Juneau'
+  'timezone/pt_PT'
   'helpers/I18nStubber'
   'jquery.instructure_date_and_time'
 ], ($, tz, detroit, juneau, portuguese, I18nStubber) ->
-  module 'fudgeDateForProfileTimezone',
+  QUnit.module 'fudgeDateForProfileTimezone',
     setup: ->
       @snapshot = tz.snapshot()
       @original = new Date(expectedTimestamp = Date.UTC(2013, 8, 1))
@@ -19,7 +36,7 @@ define [
     fudged = $.fudgeDateForProfileTimezone(@original)
     equal fudged.toString('yyyy-MM-dd HH:mm:ss'), tz.format(@original, '%F %T')
 
-  test 'should parse dates before the year 1000', -> 
+  test 'should parse dates before the year 1000', ->
     # using specific string (and specific timezone to guarantee it) since tz.format has a bug pre-1000
     tz.changeZone(detroit, 'America Detroit')
     oldDate = new Date(Date.UTC(900, 1, 1, 0, 0, 0))
@@ -50,7 +67,7 @@ define [
     fudged = $.fudgeDateForProfileTimezone(@original)
     equal fudged.toString('yyyy-MM-dd HH:mm:ss'), tz.format(@original, '%F %T')
 
-  module 'unfudgeDateForProfileTimezone',
+  QUnit.module 'unfudgeDateForProfileTimezone',
     setup: ->
       @snapshot = tz.snapshot()
       @original = new Date(expectedTimestamp = Date.UTC(2013, 8, 1))
@@ -86,7 +103,7 @@ define [
     unfudged = $.unfudgeDateForProfileTimezone(@original)
     equal tz.format(unfudged, '%F %T'), @original.toString('yyyy-MM-dd HH:mm:ss')
 
-  module 'sameYear',
+  QUnit.module 'sameYear',
     setup: -> @snapshot = tz.snapshot()
     teardown: -> tz.restore(@snapshot)
 
@@ -105,7 +122,7 @@ define [
     ok $.sameYear(date1, date2)
     ok !$.sameYear(date1, date3)
 
-  module 'sameDate',
+  QUnit.module 'sameDate',
     setup: -> @snapshot = tz.snapshot()
     teardown: -> tz.restore(@snapshot)
 
@@ -124,36 +141,7 @@ define [
     ok $.sameDate(date1, date2)
     ok !$.sameDate(date1, date3)
 
-  module 'midnight',
-    setup: -> @snapshot = tz.snapshot()
-    teardown: -> tz.restore(@snapshot)
-
-  test 'should return true iff the time is midnight', ->
-    date1 = new Date(0)
-    date2 = new Date(60000)
-    ok $.midnight(date1)
-    ok !$.midnight(date2)
-
-  test 'should check time relative to profile timezone', ->
-    tz.changeZone(detroit, 'America/Detroit')
-    date1 = new Date(0) # 12am UTC = 7pm EST
-    date2 = new Date(5 * 3600000) # 5am UTC = 00:00am EST
-    date3 = new Date(+date2 + 60000) # 00:01am EST
-    ok !$.midnight(date1)
-    ok $.midnight(date2)
-    ok !$.midnight(date3)
-
-  test 'should check time relative to specific timezone if provided', ->
-    tz.changeZone(detroit, 'America/Detroit')
-    tz.preload('America/Juneau', juneau)
-    date1 = new Date(0) # 12am UTC = 16:00 AKST (in 1970)
-    date2 = new Date(8 * 3600000) # 8am UTC = 00:00 AKST
-    date3 = new Date(+date2 + 60000) # 00:01 AKST
-    ok !$.midnight(date1, timezone: 'America/Juneau')
-    ok $.midnight(date2, timezone: 'America/Juneau')
-    ok !$.midnight(date3, timezone: 'America/Juneau')
-
-  module 'dateString',
+  QUnit.module 'dateString',
     setup: ->
       @snapshot = tz.snapshot()
       I18nStubber.pushFrame()
@@ -167,7 +155,7 @@ define [
     tz.changeZone(detroit, 'America/Detroit')
     equal $.dateString(new Date(0)), 'Dec 31, 1969'
 
-  module 'timeString',
+  QUnit.module 'timeString',
     setup: ->
       @snapshot = tz.snapshot()
       I18nStubber.pushFrame()
@@ -191,7 +179,7 @@ define [
     tz.changeZone(detroit, 'America/Detroit')
     equal $.timeString(new Date(0)), '7pm'
 
-  module 'datetimeString',
+  QUnit.module 'datetimeString',
     setup: ->
       @snapshot = tz.snapshot()
       I18nStubber.pushFrame()
@@ -217,7 +205,7 @@ define [
       'time.event': "%{date} em %{time}"
     equal $.datetimeString('1970-01-01 15:01:00Z'), "1 Jan 1970 em 15:01"
 
-  module '$.datepicker.parseDate',
+  QUnit.module '$.datepicker.parseDate',
     setup: ->
       @snapshot = tz.snapshot()
       I18nStubber.pushFrame()

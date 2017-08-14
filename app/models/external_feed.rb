@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,7 +17,6 @@
 #
 
 class ExternalFeed < ActiveRecord::Base
-  attr_accessible :url, :verbosity, :header_match
   belongs_to :user
   belongs_to :context, polymorphic: [:course, :group]
 

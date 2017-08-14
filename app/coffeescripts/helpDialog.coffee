@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 # also requires
 # jquery.formSubmit
 # jqueryui dialog
@@ -25,15 +42,17 @@ define [
     animateDuration: 100
 
     initDialog: ->
+      @defaultTitle = ENV.help_link_name || @defaultTitle
       @$dialog = $('<div style="padding:0; overflow: visible;" />').dialog
         resizable: false
         width: 400
         title: @defaultTitle
         close: => @switchTo('#help-dialog-options')
 
-      @$dialog.dialog('widget').delegate 'a[href="#teacher_feedback"],
-                                          a[href="#create_ticket"],
-                                          a[href="#help-dialog-options"]', 'click', preventDefault ({currentTarget}) =>
+      switchingLinks = 'a[href="#teacher_feedback"],
+                        a[href="#create_ticket"],
+                        a[href="#help-dialog-options"]'
+      @$dialog.dialog('widget').delegate switchingLinks, 'click', preventDefault ({currentTarget}) =>
         @switchTo $(currentTarget).attr('href')
 
       @helpLinksDfd = $.getJSON('/help_links').done (links) =>
@@ -49,20 +68,24 @@ define [
           contextAssetString: ENV.context_asset_string
           userRoles: ENV.current_user_roles
 
-
         @$dialog.html(helpDialogTemplate locals)
         @initTicketForm()
+
+        # recenter the dialog once all the links have been loaded so it is back in the
+        # middle of the page
+        @$dialog?.dialog('option', 'position', 'center')
+
         $(this).trigger('ready')
       @$dialog.disableWhileLoading @helpLinksDfd
       @dialogInited = true
 
     initTicketForm: ->
+      requiredFields = ['error[subject]', 'error[comments]', 'error[user_perceived_severity]']
+      requiredFields.push 'error[email]' if @showEmail()
+
       $form = @$dialog.find('#create_ticket').formSubmit
         disableWhileLoading: true
-        required: =>
-          requiredFields = ['error[subject]', 'error[comments]', 'error[user_perceived_severity]']
-          requiredFields.push 'error[email]' if @showEmail()
-          requiredFields
+        required: requiredFields
         success: =>
           @$dialog.dialog('close')
           $form.find(':input').val('')

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -25,7 +25,7 @@ describe Canvas::PasswordPolicy do
       account.settings[:password_policy] = policy
       account.save
       @pseudonym = Pseudonym.new
-      @pseudonym.user = user
+      @pseudonym.user = user_factory
       @pseudonym.account = Account.default
       @pseudonym.unique_id = "foo"
     end
@@ -35,7 +35,7 @@ describe Canvas::PasswordPolicy do
       @pseudonym.password = @pseudonym.password_confirmation = "aaaaa"
       expect(@pseudonym).not_to be_valid
 
-      @pseudonym.password = @pseudonym.password_confirmation = "aaaaaa"
+      @pseudonym.password = @pseudonym.password_confirmation = "aaaaaaaa"
       expect(@pseudonym).to be_valid
 
       @pseudonym.password = @pseudonym.password_confirmation = "football"
@@ -46,11 +46,11 @@ describe Canvas::PasswordPolicy do
     end
 
     it "should enforce minimum length" do
-      pseudonym_with_policy(:min_length => 6)
+      pseudonym_with_policy(:min_length => 10)
       @pseudonym.password = @pseudonym.password_confirmation = "asdfg"
       expect(@pseudonym).not_to be_valid
 
-      @pseudonym.password = @pseudonym.password_confirmation = "asdfgh"
+      @pseudonym.password = @pseudonym.password_confirmation = "asdfghijklm"
       expect(@pseudonym).to be_valid
     end
 

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -32,8 +32,6 @@ class MediaObject < ActiveRecord::Base
   after_create :retrieve_details_later
   after_save :update_title_on_kaltura_later
   serialize :data
-
-  attr_accessible :media_id, :title, :context, :user
 
   attr_accessor :podcast_associated_asset
 
@@ -103,12 +101,7 @@ class MediaObject < ActiveRecord::Base
       if entry[:originalId].present? && (Integer(entry[:originalId]).is_a?(Integer) rescue false)
         attachment_id = entry[:originalId]
       elsif entry[:originalId].present? && entry[:originalId].length >= 2
-        partner_data = begin
-          JSON.parse(entry[:originalId]).with_indifferent_access
-        rescue JSON::ParserError
-          Rails.logger.error("Failed to parse kaltura partner info: #{entry[:originalId]}")
-          Rack::Utils.parse_nested_query(entry[:originalId]).with_indifferent_access
-        end
+        partner_data = Rack::Utils.parse_nested_query(entry[:originalId]).with_indifferent_access
         attachment_id = partner_data[:attachment_id] if partner_data[:attachment_id].present?
       end
       attachment = Attachment.where(id: attachment_id).first if attachment_id

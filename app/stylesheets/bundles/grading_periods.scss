@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 
 #grading-periods-tab {
@@ -14,9 +32,7 @@
   .grading-period:nth-child(n+2) {
     border-top: none;
   }
-  .input-grading-period-date {
-    width: 160px;
-  }
+
   .icon-delete-grading-period::before {
     padding: 9px 0px;
     cursor: pointer;
@@ -26,34 +42,30 @@
   .icon-delete-grading-period {
     width: 20px;
   }
-  .buttons-grid-row {
-    width: 250px;
-  }
 
   label {
     font-weight: bold;
   }
 }
 
-.new-grading-period {
-  border-right-style: dashed;
-  border-bottom-style: dashed;
-  border-left-style: dashed;
-  border-top-style: none;
-  border-width: 2px;
-  @include fontSize(16px);
+.grading-period {
+  display: flex;
+}
 
-  #add-period-button {
-    @include fontSize(16px);
-    &:hover {
-      text-decoration: none;
-    }
-  }
-  .grading-period-add-icon {
-    margin-right: 4px;
+.GradingPeriod__Details {
+  flex: 1 1;
+}
+
+.GradingPeriod__Detail {
+  width: 100%;
+
+  &.ic-Input.hasDatepicker {
+    display: inline-block;
+    width: calc(100% - 46px);
   }
 }
 
-.no-active-grading-periods {
-  border-top-style: dashed;
+.GradingPeriod__Actions {
+  flex: 0 0;
+  margin-right: 12px;
 }

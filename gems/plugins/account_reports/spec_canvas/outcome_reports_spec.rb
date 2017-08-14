@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 - 2014 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,7 +21,7 @@ require File.expand_path(File.dirname(__FILE__) + '/report_spec_helper')
 describe "Outcome Reports" do
   include ReportSpecHelper
 
-  before(:each) do
+  before(:once) do
     Notification.where(name: "Report Generated").first_or_create
     Notification.where(name: "Report Generation Failed").first_or_create
     @account = Account.create(name: 'New Account', default_time_zone: 'UTC')
@@ -30,6 +30,10 @@ describe "Outcome Reports" do
     @course1.sis_source_id = "SIS_COURSE_ID_1"
     @course1.save!
     @course1.offer!
+
+    @teacher = User.create!
+    @course1.enroll_teacher(@teacher)
+
     @user1 = user_with_managed_pseudonym(
       :active_all => true, :account => @account, :name => 'John St. Clair',
       :sortable_name => 'St. Clair, John', :username => 'john@stclair.com',
@@ -73,7 +77,7 @@ describe "Outcome Reports" do
     @rubric.save!
     @a = @rubric.associate_with(@assignment, @course1, :purpose => 'grading')
     @assignment.reload
-    @submission = @assignment.grade_student(@user1, :grade => "10").first
+    @submission = @assignment.grade_student(@user1, grade: "10", grader: @teacher).first
     @submission.submission_type = 'online_url'
     @submission.submitted_at = 1.week.ago
     @submission.save!
@@ -174,8 +178,6 @@ describe "Outcome Reports" do
       outcome_group = sub_account.root_outcome_group
       @course1.account = sub_account
       @course1.save!
-      @outcome.context_id = sub_account.id
-      @outcome.save!
       outcome_group.add_outcome(@outcome)
 
       parsed = read_report(@type, {order: [0, 1], account: sub_account})
@@ -203,6 +205,7 @@ describe "Outcome Reports" do
       param = {}
       param["include_deleted"] = true
       report = run_report(@type, {params: param})
+      expect(report.current_line).to eq 3
       expect(report.parameters["extra_text"]).to eq "Term: All Terms; Include Deleted Objects;"
       parsed = parse_report(report, {order: 0})
 

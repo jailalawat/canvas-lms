@@ -1,9 +1,25 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative 'common'
 require_relative 'helpers/notifications_common'
-include NotificationsCommon
-
 
 describe "dashboard" do
+  include NotificationsCommon
   include_context "in-process server selenium tests"
 
   shared_examples_for 'load events list' do
@@ -35,7 +51,10 @@ describe "dashboard" do
       expect(items.first.hidden).to eq false
 
       get url
-      f('#dashboardToggleButton').click if url == '/' && ENV['CANVAS_FORCE_USE_NEW_STYLES']
+      if url =='/'
+        f('#DashboardOptionsMenu_Container button').click
+        fj('span[role="menuitemradio"]:contains("Recent Activity")').click
+      end
       click_recent_activity_header
       item_selector = '#announcement-details tbody tr'
       expect(ff(item_selector).size).to eq 1
@@ -44,7 +63,10 @@ describe "dashboard" do
 
       # should still be gone on reload
       get url
-      f('#dashboardToggleButton').click if url == '/' && ENV['CANVAS_FORCE_USE_NEW_STYLES']
+      if url =='/'
+        f('#DashboardOptionsMenu_Container button').click
+        fj('span[role="menuitemradio"]:contains("Recent Activity")').click
+      end
       expect(f("#content")).not_to contain_css(item_selector)
 
       expect(@user.recent_stream_items.size).to eq 0
@@ -71,7 +93,8 @@ describe "dashboard" do
           expect(items.first.hidden).to eq false
 
           get "/"
-          f('#dashboardToggleButton').click if ENV['CANVAS_FORCE_USE_NEW_STYLES']
+          f('#DashboardOptionsMenu_Container button').click
+          fj('span[role="menuitemradio"]:contains("Recent Activity")').click
 
           click_recent_activity_header
           expect(ff(item_selector).size).to eq 1
@@ -85,13 +108,13 @@ describe "dashboard" do
     end
 
     it "should not show announcement stream items without permissions" do
-      @course.account.role_overrides.create!(:role => student_role, :permission => 'read_announcements', :enabled => false)
-
-      announcement = create_announcement
-      item_selector = '#announcement-details tbody tr'
+      @course.account.role_overrides.create!(:role => student_role,
+                                             :permission => 'read_announcements',
+                                             :enabled => false)
 
       get "/"
-      f('#dashboardToggleButton').click if ENV['CANVAS_FORCE_USE_NEW_STYLES']
+      f('#DashboardOptionsMenu_Container button').click
+      fj('span[role="menuitemradio"]:contains("Recent Activity")').click
       expect(f('.no_recent_messages')).to include_text('No Recent Messages')
     end
 
@@ -121,7 +144,8 @@ describe "dashboard" do
     it "should expand/collapse recent activity category", priority: "1", test_id: 215580 do
       create_announcement
       get '/'
-      f('#dashboardToggleButton').click if ENV['CANVAS_FORCE_USE_NEW_STYLES']
+      f('#DashboardOptionsMenu_Container button').click
+      fj('span[role="menuitemradio"]:contains("Recent Activity")').click
       assert_recent_activity_category_closed
       click_recent_activity_header
       assert_recent_activity_category_is_open
@@ -132,7 +156,8 @@ describe "dashboard" do
     it "should not expand category when a course/group link is clicked", priority: "2", test_id: 215581 do
       create_announcement
       get '/'
-      f('#dashboardToggleButton').click if ENV['CANVAS_FORCE_USE_NEW_STYLES']
+      f('#DashboardOptionsMenu_Container button').click
+      fj('span[role="menuitemradio"]:contains("Recent Activity")').click
       assert_recent_activity_category_closed
       disable_recent_activity_header_course_link
       click_recent_activity_course_link
@@ -151,15 +176,17 @@ describe "dashboard" do
       expect(items.size).to eq 1
 
       get "/"
-      f('#dashboardToggleButton').click if ENV['CANVAS_FORCE_USE_NEW_STYLES']
+      f('#DashboardOptionsMenu_Container button').click
+      fj('span[role="menuitemradio"]:contains("Recent Activity")').click
       expect(ff('#conversation-details tbody tr').size).to eq 1
     end
 
     it "shows an assignment stream item under Recent Activity in dashboard", priority: "1", test_id: 108725 do
-      NotificationsCommon.setup_notification(@student, name: 'Assignment Created')
+      setup_notification(@student, name: 'Assignment Created')
       assignment_model({:submission_types => ['online_text_entry'], :course => @course})
       get "/"
-      f('#dashboardToggleButton').click if ENV['CANVAS_FORCE_USE_NEW_STYLES']
+      f('#DashboardOptionsMenu_Container button').click
+      fj('span[role="menuitemradio"]:contains("Recent Activity")').click
       find('.toggle-details').click
       expect(fj('.fake-link:contains("Unnamed")')).to be_present
     end
@@ -167,16 +194,17 @@ describe "dashboard" do
     it "should show account notifications on the dashboard", priority: "1", test_id: 215582 do
       a1 = @course.account.announcements.create!(:subject => 'test',
                                                  :message => "hey there",
-                                                 :start_at => Date.today - 1.day,
-                                                 :end_at => Date.today + 1.day)
+                                                 :start_at => Time.zone.today - 1.day,
+                                                 :end_at => Time.zone.today + 1.day)
       a2 = @course.account.announcements.create!(:subject => 'test 2',
                                                  :message => "another annoucement",
-                                                 :start_at => Date.today - 1.day,
-                                                 :end_at => Date.today + 1.day)
+                                                 :start_at => Time.zone.today - 2.days,
+                                                 :end_at => Time.zone.today + 1.day)
 
       get "/"
-      f('#dashboardToggleButton').click if ENV['CANVAS_FORCE_USE_NEW_STYLES']
-      messages = ffj("#dashboard .account_notification .notification_message")
+      f('#DashboardOptionsMenu_Container button').click
+      fj('span[role="menuitemradio"]:contains("Recent Activity")').click
+      messages = ff("#dashboard .account_notification .notification_message")
       expect(messages.size).to eq 2
       expect(messages[0].text).to eq a1.message
       expect(messages[1].text).to eq a2.message
@@ -234,53 +262,43 @@ describe "dashboard" do
       end
 
       it "should display course name in course menu", priority: "1", test_id: 215586 do
-        if ENV['CANVAS_FORCE_USE_NEW_STYLES']
-          f('#global_nav_courses_link').click
-          expect(fj(".ReactTray__headline:contains('Courses')")).to be_displayed
-          wait_for_ajax_requests
-          expect(fj(".ReactTray-list-item a:contains('#{@course.name}')")).to be_displayed
-        else
-          driver.execute_script %{$('#courses_menu_item').addClass('hover');}
-          expect(f('#courses_menu_item')).to include_text('My Courses')
-          expect(f('#courses_menu_item')).to include_text(@course.name)
-        end
+        f('#global_nav_courses_link').click
+        expect(fj(".ic-NavMenu__headline:contains('Courses')")).to be_displayed
+        wait_for_ajax_requests
+        expect(fj(".ic-NavMenu-list-item a:contains('#{@course.name}')")).to be_displayed
       end
 
       it "should display student groups in header nav", priority: "2", test_id: 215587 do
         group = Group.create!(:name => "group1", :context => @course)
         group.add_user(@user)
 
+        other_unpublished_course = course_factory
+        other_group = Group.create!(:name => "group2", :context => other_unpublished_course)
+        other_group.add_user(@user)
+
         get "/"
 
-        if ENV['CANVAS_FORCE_USE_NEW_STYLES']
-          f('#global_nav_groups_link').click
-          expect(fj(".ReactTray__headline:contains('Groups')")).to be_displayed
-          wait_for_ajax_requests
-          expect(fj(".ReactTray-list-item a:contains('#{group.name}')")).to be_displayed
-        else
-          driver.execute_script %{$('#courses_menu_item').addClass('hover');}
-          expect(f('#courses_menu_item')).to include_text(group.name)
-          expect(f('#courses_menu_item')).to include_text('Current Groups')
-        end
+        f('#global_nav_groups_link').click
+        expect(fj(".ic-NavMenu__headline:contains('Groups')")).to be_displayed
+        wait_for_ajax_requests
+
+        list = fj(".ic-NavMenu-list-item")
+        expect(list).to include_text(group.name)
+        expect(list).to_not include_text(other_group.name)
       end
 
       it "should present /courses as the href of the courses nav item", priority: "2", test_id: 215612 do
-        expect(f(ENV['CANVAS_FORCE_USE_NEW_STYLES'] ? '#global_nav_courses_link' : '#courses_menu_item a').attribute('href')).to match(/\/courses$/)
+        expect(f('#global_nav_courses_link').attribute('href')).to match(/\/courses$/)
       end
 
       it "should only open the courses menu when clicking the courses nav item", priority: "1", test_id: 215613 do
-        f(ENV['CANVAS_FORCE_USE_NEW_STYLES'] ? '#global_nav_courses_link' : '#courses_menu_item a').click
+        f('#global_nav_courses_link').click
         expect(driver.current_url).not_to match(/\/courses$/)
       end
 
       it "should go to a course when clicking a course link from the menu", priority: "1", test_id: 215614 do
-        if ENV['CANVAS_FORCE_USE_NEW_STYLES']
-          f('#global_nav_courses_link').click
-          fj(".ReactTray-list-item a:contains('#{@course.name}')").click
-        else
-          driver.execute_script %{$('#courses_menu_item').addClass('hover');}
-          fj("#courses_menu_item a[href='/courses/#{@course.id}']").click
-        end
+        f('#global_nav_courses_link').click
+        fj(".ic-NavMenu-list-item a:contains('#{@course.name}')").click
         expect(driver.current_url).to match "/courses/#{@course.id}"
       end
     end
@@ -358,21 +376,14 @@ describe "dashboard" do
       c1.save!
       get "/"
 
-      if ENV['CANVAS_FORCE_USE_NEW_STYLES']
-        f('#global_nav_courses_link').click
-        expect(fj(".ReactTray__headline:contains('Courses')")).to be_displayed
-        expect(f(".ReactTray__link-list")).not_to include_text(c1.name)
-      else
-        driver.execute_script %{$('#courses_menu_item').addClass('hover');}
-        item = fj('#menu_enrollments')
-        expect(item).to be_displayed
-        expect(item).not_to include_text(c1.name)
-      end
+      f('#global_nav_courses_link').click
+      expect(fj(".ic-NavMenu__headline:contains('Courses')")).to be_displayed
+      expect(f(".ic-NavMenu__link-list")).not_to include_text(c1.name)
     end
 
     it "should show recent feedback and it should work", priority: "1", test_id: 216373 do
       assign = @course.assignments.create!(:title => 'hi', :due_at => 1.day.ago, :points_possible => 5)
-      assign.grade_student(@student, :grade => '4')
+      assign.grade_student(@student, grade: '4', grader: @teacher)
 
       get "/"
       wait_for_ajaximations
@@ -402,15 +413,8 @@ describe "dashboard" do
       it "should always have a link to the courses page (with customizations)", priority: "1", test_id: 216378 do
         course_with_teacher({:user => @user, :active_course => true, :active_enrollment => true})
         get "/"
-        if ENV['CANVAS_FORCE_USE_NEW_STYLES']
-          f('#global_nav_courses_link').click
-          expect(fj('.ReactTray-list-item a:contains("All Courses")')).to be_present
-        else
-          course_menu_item = f("#courses_menu_item")
-          hover(course_menu_item)
-          expect(course_menu_item).to include_text('My Courses')
-          expect(course_menu_item).to include_text('View All or Customize')
-        end
+        f('#global_nav_courses_link').click
+        expect(fj('.ic-NavMenu-list-item a:contains("All Courses")')).to be_present
       end
     end
   end
@@ -464,7 +468,7 @@ describe "dashboard" do
 
     it "should display assignment to grade in to do list for a teacher", priority: "1", test_id: 216376 do
       assignment = assignment_model({:submission_types => 'online_text_entry', :course => @course})
-      student = user_with_pseudonym(:active_user => true, :username => 'student@example.com', :password => 'qwerty')
+      student = user_with_pseudonym(:active_user => true, :username => 'student@example.com', :password => 'qwertyuiop')
       @course.enroll_user(student, "StudentEnrollment", :enrollment_state => 'active')
       assignment.reload
       assignment.submit_homework(student, {:submission_type => 'online_text_entry', :body => 'ABC'})

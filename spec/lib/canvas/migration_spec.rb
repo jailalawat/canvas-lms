@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper.rb')
 
 describe "Migration package importers" do
@@ -67,7 +84,7 @@ describe "Migration package importers" do
   context "migrator" do
     it "should deal with backslashes path separators in migrations" do
       file = File.new(File.dirname(__FILE__) + "/../../fixtures/migration/whatthebackslash.zip")
-      cm = ContentMigration.create!(:context => course)
+      cm = ContentMigration.create!(:context => course_factory)
 
       mig = Canvas::Migration::Migrator.new({:archive_file => file, :content_migration => cm}, "test")
       mig.unzip_archive
@@ -75,7 +92,7 @@ describe "Migration package importers" do
       expect(File).to be_exist(File.join(mig.unzipped_file_path, 'res00175/SR_Epilogue_Frequently_Asked_Questions.html'))
     end
 
-    it "creates overview assignments for graded discussion topics and quizzes" do
+    it "creates overview assignments for graded discussion topics and quizzes and pages" do
       mig = Canvas::Migration::Migrator.new({:no_archive_file => true}, "test")
       mig.course = {
         :assignment_groups => [{
@@ -89,6 +106,16 @@ describe "Migration package importers" do
           :assignment => {
             :title => "GRATED DISCUSSION",
             :migration_id => "ie088c19c90e7bb4cbc1a1ad1fd5945a0",
+            :assignment_group_migration_id => "iee2a87de283cb9290ee8f39330e1cd13"
+          }
+        }],
+        :wikis => [{
+          :title => "COOL PAGE",
+          :migration_id => "i75f3638d3f385cae601b525e03dddcc5",
+          :type => "wiki_pages",
+          :assignment => {
+            :title => "COOL PAGE",
+            :migration_id => "i2102a7fa93b29226774949298626719d",
             :assignment_group_migration_id => "iee2a87de283cb9290ee8f39330e1cd13"
           }
         }],
@@ -107,6 +134,7 @@ describe "Migration package importers" do
       overview = mig.overview
       expect(overview[:assessments][0][:assignment_migration_id]).to eq 'iaa6f6db92ef0a3b7ee11a636858b691e'
       expect(overview[:discussion_topics][0][:assignment_migration_id]).to eq 'ie088c19c90e7bb4cbc1a1ad1fd5945a0'
+      expect(overview[:wikis][0][:assignment_migration_id]).to eq 'i2102a7fa93b29226774949298626719d'
       expect(overview[:assignment_groups]).to eq([{:migration_id => "iee2a87de283cb9290ee8f39330e1cd13",
                                                    :title => "ASSIGNMENT GROUP LOL"}])
       expect(overview[:assignments]).to match_array([{:title => "STUPID QUIZ",
@@ -116,7 +144,11 @@ describe "Migration package importers" do
                                                      {:title => "GRATED DISCUSSION",
                                                       :migration_id => "ie088c19c90e7bb4cbc1a1ad1fd5945a0",
                                                       :assignment_group_migration_id => "iee2a87de283cb9290ee8f39330e1cd13",
-                                                      :topic_migration_id => "i666db8c76308d6bd5a8db8f063ec75c5"}])
+                                                      :topic_migration_id => "i666db8c76308d6bd5a8db8f063ec75c5"},
+                                                     {:title => "COOL PAGE",
+                                                      :migration_id => "i2102a7fa93b29226774949298626719d",
+                                                      :assignment_group_migration_id => "iee2a87de283cb9290ee8f39330e1cd13",
+                                                      :page_migration_id => "i75f3638d3f385cae601b525e03dddcc5"}])
     end
   end
 

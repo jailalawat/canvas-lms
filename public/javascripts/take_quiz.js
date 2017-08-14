@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,44 +12,36 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-define([
-  'compiled/views/quizzes/FileUploadQuestionView',
-  'compiled/models/File',
-  'i18n!quizzes.take_quiz',
-  'jquery' /* $ */,
-  'compiled/behaviors/autoBlurActiveInput',
-  'underscore',
-  'compiled/views/quizzes/LDBLoginPopup',
-  'worker!compiled/workers/quizzes/quiz_taking_police',
-  'compiled/quizzes/log_auditing',
-  'compiled/quizzes/dump_events',
-  'compiled/views/editor/KeyboardShortcuts',
-  'jsx/shared/rce/RichContentEditor',
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.toJSON',
-  'jquery.instructure_date_and_time' /* friendlyDatetime, friendlyDate */,
-  'jquery.instructure_forms' /* getFormData, errorBox */,
-  'jqueryui/dialog',
-  'jquery.instructure_misc_helpers' /* scrollSidebar */,
-  'compiled/jquery.rails_flash_notifications',
-  'vendor/jquery.scrollTo' /* /\.scrollTo/ */,
-  'compiled/behaviors/quiz_selectmenu'
-], function(FileUploadQuestionView, File, I18n, $, autoBlurActiveInput, _,
-            LDBLoginPopup, QuizTakingPolice, QuizLogAuditing,
-            QuizLogAuditingEventDumper, KeyboardShortcuts, RichContentEditor) {
+
+import FileUploadQuestionView from 'compiled/views/quizzes/FileUploadQuestionView'
+import File from 'compiled/models/File'
+import I18n from 'i18n!quizzes.take_quiz'
+import $ from 'jquery'
+import autoBlurActiveInput from 'compiled/behaviors/autoBlurActiveInput'
+import _ from 'underscore'
+import LDBLoginPopup from 'compiled/views/quizzes/LDBLoginPopup'
+import quizTakingPolice from 'quizzes/quiz_taking_police'
+import QuizLogAuditing from 'compiled/quizzes/log_auditing'
+import QuizLogAuditingEventDumper from 'compiled/quizzes/dump_events'
+import KeyboardShortcuts from 'compiled/views/editor/KeyboardShortcuts'
+import RichContentEditor from 'jsx/shared/rce/RichContentEditor'
+import './jquery.ajaxJSON'
+import './jquery.toJSON'
+import './jquery.instructure_date_and_time' /* friendlyDatetime, friendlyDate */
+import './jquery.instructure_forms' /* getFormData, errorBox */
+import 'jqueryui/dialog'
+import 'compiled/jquery.rails_flash_notifications'
+import './vendor/jquery.scrollTo'
+import 'compiled/behaviors/quiz_selectmenu'
 
   RichContentEditor.preloadRemoteModule();
 
   var lastAnswerSelected = null;
   var lastSuccessfulSubmissionData = null;
   var showDeauthorizedDialog;
-
-  // need to keep a top level reference or
-  // it can get garbage collected
-  var quizTakingPoliceTopLevel = null;
 
   var quizSubmission = (function() {
     var timeMod = 0,
@@ -108,7 +100,7 @@ define([
         var data = $("#submit_quiz_form").getFormData();
 
         $(".question_holder .question").each(function() {
-          value = ($(this).hasClass("marked")) ? "1" : "";
+          var value = ($(this).hasClass("marked")) ? "1" : "";
           data[$(this).attr('id') + "_marked"] = value;
         });
 
@@ -386,23 +378,23 @@ define([
   });
 
   $(function() {
-    $.scrollSidebar();
     autoBlurActiveInput();
 
     if($("#preview_mode_link").length == 0) {
 
       var unloadWarned = false;
 
-      window.onbeforeunload = function(e) {
+      window.addEventListener('beforeunload', function(e) {
         if (!quizSubmission.navigatingToRelogin) {
           if(!quizSubmission.submitting && !quizSubmission.alreadyAcceptedNavigatingAway && !unloadWarned) {
             quizSubmission.clearAccessCode = true
             setTimeout(function() { unloadWarned = false; }, 0);
             unloadWarned = true;
-            return I18n.t('confirms.unfinished_quiz', "You're about to leave the quiz unfinished.  Continue anyway?");
+            e.returnValue = I18n.t('confirms.unfinished_quiz', "You're about to leave the quiz unfinished.  Continue anyway?");
+            return e.returnValue;
           }
         }
-      };
+      });
       window.addEventListener('unload', function(e) {
         var data = $("#submit_quiz_form").getFormData();
         var url = $(".backup_quiz_submission_url").attr('href');
@@ -495,21 +487,31 @@ define([
 
     $('.file-upload-question-holder').each(function(i,el) {
       var $el = $(el);
-      var val = parseInt($el.find('input.attachment-id').val(),10);
-      if (val && val !==  0){
+      var attachID = parseInt($el.find('input.attachment-id').val(), 10);
+      var model = new File(ENV.ATTACHMENTS[attachID], {preflightUrl: ENV.UPLOAD_URL});
+      var fileUploadView = new FileUploadQuestionView({el: el, model: model});
+
+      if (attachID && attachID !== 0) {
         $el.find('.file-upload-box').addClass('file-upload-box-with-file');
       }
-      var model = new File(ENV.ATTACHMENTS[val], {preflightUrl: ENV.UPLOAD_URL});
-      new FileUploadQuestionView({el: el, model: model}).render();
+
+      fileUploadView.on('attachmentManipulationComplete', function () {
+        quizSubmission.updateSubmission();
+      })
+
+      fileUploadView.render();
     });
 
     $questions
-      .delegate(":checkbox,:radio,label", 'change mouseup', function(event) {
+      .delegate(":checkbox,:radio", 'change', function(event) {
         var $answer = $(this).parents(".answer");
         if (lastAnswerSelected == $answer[0]) {
           $answer.find(":checkbox,:radio").blur();
           quizSubmission.updateSubmission();
         }
+      })
+      .delegate("label.upload-label", 'mouseup', function(event) {
+          quizSubmission.updateSubmission();
       })
       .delegate(":text,textarea,select", 'change', function(event, update) {
         var $this = $(this);
@@ -647,7 +649,7 @@ define([
         quizSubmission.finalSubmitButtonClicked = false; // reset in case user cancels
 
         if(quizSubmission.cantGoBack) {
-          unseen = $("#question_list .list_question:not(.seen)").length;
+          var unseen = $("#question_list .list_question:not(.seen)").length;
           if(unseen > 0) {
             warningMessage = I18n.t('confirms.unseen_questions',
               {'one': "There is still 1 question you haven't seen yet.  Submit anyway?",
@@ -686,25 +688,23 @@ define([
     setTimeout(function() {
       $(".question_holder textarea.question_input").each(function() {
         $(this).attr('id', 'question_input_' + quizSubmission.contentBoxCounter++);
-        RichContentEditor.loadNewEditor($(this));
+        RichContentEditor.loadNewEditor($(this), {manageParent: true});
       });
     }, 2000);
 
-    if (QuizTakingPolice) {
-      quizTakingPoliceTopLevel = new QuizTakingPolice();
-
-      quizTakingPoliceTopLevel.addEventListener('message', function(e) {
+    if (quizTakingPolice) {
+      quizTakingPolice.addEventListener('message', function(e) {
         if (e.data === 'stopwatchTick') {
           quizSubmission.updateTime();
         }
       });
 
-      quizTakingPoliceTopLevel.postMessage({
+      quizTakingPolice.postMessage({
         code: 'startStopwatch',
         frequency: quizSubmission.clockInterval
       });
-    }
-    else {
+
+    } else {
       setInterval(quizSubmission.updateTime, quizSubmission.clockInterval);
     }
 
@@ -793,4 +793,3 @@ define([
   });
 
   $('.essay_question .answers .rce_links').append((new KeyboardShortcuts()).render().el);
-});

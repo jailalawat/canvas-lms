@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,20 +12,17 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-define([
-  'i18n!instructure',
-  'jquery' /* $ */,
-  'str/htmlEscape',
-  'compiled/behaviors/authenticity_token',
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jqueryui/dialog',
-  'jquery.scrollToVisible' /* scrollToVisible */,
-  'vendor/jquery.ba-hashchange' /* hashchange */,
-  'vendor/jquery.scrollTo' /* /\.scrollTo/ */
-], function(I18n, $, htmlEscape, authenticity_token) {
+import I18n from 'i18n!instructure'
+import $ from 'jquery'
+import htmlEscape from './str/htmlEscape'
+import authenticity_token from 'compiled/behaviors/authenticity_token'
+import './jquery.ajaxJSON'
+import 'jqueryui/dialog'
+import './jquery.scrollToVisible'
+import './vendor/jquery.scrollTo'
 
   $.fn.setOptions = function(prompt, options) {
     var result = prompt ? "<option value=''>" + htmlEscape(prompt) + "</option>" : "";
@@ -338,7 +335,7 @@ define([
   $.fn.fillWindowWithMe = function(options){
     var opts               = $.extend({minHeight: 400}, options),
         $this              = $(this),
-        $wrapper_container = $('#wrapper-container'),
+        $wrapper           = $('#wrapper'),
         $main              = $('#main'),
         $not_right_side    = $('#not_right_side'),
         $window            = $(window),
@@ -347,7 +344,7 @@ define([
     function fillWindowWithThisElement(){
       $toResize.height(0);
       var spaceLeftForThis = $window.height()
-                             - ($wrapper_container.offset().top + $wrapper_container.outerHeight())
+                             - ($wrapper.offset().top + $wrapper.outerHeight())
                              + ($main.height() - $not_right_side.height()),
           newHeight = Math.max(400, spaceLeftForThis);
 
@@ -420,6 +417,4 @@ define([
 
   };
 
-  return $;
-});
-
+export default $;

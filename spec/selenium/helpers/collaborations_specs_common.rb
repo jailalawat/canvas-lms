@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module CollaborationsSpecsCommon
 
   def ensure_plugin(type)
@@ -15,7 +32,8 @@ module CollaborationsSpecsCommon
     validate_collaborations(%W{/courses/#{@course.id}/collaborations}, false)
 
     new_title = 'Edited collaboration'
-    f('.edit_collaboration_link').click
+    move_to_click('.edit_collaboration_link')
+    wait_for_ajaximations
     replace_content(fj('input[name="collaboration[title]"]:visible'), new_title)
     expect_new_page_load do
       submit_form('.edit_collaboration')
@@ -37,7 +55,7 @@ module CollaborationsSpecsCommon
     create_collaboration!(type, title)
     validate_collaborations(%W{/courses/#{@course.id}/collaborations}, false)
 
-    f('.delete_collaboration_link').click
+    move_to_click('.delete_collaboration_link')
 
     if type == 'google_docs'
       f('#delete_collaboration_dialog .delete_button').click
@@ -58,7 +76,7 @@ module CollaborationsSpecsCommon
 
     get "/courses/#{@course.id}/collaborations"
 
-    expect(ffj('.available-users:visible li')).to have_size(1)
+    expect(ffj('.available-users:visible li')).to have_size(2)
   end
 
   def select_collaborators(type)
@@ -69,9 +87,10 @@ module CollaborationsSpecsCommon
 
     get "/courses/#{@course.id}/collaborations"
     wait_for_ajaximations
-
-    fj('.available-users:visible a').click
+    f(".available-users a[data-id=\"#{@student.id}\"]").click
     expect(ff('.members-list li')).to have_size(1)
+    expect(f('.members-list')).to contain_css("a[data-id=\"user_#{@student.id}\"]")
+    expect(f('.members-list')).to contain_css("input[value=\"#{@student.id}\"]")
   end
 
   def select_from_all_course_groups(type, title)
@@ -85,12 +104,12 @@ module CollaborationsSpecsCommon
     move_to_click("label[for=groups-filter-btn-#{@collaboration.id}]")
     wait_for_ajaximations
 
-    groups = ffj('.available-groups:visible a')
-    expect(groups.count).to eq 1
-    groups.first.click
+    expect(ffj("ul[aria-label='Available groups']:visible a")).to have_size 1
+    f(".available-groups a[data-id=\"#{@group.id}\"]").click
     wait_for_ajaximations
-
-    expect(ff('.members-list li')).to have_size(1)
+    expect(ff('.members-list li')).to have_size 2
+    expect(f('.members-list')).to contain_css("a[data-id=\"group_#{@group.id}\"]")
+    expect(f('.members-list')).to contain_css("input[value=\"#{@group.id}\"]")
     expect_new_page_load do
       submit_form('.edit_collaboration')
     end
@@ -111,6 +130,7 @@ module CollaborationsSpecsCommon
     wait_for_ajaximations
     f('.members-list a').click
     expect(f('.members-list')).not_to contain_css('li')
+    expect(f('.available-users')).to contain_css("a[data-id=\"#{@student.id}\"]")
   end
 
   def select_collaborators_and_look_for_start(type)

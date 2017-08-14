@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -93,10 +93,14 @@ describe LocaleSelection do
       I18n.config.clear_available_locales_set
       @root_account = Account.create
       @account = Account.create(:parent_account => @root_account)
-      user
-      course
+      user_factory
+      course_factory
       @course.account = @account
       @course.save
+    end
+
+    after do
+      I18n.config.clear_available_locales_set
     end
 
     it "should use the default locale if there is no other context" do

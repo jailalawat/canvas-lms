@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,8 +21,8 @@ require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
 describe AssessmentRequest do
   describe "workflow" do
     let_once(:request) do
-      user
-      course
+      user_factory
+      course_factory
       assignment = @course.assignments.create!
       submission = assignment.find_or_create_submission(@user)
 
@@ -52,11 +52,16 @@ describe AssessmentRequest do
 
       assignment = @course.assignments.create!
       submission = assignment.find_or_create_submission(@student)
-      request = AssessmentRequest.new(:user => @user, :asset => submission, :assessor_asset => @student, :assessor => @user)
-      request.stubs(:rubric_association).returns(true)
+      rubric_model
+      @association = @rubric.associate_with(@assignment, @course, :purpose => 'grading', :use_for_grading => true)
+      assignment.update_attribute(:title, 'new assmt title')
+
+      request = AssessmentRequest.new(:user => @user, :asset => submission, :assessor_asset => @student, :assessor => @user, :rubric_association => @association)
       request.send_reminder!
 
       expect(request.messages_sent.keys).to include(notification_name)
+      message = request.messages_sent[notification_name].first
+      expect(message.body).to include(assignment.title)
     end
   end
 
@@ -64,9 +69,9 @@ describe AssessmentRequest do
 
     before :once do
       assignment_model
-      @teacher = user(:active_all => true)
+      @teacher = user_factory(active_all: true)
       @course.enroll_teacher(@teacher).accept
-      @student = user(:active_all => true)
+      @student = user_factory(active_all: true)
       @course.enroll_student(@student).accept
       rubric_model
       @association = @rubric.associate_with(@assignment, @course, :purpose => 'grading', :use_for_grading => true)

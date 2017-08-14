@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,12 +16,13 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper.rb')
-require 'webmock/rspec'
 
 describe Lti::ContentItemUtil do
   let(:url) { "http://example.com/confirm/343" }
 
   context "with callback url" do
+    include WebMock::API
+
     let(:content_item) do
       JSON.parse('{
         "@type" : "LtiLinkItem",

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -41,6 +41,49 @@ describe CalendarsController do
       expect(assigns[:contexts]).not_to be_empty
       expect(assigns[:contexts][0]).to eql(@user)
       expect(assigns[:contexts][1]).to eql(@course)
+    end
+
+    it "js_env DUE_DATE_REQUIRED_FOR_ACCOUNT is true when AssignmentUtil.due_date_required_for_account? == true" do
+      AssignmentUtil.stubs(:due_date_required_for_account?).returns(true)
+      get 'show2', :user_id => @user.id
+      expect(assigns[:js_env][:DUE_DATE_REQUIRED_FOR_ACCOUNT]).to eq(true)
+    end
+
+    it "js_env DUE_DATE_REQUIRED_FOR_ACCOUNT is false when AssignmentUtil.due_date_required_for_account? == false" do
+      AssignmentUtil.stubs(:due_date_required_for_account?).returns(false)
+      get 'show2', :user_id => @user.id
+      expect(assigns[:js_env][:DUE_DATE_REQUIRED_FOR_ACCOUNT]).to eq(false)
+    end
+
+    it "js_env SIS_NAME is SIS when @context does not respond_to assignments" do
+      @course.stubs(:respond_to?).returns(false)
+      controller.stubs(:set_js_assignment_data).returns({:js_env => {}})
+      get 'show2', :user_id => @user.id
+      expect(assigns[:js_env][:SIS_NAME]).to eq('SIS')
+    end
+
+    it "js_env SIS_NAME is Foo Bar when AssignmentUtil.post_to_sis_friendly_name is Foo Bar" do
+      AssignmentUtil.stubs(:post_to_sis_friendly_name).returns('Foo Bar')
+      get 'show2', :user_id => @user.id
+      expect(assigns[:js_env][:SIS_NAME]).to eq('Foo Bar')
+    end
+
+    it "js_env MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT is true when AssignmentUtil.name_length_required_for_account? == true" do
+      AssignmentUtil.stubs(:name_length_required_for_account?).returns(true)
+      get 'show2', :user_id => @user.id
+      expect(assigns[:js_env][:MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT]).to eq(true)
+    end
+
+    it "js_env MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT is false when AssignmentUtil.name_length_required_for_account? == false" do
+      AssignmentUtil.stubs(:name_length_required_for_account?).returns(false)
+      get 'show2', :user_id => @user.id
+      expect(assigns[:js_env][:MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT]).to eq(false)
+    end
+
+    it "js_env MAX_NAME_LENGTH is a 15 when AssignmentUtil.assignment_max_name_length returns 15" do
+      AssignmentUtil.stubs(:assignment_max_name_length).returns(15)
+      get 'show2', :user_id => @user.id
+      expect(assigns[:js_env][:MAX_NAME_LENGTH]).to eq(15)
     end
 
     specs_require_sharding

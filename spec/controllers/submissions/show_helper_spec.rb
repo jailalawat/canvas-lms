@@ -1,4 +1,5 @@
-# Copyright (C) 2016 Instructure, Inc.
+#
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -31,7 +32,7 @@ describe 'Submissions::ShowHelper' do
 
     describe '#render_user_not_found' do
       before do
-        course
+        course_factory
         assignment_model
         routes.draw { get 'anonymous' => 'anonymous#show' }
       end

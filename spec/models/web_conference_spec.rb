@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -53,14 +53,14 @@ describe WebConference do
     it "should ignore invalid user settings" do
       email = "email@email.com"
       @user.stubs(:email).returns(email)
-      conference = WimbaConference.create!(:title => "my conference", :user => @user, :user_settings => {:foo => :bar}, :context => course)
+      conference = WimbaConference.create!(:title => "my conference", :user => @user, :user_settings => {:foo => :bar}, :context => course_factory)
       expect(conference.user_settings).to be_empty
     end
 
     it "should not expose internal settings to users" do
       email = "email@email.com"
       @user.stubs(:email).returns(email)
-      conference = BigBlueButtonConference.new(:title => "my conference", :user => @user, :context => course)
+      conference = BigBlueButtonConference.new(:title => "my conference", :user => @user, :context => course_factory)
       conference.settings = {:record => true, :not => :for_user}
       conference.save
       conference.reload
@@ -75,7 +75,7 @@ describe WebConference do
     end
 
     let_once(:conference) do
-      WimbaConference.create!(:title => "my conference", :user => @user, :duration => 60, :context => course)
+      WimbaConference.create!(:title => "my conference", :user => @user, :duration => 60, :context => course_factory)
     end
 
     before :each do
@@ -139,38 +139,35 @@ describe WebConference do
       expect(conference.ended_at).to be < Time.zone.now
     end
 
-    it "should be restartable if end_at has not passed" do
-      conference.add_attendee(@user)
-      conference.stubs(:conference_status).returns(:active)
-      expect(conference).not_to be_finished
-      expect(conference).to be_restartable
-    end
-
-    it "should not be restartable if end_at has passed" do
-      conference.add_attendee(@user)
-      conference.start_at = 30.minutes.ago
-      conference.end_at = 20.minutes.ago
-      conference.save!
-      conference.stubs(:conference_status).returns(:active)
-      expect(conference).to be_finished
-      expect(conference).not_to be_restartable
-    end
-
-    it "should not be restartable if it's long running" do
-      conference = WimbaConference.create!(:title => "my conference", :user => @user, :context => course)
-      conference.add_attendee(@user)
-      conference.start_at = 30.minutes.ago
-      conference.close
-      conference.stubs(:conference_status).returns(:active)
-      expect(conference).to be_finished
-      expect(conference).not_to be_restartable
-    end
-
     it "should not be active if it was manually ended" do
       conference.start_at = 1.hour.ago
       conference.end_at = nil
       conference.ended_at = 1.minute.ago
       expect(conference).not_to be_active
+    end
+
+    it "rejects ridiculously long conferences" do
+      conference.duration = 100000000000000
+      expect(conference).not_to be_valid
+    end
+
+    describe "restart" do
+      it "sets end_at to the new end date if a duration is known" do
+        conference.close
+        teh_future = 100.seconds.from_now
+        Timecop.freeze(teh_future) do
+          conference.restart
+          expect(conference.end_at).to eq teh_future + conference.duration.minutes
+        end
+      end
+
+      it "sets end_at to nil for a long-running manually-restarted conference" do
+        conference.duration = nil
+        conference.close
+        expect(conference.end_at).not_to be_nil
+        conference.restart
+        expect(conference.end_at).to be_nil
+      end
     end
   end
 
@@ -194,6 +191,20 @@ describe WebConference do
       conference.add_attendee(@student)
       conference.save!
       expect(conference.messages_sent['Web Conference Invitation']).not_to be_empty
+    end
+
+    it "should not send invitation notifications if course is not published" do
+      @course.workflow_state = 'claimed'
+      @course.save!
+
+      conference = WimbaConference.create!(
+        :title => "my conference",
+        :user => @teacher,
+        :context => @course
+      )
+      conference.add_attendee(@student)
+      conference.save!
+      expect(conference.messages_sent['Web Conference Invitation']).to be_blank
     end
 
     it "should not send invitation notifications to inactive users" do
@@ -242,7 +253,7 @@ describe WebConference do
   context "scheduled conferences" do
     before :once do
       course_with_student(:active_all => 1)
-      @conference = WimbaConference.create!(:title => "my conference", :user => @user, :duration => 60, :context => course)
+      @conference = WimbaConference.create!(:title => "my conference", :user => @user, :duration => 60, :context => @course)
     end
 
     it "has a start date" do

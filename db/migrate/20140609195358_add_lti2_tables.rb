@@ -1,4 +1,21 @@
-class AddLti2Tables < ActiveRecord::Migration
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
+class AddLti2Tables < ActiveRecord::Migration[4.2]
   tag :predeploy
 
   def self.up
@@ -11,7 +28,7 @@ class AddLti2Tables < ActiveRecord::Migration
       t.string :website
       t.string :vendor_email
       t.integer :root_account_id, limit: 8, null: false
-      t.timestamps
+      t.timestamps null: true
     end
 
     create_table :lti_message_handlers do |t|
@@ -20,7 +37,7 @@ class AddLti2Tables < ActiveRecord::Migration
       t.text :capabilities
       t.text :parameters
       t.integer :resource_handler_id, limit: 8, null: false
-      t.timestamps
+      t.timestamps null: true
     end
 
     create_table :lti_resource_handlers do |t|
@@ -30,13 +47,13 @@ class AddLti2Tables < ActiveRecord::Migration
       t.text :description
       t.text :icon_info
       t.integer :tool_proxy_id, limit: 8, null: false
-      t.timestamps
+      t.timestamps null: true
     end
 
     create_table :lti_resource_placements do |t|
       t.integer :resource_handler_id, limit: 8, null: false
       t.string :placement, null: false
-      t.timestamps
+      t.timestamps null: true
     end
 
     create_table :lti_tool_proxies do |t|
@@ -48,14 +65,14 @@ class AddLti2Tables < ActiveRecord::Migration
       t.integer :root_account_id, limit: 8, null: false
       t.string :workflow_state, null: false
       t.text :raw_data, null: false
-      t.timestamps
+      t.timestamps null: true
     end
 
     create_table :lti_tool_proxy_bindings do |t|
       t.integer :context_id, limit: 8, null: false
       t.string :context_type, null: false
       t.integer :tool_proxy_id, limit:8, null: false
-      t.timestamps
+      t.timestamps null: true
     end
 
     add_index :lti_product_families, [:root_account_id, :vendor_code, :product_code], name: 'index_lti_product_families_on_root_account_vend_code_prod_code', unique: true

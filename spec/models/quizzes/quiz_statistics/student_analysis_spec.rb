@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../../../spec_helper.rb')
 require File.expand_path(File.dirname(__FILE__) + '/common.rb')
 
@@ -7,12 +24,16 @@ describe Quizzes::QuizStatistics::StudentAnalysis do
 
   let(:report_type) { 'student_analysis' }
   include_examples "Quizzes::QuizStatistics::Report"
-  before(:once) { course }
+  before(:once) { course_factory }
 
   def csv(opts = {}, quiz = @quiz)
     stats = quiz.statistics_csv('student_analysis', opts)
     run_jobs
-    stats.csv_attachment(true).open.read
+    if CANVAS_RAILS4_2
+      stats.csv_attachment(true).open.read
+    else
+      stats.reload_csv_attachment.open.read
+    end
   end
 
   it 'should calculate mean/stddev as expected with no submissions' do
@@ -105,7 +126,7 @@ describe Quizzes::QuizStatistics::StudentAnalysis do
     end
 
     def survey_with_logged_out_submission
-      course_with_teacher_logged_in(:active_all => true)
+      course_with_teacher(:active_all => true)
 
       @assignment = @course.assignments.create(:title => "Test Assignment")
       @assignment.workflow_state = "available"
@@ -277,6 +298,24 @@ describe Quizzes::QuizStatistics::StudentAnalysis do
 
       stats = CSV.parse(csv)
       expect(stats.last[9]).to eq '5'
+    end
+
+    it 'should not error out when no answers are present in a calculated_question' do
+      @quiz.quiz_questions.create!(:question_data => { :name => "calculated_question",
+        :question_type => 'calculated_question',
+        :question_text => "[num1]"
+      })
+
+      @quiz.generate_quiz_data
+      @quiz.save!
+
+      qs = @quiz.generate_submission(@student)
+      qs.submission_data = {
+        "question_#{@quiz.quiz_questions[1].id}" => 'Pretend this is an essay question!'
+      }
+      Quizzes::SubmissionGrader.new(qs).grade_submission
+
+      expect { @quiz.statistics_csv('student_analysis', {}) }.not_to raise_error
     end
 
     it 'should include primary domain if trust exists' do
@@ -461,7 +500,7 @@ describe Quizzes::QuizStatistics::StudentAnalysis do
   end
 
   it 'should not count student view submissions' do
-    @course = course(active_all: true)
+    @course = course_factory(active_all: true)
     fake_student = @course.student_view_student
     q = @course.quizzes.create!
     q.update_attribute(:published_at, Time.now)

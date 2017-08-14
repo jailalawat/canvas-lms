@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 
 describe "managing developer keys" do
@@ -12,7 +29,7 @@ describe "managing developer keys" do
     # make sure this key is generated
     DeveloperKey.default
 
-    get '/developer_keys'
+    get "/accounts/#{Account.site_admin.id}/developer_keys"
     wait_for_ajaximations
     expect(ff("#keys tbody tr").length).to eq 1
 
@@ -20,7 +37,7 @@ describe "managing developer keys" do
     expect(f("#edit_dialog")).to be_displayed
     f("#key_name").send_keys("Cool Tool")
     f("#email").send_keys("admin@example.com")
-    f("#redirect_uri").send_keys("http://example.com")
+    f("#redirect_uris").send_keys("http://example.com")
     f("#icon_url").send_keys("/images/delete.png")
     submit_dialog("#edit_dialog", '.submit')
     wait_for_ajaximations
@@ -30,7 +47,7 @@ describe "managing developer keys" do
     key = DeveloperKey.last
     expect(key.name).to eq "Cool Tool"
     expect(key.email).to eq "admin@example.com"
-    expect(key.redirect_uri).to eq "http://example.com"
+    expect(key.redirect_uris).to eq ["http://example.com"]
     expect(key.icon_url).to eq "/images/delete.png"
     expect(ff("#keys tbody tr").length).to eq 2
 
@@ -38,7 +55,7 @@ describe "managing developer keys" do
     expect(f("#edit_dialog")).to be_displayed
     replace_content(f("#key_name"),"Cooler Tool")
     replace_content(f("#email"), "admins@example.com")
-    replace_content(f("#redirect_uri"), "https://example.com")
+    replace_content(f("#redirect_uris"), "https://example.com")
     replace_content(f("#icon_url") ,"/images/add.png")
     submit_dialog("#edit_dialog", '.submit')
     wait_for_ajaximations
@@ -48,7 +65,7 @@ describe "managing developer keys" do
     key = DeveloperKey.last
     expect(key.name).to eq "Cooler Tool"
     expect(key.email).to eq "admins@example.com"
-    expect(key.redirect_uri).to eq "https://example.com"
+    expect(key.redirect_uris).to eq ["https://example.com"]
     expect(key.icon_url).to eq "/images/add.png"
     expect(ff("#keys tbody tr").length).to eq 2
 
@@ -75,7 +92,7 @@ describe "managing developer keys" do
   it "should show the first 10 by default, with pagination working" do
     count = DeveloperKey.count
     11.times { |i| DeveloperKey.create!(:name => "tool #{i}") }
-    get '/developer_keys'
+    get "/accounts/#{Account.site_admin.id}/developer_keys"
     expect(f("#loading")).not_to have_class('loading')
     expect(ff("#keys tbody tr")).to have_size(10)
     expect(f('#loading')).to have_class('show_more')

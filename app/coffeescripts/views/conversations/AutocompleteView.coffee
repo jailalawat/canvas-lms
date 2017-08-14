@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!conversations'
   'Backbone'
@@ -53,7 +70,7 @@ define [
     # Internal: Construct the search URL for the given term.
     url: (term) ->
       baseURL = '/api/v1/search/recipients?'
-      params = { search: term, per_page: 20, 'permissions[]': 'send_messages_all', synthetic_contexts: true }
+      params = { search: term, per_page: 20, 'permissions[]': 'send_messages_all', messageable_only: true, synthetic_contexts: true }
       params.context = @currentContext.id if @currentContext
 
       baseURL + _.reduce(params, (queryString, v, k) ->

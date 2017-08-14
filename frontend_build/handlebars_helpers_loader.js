@@ -1,67 +1,83 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 // handlebars-loader wants to know about every helper we have, and uses
 // a file convention to autofind them.  Since we don't match that
 // convention, we need to specify which helpers are ones it should
 // count on being present (ones defined in handlebars_helpers).
 // We'll then make sure modules requiring a jst file have a dependency
 // on handlebars_helpers built in, since they self-register with handlebars
-//runtime that should be ok.
+// runtime that should be ok.
 
-var fs = require('fs');
-var path = require('path');
-var coffee = require('coffee-script');
+const fs = require('fs')
+const path = require('path')
+const coffee = require('coffee-script')
 
-var loadHelpersAST = function(){
-  var filename = path.join(__dirname, "..", "app/coffeescripts/handlebars_helpers.coffee");
-  var source = fs.readFileSync(filename, 'utf8');
-  return coffee.nodes(source);
-};
+function loadHelpersAST () {
+  const filename = path.join(__dirname, '..', 'app/coffeescripts/handlebars_helpers.coffee')
+  const source = fs.readFileSync(filename, 'utf8')
+  return coffee.nodes(source)
+}
 
 // we're looking in the helpers AST for the for loop that goes through a javascript
 // object (the "source" object) and calls "registerHelper" with each property
 //   We want to make those same properties into "known" helpers.
-var isHandlebarsAssignmentNode = function(node){
-  var result = node.body.contains(function(childNode){
-    return childNode.constructor.name === 'Call' &&
-      childNode.variable.base.value === 'Handlebars' &&
-      childNode.variable.contains(function(registerNode){
-        return registerNode.constructor.name === 'Access' &&
-          registerNode.name.value === 'registerHelper';
-      });
-  });
-  return result;
+function isHandlebarsAssignmentNode (node) {
+  return node.body.contains(childNode =>
+    childNode.constructor.name === 'Call' &&
+    childNode.variable.base.value === 'Handlebars' &&
+    childNode.variable.contains(registerNode =>
+      registerNode.constructor.name === 'Access' &&
+      registerNode.name.value === 'registerHelper'
+    )
+  )
 }
 
-var findHelperNodes = function(helpersAST){
-  var helpersCollection = null;
-  helpersAST.traverseChildren(true, function(child){
-    if(child.constructor.name === 'For'){
-      if(isHandlebarsAssignmentNode(child)){
-        helpersCollection = child.source.base.properties;
-        return false;
+function findHelperNodes (helpersAST) {
+  let helpersCollection = null
+  helpersAST.traverseChildren(true, child => {
+    if (child.constructor.name === 'For') {
+      if (isHandlebarsAssignmentNode(child)) {
+        helpersCollection = child.source.base.properties
+        return false
       }
     }
-  });
-  return helpersCollection;
+  })
+  return helpersCollection
 }
 
 // given an array of nodes (which are functions assigned to property names),
 // return an array of property names in the "knownHelpers" query format for
 // the handlebars loader.
-var buildQueryStringElements = function(helperNodes){
-  var queryElements = [];
-  helperNodes.forEach(function(helper){
-    var helperName = helper.variable.base.value;
-    queryElements.push("knownHelpers[]=" + helperName);
-  });
-  return queryElements;
-};
-
+function buildQueryStringElements (helperNodes) {
+  const queryElements = []
+  helperNodes.forEach(helper => {
+    const helperName = helper.variable.base.value
+    queryElements.push(`knownHelpers[]=${helperName}`)
+  })
+  return queryElements
+}
 
 module.exports = {
-  queryString: function(){
-    var helpersAST = loadHelpersAST();
-    var helpersCollection = findHelperNodes(helpersAST);
-    var queryElements = buildQueryStringElements(helpersCollection);
-    return queryElements.join("&");
+  queryString() {
+    const helpersAST = loadHelpersAST()
+    const helpersCollection = findHelperNodes(helpersAST)
+    const queryElements = buildQueryStringElements(helpersCollection)
+    return queryElements.join('&')
   }
 }

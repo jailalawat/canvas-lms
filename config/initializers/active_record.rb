@@ -1,14 +1,55 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'active_support/callbacks/suspension'
 
 class ActiveRecord::Base
-  self.cache_timestamp_format = :usec
+  # CANVAS_RAILS4_2 - set this back to :usec once we're on Rails 5 for good
+  self.cache_timestamp_format = :bogus
 
   public :write_attribute
 
   class << self
-    delegate :distinct_on, :find_ids_in_batches, :find_ids_in_ranges, to: :all
+    delegate :distinct_on, :find_ids_in_batches, to: :all
+
+    def find_ids_in_ranges(opts={}, &block)
+      opts.reverse_merge!(:loose => true)
+      all.find_ids_in_ranges(opts, &block)
+    end
 
     attr_accessor :in_migration
+
+    # determines if someone started a transaction in addition to the spec fixture transaction
+    # impossible to just count open transactions, cause by default it won't nest a transaction
+    # unless specifically requested
+    def in_transaction_in_test?
+      return false unless Rails.env.test?
+      transaction_method = ActiveRecord::ConnectionAdapters::DatabaseStatements.instance_method(:transaction).source_location.first
+      transaction_regex = /\A#{Regexp.escape(transaction_method)}:\d+:in `transaction'\z/.freeze
+      # transactions due to spec fixtures are _not_in the callstack, so we only need to find 1
+      !!caller.find { |s| s =~ transaction_regex && !s.include?('spec_helper.rb') }
+    end
+
+    def default_scope(*)
+      # Profile is using default_scope to do faux STI. I don't know why they don't just do real STI, but
+      # I'll whitelist them for now
+      return super if self < Profile
+      raise "please don't ever use default_scope. it may seem like a great solution, but I promise, it isn't"
+    end
   end
 
   def read_or_initialize_attribute(attr_name, default_value)
@@ -51,7 +92,7 @@ class ActiveRecord::Base
     return @all_models if @all_models.present?
     @all_models = (ActiveRecord::Base.models_from_files +
                    [Version]).compact.uniq.reject { |model|
-      (model.respond_to?(:tableless?) && model.tableless?) ||
+      (model < Tableless) ||
       model.abstract_class?
     }
   end
@@ -117,9 +158,13 @@ class ActiveRecord::Base
     (namespaces.map(&:camelize) + [class_name.try(:classify)]).join('::')
   end
 
+  def self.asset_string(id)
+    "#{self.reflection_type_name}_#{id}"
+  end
+
   def asset_string
     @asset_string ||= {}
-    @asset_string[Shard.current] ||= "#{self.class.reflection_type_name}_#{id}"
+    @asset_string[Shard.current] ||= self.class.asset_string(id)
   end
 
   def global_asset_string
@@ -133,6 +178,10 @@ class ActiveRecord::Base
 
   def context_string(field = :context)
     send("#{field}_type").underscore + "_" + send("#{field}_id").to_s if send("#{field}_type")
+  end
+
+  def self.asset_string_backcompat_module
+    @asset_string_backcompat_module ||= Module.new.tap { |m| prepend(m) }
   end
 
   def self.define_asset_string_backcompat_method(string_version_name, association_version_name = string_version_name, method = nil)
@@ -150,19 +199,18 @@ class ActiveRecord::Base
       return
     end
 
-    self.class_eval <<-CODE
-      def #{association_version_name}_#{method}_with_backcompat
-        res = #{association_version_name}_#{method}_without_backcompat
+    asset_string_backcompat_module.class_eval <<-CODE, __FILE__, __LINE__ + 1
+      def #{association_version_name}_#{method}
+        res = super
         if !res && #{string_version_name}.present?
           type, id = ActiveRecord::Base.parse_asset_string(#{string_version_name})
           write_attribute(:#{association_version_name}_type, type)
           write_attribute(:#{association_version_name}_id, id)
-          res = #{association_version_name}_#{method}_without_backcompat
+          res = super
         end
         res
       end
     CODE
-    self.alias_method_chain "#{association_version_name}_#{method}".to_sym, :backcompat
   end
 
   def export_columns(format = nil)
@@ -209,13 +257,8 @@ class ActiveRecord::Base
 
   def touch_user
     if self.respond_to?(:user_id) && self.user_id
-      shard = self.user.shard
-      User.where(:id => self.user_id).update_all(:updated_at => Time.now.utc)
       User.connection.after_transaction_commit do
-        shard.activate do
-          User.where(:id => self.user_id).update_all(:updated_at => Time.now.utc)
-        end if shard != Shard.current
-        User.invalidate_cache(self.user_id)
+        User.where(:id => self.user_id).update_all(:updated_at => Time.now.utc)
       end
     end
     true
@@ -452,11 +495,7 @@ class ActiveRecord::Base
     polymorphic_prefix = options.delete(:polymorphic_prefix)
     exhaustive = options.delete(:exhaustive)
 
-    if CANVAS_RAILS4_0
-      reflection = super
-    else
-      reflection = super[name.to_s]
-    end
+    reflection = super[name.to_s]
 
     if reflection.options[:polymorphic].is_a?(Array) ||
         reflection.options[:polymorphic].is_a?(Hash)
@@ -583,22 +622,41 @@ class ActiveRecord::Base
   def save_without_callbacks
     suspend_callbacks(kind: [:validation, :save, (new_record? ? :create : :update)]) { save }
   end
-end
 
-if CANVAS_RAILS4_0
-  ActiveRecord::Associations::Builder::Association::DEPRECATED_OPTIONS.concat([:preload, :eager_load])
-
-  module ForceDeprecationAsError
-    def initialize(*args)
-      old_behavior = ActiveSupport::Deprecation.behavior
-      ActiveSupport::Deprecation.behavior = :raise
-      super
-    ensure
-      ActiveSupport::Deprecation.behavior = old_behavior
+  def self.touch_all_records
+    self.find_ids_in_ranges do |min_id, max_id|
+      self.where(primary_key => min_id..max_id).touch_all
     end
   end
-  ActiveRecord::Associations::Builder::Association.prepend(ForceDeprecationAsError)
 end
+
+module UsefulFindInBatches
+  def find_in_batches(options = {}, &block)
+    # already in a transaction (or transactions don't matter); cursor is fine
+    if can_use_cursor? && !options[:start]
+      self.activate { |r| r.find_in_batches_with_cursor(options, &block) }
+    elsif find_in_batches_needs_temp_table?
+      raise ArgumentError.new("GROUP and ORDER are incompatible with :start, as is an explicit select without the primary key") if options[:start]
+      self.activate { |r| r.find_in_batches_with_temp_table(options, &block) }
+    else
+      super
+    end
+  end
+end
+ActiveRecord::Relation.prepend(UsefulFindInBatches)
+
+module LockForNoKeyUpdate
+  def lock(lock_type = true)
+    if lock_type == :no_key_update
+      postgres_9_3_or_above = connection.adapter_name == 'PostgreSQL' &&
+        connection.send(:postgresql_version) >= 90300
+      lock_type = true
+      lock_type = 'FOR NO KEY UPDATE' if postgres_9_3_or_above
+    end
+    super(lock_type)
+  end
+end
+ActiveRecord::Relation.prepend(LockForNoKeyUpdate)
 
 ActiveRecord::Relation.class_eval do
   def includes(*args)
@@ -623,23 +681,10 @@ ActiveRecord::Relation.class_eval do
     order_values.any? ||
       group_values.any? ||
       select_values.to_s =~ /DISTINCT/i ||
-      uniq_value ||
+      distinct_value ||
       select_values_necessitate_temp_table?
   end
   private :find_in_batches_needs_temp_table?
-
-  def find_in_batches_with_usefulness(options = {}, &block)
-    # already in a transaction (or transactions don't matter); cursor is fine
-    if can_use_cursor? && !options[:start]
-      self.activate { find_in_batches_with_cursor(options, &block) }
-    elsif find_in_batches_needs_temp_table?
-      raise ArgumentError.new("GROUP and ORDER are incompatible with :start, as is an explicit select without the primary key") if options[:start]
-      self.activate { find_in_batches_with_temp_table(options, &block) }
-    else
-      find_in_batches_without_usefulness(options, &block)
-    end
-  end
-  alias_method_chain :find_in_batches, :usefulness
 
   def can_use_cursor?
     (connection.adapter_name == 'PostgreSQL' &&
@@ -674,21 +719,8 @@ ActiveRecord::Relation.class_eval do
     end
   end
 
-  # determines if someone started a transaction in addition to the spec fixture transaction
-  # impossible to just count open transactions, cause by default it won't nest a transaction
-  # unless specifically requested
-  def in_transaction_in_test?
-    return false unless Rails.env.test?
-    transaction_method = ActiveRecord::ConnectionAdapters::DatabaseStatements.instance_method(:transaction).source_location.first
-    # don't anchor the end of the regex; test_after_commit does an alias_method_chain, thus
-    # changing the name (and source location) of this method
-    transaction_regex = /^#{Regexp.escape(transaction_method)}:\d+:in `transaction/.freeze
-    # transactions due to spec fixtures are _not_in the callstack, so we only need to find 1
-    !!caller.find { |s| s =~ transaction_regex && !s.include?('spec_helper.rb') }
-  end
-
   def find_in_batches_with_temp_table(options = {})
-    can_do_it = Rails.env.production? || ActiveRecord::Base.in_migration || in_transaction_in_test?
+    can_do_it = Rails.env.production? || ActiveRecord::Base.in_migration || ActiveRecord::Base.in_transaction_in_test?
     raise "find_in_batches_with_temp_table probably won't work outside a migration
            and outside a transaction. Unfortunately, it's impossible to automatically
            determine a better way to do it that will work correctly. You can try
@@ -780,24 +812,14 @@ ActiveRecord::Relation.class_eval do
     end
   end
 
-  def lock_with_exclusive_smarts(lock_type = true)
-    if lock_type == :no_key_update
-      postgres_9_3_or_above = connection.adapter_name == 'PostgreSQL' &&
-        connection.send(:postgresql_version) >= 90300
-      lock_type = true
-      lock_type = 'FOR NO KEY UPDATE' if postgres_9_3_or_above
-    end
-    lock_without_exclusive_smarts(lock_type)
-  end
-  alias_method_chain :lock, :exclusive_smarts
-
   def polymorphic_where(args)
     raise ArgumentError unless args.length == 1
 
     column = args.first.first
-    values = args.first.last
+    values = Array(args.first.last)
     original_length = values.length
     values = values.compact
+    raise ArgumentError, "need to call polymorphic_where with at least one object" if values.empty?
 
     sql = (["(#{column}_id=? AND #{column}_type=?)"] * values.length).join(" OR ")
     sql << " OR (#{column}_id IS NULL AND #{column}_type IS NULL)" if values.length < original_length
@@ -819,7 +841,7 @@ ActiveRecord::Relation.class_eval do
     self.activate do |relation|
       relation.transaction do
         ids_to_touch = relation.not_recently_touched.lock(:no_key_update).order(:id).pluck(:id)
-        unscoped.where(id: ids_to_touch).update_all(updated_at: Time.now.utc)
+        unscoped.where(id: ids_to_touch).update_all(updated_at: Time.now.utc) if ids_to_touch.any?
       end
     end
   end
@@ -853,7 +875,7 @@ ActiveRecord::Relation.class_eval do
     uniq_identifier = "#{table_name}.#{primary_key}"
     scopes << self
     sub_query = (scopes).map {|s| s.except(:select, :order).select(uniq_identifier).to_sql}.join(" UNION ALL ")
-    engine.where("#{uniq_identifier} IN (#{sub_query})")
+    unscoped.where("#{uniq_identifier} IN (#{sub_query})")
   end
 
   # returns batch_size ids at a time, working through the primary key from
@@ -878,19 +900,28 @@ ActiveRecord::Relation.class_eval do
   # returns 2 ids at a time (the min and the max of a range), working through
   # the primary key from smallest to largest.
   def find_ids_in_ranges(options = {})
+    is_integer = columns_hash[primary_key.to_s].type == :integer
+    loose_mode = options[:loose] && is_integer
+    # loose_mode: if we don't care about getting exactly batch_size ids in between
+    # don't get the max - just get the min and add batch_size so we get that many _at most_
+    values = loose_mode ? "min(id)" : "min(id), max(id)"
+
     batch_size = options[:batch_size].try(:to_i) || 1000
-    subquery_scope = except(:select).select("#{quoted_table_name}.#{primary_key} as id").reorder(primary_key).limit(batch_size)
+    subquery_scope = except(:select).select("#{quoted_table_name}.#{primary_key} as id").reorder(primary_key).limit(loose_mode ? 1 : batch_size)
     subquery_scope = subquery_scope.where("#{quoted_table_name}.#{primary_key} <= ?", options[:end_at]) if options[:end_at]
 
     first_subquery_scope = options[:start_at] ? subquery_scope.where("#{quoted_table_name}.#{primary_key} >= ?", options[:start_at]) : subquery_scope
-    ids = connection.select_rows("select min(id), max(id) from (#{first_subquery_scope.to_sql}) as subquery").first
+
+    ids = connection.select_rows("select #{values} from (#{first_subquery_scope.to_sql}) as subquery").first
 
     while ids.first.present?
-      ids.map!(&:to_i) if columns_hash[primary_key.to_s].type == :integer
+      ids.map!(&:to_i) if is_integer
+      ids << ids.first + batch_size if loose_mode
+
       yield(*ids)
       last_value = ids.last
       next_subquery_scope = subquery_scope.where(["#{quoted_table_name}.#{primary_key}>?", last_value])
-      ids = connection.select_rows("select min(id), max(id) from (#{next_subquery_scope.to_sql}) as subquery").first
+      ids = connection.select_rows("select #{values} from (#{next_subquery_scope.to_sql}) as subquery").first
     end
   end
 end
@@ -913,111 +944,105 @@ module UpdateAndDeleteWithJoins
   end
 
   def update_all(updates, *args)
-    if joins_values.any?
-      case connection.adapter_name
-        when 'PostgreSQL'
-          stmt = Arel::UpdateManager.new(arel.engine)
+    return super if joins_values.empty?
 
-          stmt.set Arel.sql(@klass.send(:sanitize_sql_for_assignment, updates))
-          from = from_value.try(:first)
-          stmt.table(from ? Arel::Nodes::SqlLiteral.new(from) : table)
-          stmt.key = table[primary_key]
+    stmt = CANVAS_RAILS4_2 ? Arel::UpdateManager.new(arel.engine) : Arel::UpdateManager.new
 
-          sql = stmt.to_sql
+    stmt.set Arel.sql(@klass.send(:sanitize_sql_for_assignment, updates))
+    from = (CANVAS_RAILS4_2 ? from_value&.first : from_clause.value)
+    stmt.table(from ? Arel::Nodes::SqlLiteral.new(from) : table)
+    stmt.key = table[primary_key]
 
-          join_sql = nil
-          if CANVAS_RAILS4_0
-            join_sql = arel.join_sql.to_s
-          else
-            collector = Arel::Collectors::Bind.new
-            arel.join_sources.each do |node|
-              connection.visitor.accept(node, collector)
-            end
-            join_sql = collector.compile(arel.bind_values.map{|bvs| connection.quote(*bvs.reverse)})
-          end
-          tables, join_conditions = deconstruct_joins(join_sql)
+    sql = stmt.to_sql
 
-          unless tables.empty?
-            sql.concat(' FROM ')
-            sql.concat(tables.join(', '))
-            sql.concat(' ')
-          end
-
-          scope = self
-          join_conditions.each { |join| scope = scope.where(join) }
-          binds = scope.bind_values.dup
-          if CANVAS_RAILS4_0
-            where_statements = scope.arel.constraints.map do |node|
-              connection.visitor.accept(node) do
-                connection.quote(*binds.shift.reverse)
-              end
-            end
-            sql.concat('WHERE ' + where_statements.join(' AND '))
-          else
-            sql_string = Arel::Collectors::Bind.new
-            scope.arel.constraints.map do |node|
-              connection.visitor.accept(node, sql_string)
-            end
-            sql.concat('WHERE ' + sql_string.compile(binds.map{|bvs| connection.quote(*bvs.reverse)}))
-          end
-
-          connection.update(sql, "#{name} Update")
-        else
-          super
+    if CANVAS_RAILS4_2
+      collector = Arel::Collectors::Bind.new
+      arel.join_sources.each do |node|
+        connection.visitor.accept(node, collector)
       end
+      join_sql = collector.compile(arel.bind_values.map{|bvs| connection.quote(*bvs.reverse)})
     else
-      super
+      binds = connection.prepare_binds_for_database(bound_attributes)
+      binds.map! { |value| connection.quote(value) }
+      collector = Arel::Collectors::Bind.new
+      arel.join_sources.each do |node|
+        connection.visitor.accept(node, collector)
+      end
+      binds_in_join = collector.value.count { |x| x.is_a?(Arel::Nodes::BindParam) }
+      join_sql = collector.substitute_binds(binds).join
     end
+    tables, join_conditions = deconstruct_joins(join_sql)
+
+    unless tables.empty?
+      sql.concat(' FROM ')
+      sql.concat(tables.join(', '))
+      sql.concat(' ')
+    end
+
+    scope = self
+    join_conditions.each { |join| scope = scope.where(join) }
+
+    if CANVAS_RAILS4_2
+      binds = scope.bind_values.dup
+      sql_string = Arel::Collectors::Bind.new
+      scope.arel.constraints.each do |node|
+        connection.visitor.accept(node, sql_string)
+      end
+      sql.concat('WHERE ' + sql_string.compile(binds.map{|bvs| connection.quote(*bvs.reverse)}))
+    else
+      # skip any binds that are used in the join
+      binds = scope.bound_attributes[binds_in_join..-1]
+      binds = connection.prepare_binds_for_database(binds)
+      binds.map! { |value| connection.quote(value) }
+      sql_string = Arel::Collectors::Bind.new
+      scope.arel.constraints.each do |node|
+        connection.visitor.accept(node, sql_string)
+      end
+      sql.concat('WHERE ' + sql_string.substitute_binds(binds).join)
+    end
+
+    connection.update(sql, "#{name} Update")
   end
 
-  def delete_all(conditions = nil, *args)
-    if joins_values.any?
-      if conditions
-        where(conditions).delete_all
-      else
-        case connection.adapter_name
-          when 'PostgreSQL'
-            sql = "DELETE FROM #{quoted_table_name} "
+  def delete_all
+    return super if joins_values.empty?
 
-            join_sql = CANVAS_RAILS4_0 ? arel.join_sql.to_s : arel.join_sources.map(&:to_sql).join(" ")
-            tables, join_conditions = deconstruct_joins(join_sql)
+    sql = "DELETE FROM #{quoted_table_name} "
 
-            sql.concat('USING ')
-            sql.concat(tables.join(', '))
-            sql.concat(' ')
+    join_sql = arel.join_sources.map(&:to_sql).join(" ")
+    tables, join_conditions = deconstruct_joins(join_sql)
 
-            scope = self
-            join_conditions.each { |join| scope = scope.where(join) }
+    sql.concat('USING ')
+    sql.concat(tables.join(', '))
+    sql.concat(' ')
 
-            binds = scope.bind_values.dup
-            if CANVAS_RAILS4_0
-              where_statements = scope.arel.constraints.map do |node|
-                connection.visitor.accept(node) do
-                  connection.quote(*binds.shift.reverse)
-                end
-              end
-              sql.concat('WHERE ' + where_statements.join(' AND '))
-            else
-              sql_string = Arel::Collectors::Bind.new
-              scope.arel.constraints.map do |node|
-                connection.visitor.accept(node, sql_string)
-              end
-              sql.concat('WHERE ' + sql_string.compile(binds.map{|bvs| connection.quote(*bvs.reverse)}))
-            end
-          else
-            raise "Joins in delete not supported!"
-        end
+    scope = self
+    join_conditions.each { |join| scope = scope.where(join) }
 
-        connection.exec_query(sql, "#{name} Delete all", scope.bind_values)
+    if CANVAS_RAILS4_2
+      binds = scope.bind_values.dup
+      sql_string = Arel::Collectors::Bind.new
+      scope.arel.constraints.each do |node|
+        connection.visitor.accept(node, sql_string)
       end
+      sql.concat('WHERE ' + sql_string.compile(binds.map{|bvs| connection.quote(*bvs.reverse)}))
     else
-      super
+      binds = scope.bound_attributes
+      binds = connection.prepare_binds_for_database(binds)
+      binds.map! { |value| connection.quote(value) }
+      sql_string = Arel::Collectors::Bind.new
+      scope.arel.constraints.each do |node|
+        connection.visitor.accept(node, sql_string)
+      end
+      sql.concat('WHERE ' + sql_string.substitute_binds(binds).join)
     end
+
+    connection.exec_query(sql, "#{name} Delete all", scope.bind_values)
   end
 end
 ActiveRecord::Relation.prepend(UpdateAndDeleteWithJoins)
 
-module DeleteAllWithLimit
+module UpdateAndDeleteAllWithLimit
   def delete_all(*args)
     if limit_value || offset_value
       scope = except(:select).select("#{quoted_table_name}.#{primary_key}")
@@ -1025,8 +1050,16 @@ module DeleteAllWithLimit
     end
     super
   end
+
+  def update_all(updates, *args)
+    if limit_value || offset_value
+      scope = except(:select).select("#{quoted_table_name}.#{primary_key}")
+      return unscoped.where(primary_key => scope).update_all(updates)
+    end
+    super
+  end
 end
-ActiveRecord::Relation.prepend(DeleteAllWithLimit)
+ActiveRecord::Relation.prepend(UpdateAndDeleteAllWithLimit)
 
 ActiveRecord::Associations::CollectionProxy.class_eval do
   def respond_to?(name, include_private = false)
@@ -1038,7 +1071,9 @@ ActiveRecord::Associations::CollectionProxy.class_eval do
 
   def temp_record(*args)
     # creates a record with attributes like a child record but is not added to the collection for autosaving
-    klass.unscoped.merge(scope).new(*args)
+    record = klass.unscoped.merge(scope).new(*args)
+    @association.set_inverse_instance(record)
+    record
   end
 end
 
@@ -1106,6 +1141,16 @@ class ActiveRecord::Migration
   # at least one of these tags is required
   DEPLOY_TAGS = [:predeploy, :postdeploy]
 
+  if CANVAS_RAILS4_2
+    class V4_2 < self
+      class << self
+        def method_missing(name, *args, &block) # :nodoc:
+          (delegate || superclass.delegate || superclass.superclass.delegate).send(name, *args, &block)
+        end
+      end
+    end
+  end
+
   class << self
     def tag(*tags)
       raise "invalid tags #{tags.inspect}" unless tags - VALID_TAGS == []
@@ -1123,6 +1168,23 @@ class ActiveRecord::Migration
     def has_postgres_proc?(procname)
       connection.select_value("SELECT COUNT(*) FROM pg_proc WHERE proname='#{procname}'").to_i != 0
     end
+
+    if CANVAS_RAILS4_2
+      def [](version)
+        raise ArgumentError unless version == 4.2
+        V4_2
+      end
+
+      def inherited(klass)
+        super
+        return if klass.name == 'V4_2' || klass.superclass != ActiveRecord::Migration
+        raise \
+            "Directly inheriting from ActiveRecord::Migration is deprecated. " \
+            "Please specify the Rails release the migration was written for:\n" \
+            "\n" \
+            "  class #{klass.name} < ActiveRecord::Migration[4.2]"
+      end
+    end
   end
 
   def connection
@@ -1139,7 +1201,7 @@ class ActiveRecord::Migration
 end
 
 class ActiveRecord::MigrationProxy
-  delegate :connection, :tags, to: :migration
+  delegate :connection, :tags, :cassandra_cluster, to: :migration
 
   def runnable?
     !migration.respond_to?(:runnable?) || migration.runnable?
@@ -1205,22 +1267,6 @@ ActiveRecord::Migrator.migrations_paths.concat Dir[Rails.root.join('gems', 'plug
 ActiveRecord::Tasks::DatabaseTasks.migrations_paths = ActiveRecord::Migrator.migrations_paths
 
 ActiveRecord::ConnectionAdapters::SchemaStatements.class_eval do
-  def add_index_with_length_raise(table_name, column_name, options = {})
-    unless options[:name].to_s =~ /^temp_/
-      column_names = Array(column_name)
-      index_name = index_name(table_name, :column => column_names)
-      index_name = options[:name].to_s if options[:name]
-      if index_name.length > index_name_length
-        raise(ArgumentError, "Index name '#{index_name}' on table '#{table_name}' is too long; the limit is #{index_name_length} characters.")
-      end
-      if index_exists?(table_name, column_names, :name => index_name)
-        raise(ArgumentError, "Index name '#{index_name}' on table '#{table_name}' already exists.")
-      end
-    end
-    add_index_without_length_raise(table_name, column_name, options)
-  end
-  alias_method_chain :add_index, :length_raise
-
   # in anticipation of having to re-run migrations due to integrity violations or
   # killing stuff that is holding locks too long
   def add_foreign_key_if_not_exists(from_table, to_table, options = {})
@@ -1228,7 +1274,7 @@ ActiveRecord::ConnectionAdapters::SchemaStatements.class_eval do
     column = options[:column]
     case self.adapter_name
     when 'PostgreSQL'
-      foreign_key_name = CANVAS_RAILS4_0 ? foreign_key_name(from_table, column, options) : foreign_key_name(from_table, options)
+      foreign_key_name = foreign_key_name(from_table, options)
       query = supports_delayed_constraint_validation? ? 'convalidated' : 'conname'
       schema = @config[:use_qualified_names] ? quote(shard.name) : 'current_schema()'
       value = select_value("SELECT #{query} FROM pg_constraint INNER JOIN pg_namespace ON pg_namespace.oid=connamespace WHERE conname='#{foreign_key_name}' AND nspname=#{schema}")
@@ -1253,12 +1299,6 @@ ActiveRecord::ConnectionAdapters::SchemaStatements.class_eval do
       raise unless e.message =~ /PG(?:::)?Error: ERROR:.+does not exist/
     end
   end
-
-  # does a query first to make the actual constraint adding fast
-  def change_column_null_with_less_locking(table, column)
-    execute("SELECT COUNT(*) FROM #{quote_table_name(table)} WHERE #{column} IS NULL") if open_transactions == 0
-    change_column_null table, column, false
-  end
 end
 
 ActiveRecord::Associations::CollectionAssociation.class_eval do
@@ -1270,97 +1310,64 @@ ActiveRecord::Associations::CollectionAssociation.class_eval do
 end
 
 module UnscopeCallbacks
-  if CANVAS_RAILS4_0
-    def run_callbacks(kind)
+  if CANVAS_RAILS4_2
+    def __run_callbacks__(*args)
       scope = self.class.base_class.unscoped
-      scope.default_scoped = true
       scope.scoping { super }
     end
   else
     def __run_callbacks__(*args)
-      scope = self.class.base_class.unscoped
+      scope = self.class.all.klass.unscoped
       scope.scoping { super }
     end
   end
 end
 ActiveRecord::Base.send(:include, UnscopeCallbacks)
 
-ActiveRecord::DynamicMatchers::Method.class_eval do
-  class << self
-    def match_with_discard(model, name)
-      result = match_without_discard(model, name)
-      return nil if result && !result.is_a?(ActiveRecord::DynamicMatchers::FindBy)
-      result
-    end
-    alias_method_chain :match, :discard
+module MatchWithDiscard
+  def match(model, name)
+    result = super
+    return nil if result && !result.is_a?(ActiveRecord::DynamicMatchers::FindBy)
+    result
+  end
+end
+ActiveRecord::DynamicMatchers::Method.singleton_class.prepend(MatchWithDiscard)
+
+# see https://github.com/rails/rails/issues/18659
+class AttributesDefiner
+  # defines attribute methods when loaded through Marshal
+  def initialize(klass)
+    @klass = klass
+  end
+
+  def marshal_dump
+    @klass
+  end
+
+  def marshal_load(klass)
+    klass.define_attribute_methods
+    @klass = klass
   end
 end
 
-if CANVAS_RAILS4_0
-  module PreloaderShim
-    def initialize(*args)
-      super unless args.empty?
-    end
-
-    def preload(*args)
-      if args.size == 1
-        super
-      else
-        records, associations, preload_scope = args
-        @records       = Array.wrap(records).compact.uniq
-        @associations  = Array.wrap(associations)
-        @preload_scope = preload_scope || ActiveRecord::Relation.new(nil, nil)
-        run
-      end
-    end
+module DefineAttributeMethods
+  def init_internals
+    @define_attributes_helper = AttributesDefiner.new(self.class)
+    super
   end
-
-  ActiveRecord::Associations::Preloader.send(:prepend, PreloaderShim)
 end
-
-unless CANVAS_RAILS4_0
-  # see https://github.com/rails/rails/issues/18659
-  class AttributesDefiner
-    # defines attribute methods when loaded through Marshal
-    def initialize(klass)
-      @klass = klass
-    end
-
-    def marshal_dump
-      @klass
-    end
-
-    def marshal_load(klass)
-      klass.define_attribute_methods
-      @klass = klass
-    end
-  end
-
-  module DefineAttributeMethods
-    def init_internals
-      @define_attributes_helper = AttributesDefiner.new(self.class)
-      super
-    end
-  end
-  ActiveRecord::Base.include(DefineAttributeMethods)
-end
+ActiveRecord::Base.include(DefineAttributeMethods)
 
 module SkipTouchCallbacks
   module Base
     def skip_touch_callbacks(name)
-      if CANVAS_RAILS4_0
-        self.suspend_callbacks("(belongs_to_touch_after_save_or_destroy_for_#{name})") do
-          yield
-        end
+      @skip_touch_callbacks ||= Set.new
+      if @skip_touch_callbacks.include?(name)
+        yield
       else
-        @skip_touch_callbacks ||= Set.new
-        if @skip_touch_callbacks.include?(name)
-          yield
-        else
-          @skip_touch_callbacks << name
-          yield
-          @skip_touch_callbacks.delete(name)
-        end
+        @skip_touch_callbacks << name
+        yield
+        @skip_touch_callbacks.delete(name)
       end
     end
 
@@ -1378,58 +1385,34 @@ module SkipTouchCallbacks
   end
 end
 ActiveRecord::Base.singleton_class.include(SkipTouchCallbacks::Base)
+ActiveRecord::Associations::Builder::BelongsTo.singleton_class.prepend(SkipTouchCallbacks::BelongsTo)
 
-# This code is copied directly out of ActiveRecord with the exception of 2 lines.
-# The reason we need it it comes down to page views and other "Shardless" classes.
-# PageView is a class that we don’t store data for in postgres, but instead in Cassandra.
-# So it doesn't have a true "shard", but for the purposes of the AR interface in switchman,
-# it's "shard" is the birth shard, and the "conn" line here was pulling a connection
-# to it just to do bind variable merging (which doesn't actually need a real
-# postgres connection).  In Rails 4.2 this won't be a problem anymore,
-# so yank this monkey patch when we're on Rails 4.2
-module MultiMergeWithoutConnection
-  def merge_multi_values
-    lhs_wheres = relation.where_values
-    rhs_wheres = values[:where] || []
-
-    lhs_binds  = relation.bind_values
-    rhs_binds  = values[:bind] || []
-
-    removed, kept = partition_overwrites(lhs_wheres, rhs_wheres)
-
-    where_values = kept + rhs_wheres
-    bind_values  = filter_binds(lhs_binds, removed) + rhs_binds
-
-    # conn = relation.klass.connection
-    # commented because we don't actually need a connection to substitute
-    bv_index = 0
-    where_values.map! do |node|
-      if Arel::Nodes::Equality === node && Arel::Nodes::BindParam === node.right
-        # substitute = conn.substitute_at(bind_values[bv_index].first, bv_index)
-        # commented so we can just pull in the BindParam class and use it directly
-        # rather than establishing a connection to the db first.
-        substitute = Arel::Nodes::BindParam.new "$#{bv_index + 1}"
-        bv_index += 1
-        Arel::Nodes::Equality.new(node.left, substitute)
-      else
-        node
-      end
+module ReadonlyCloning
+  def calculate_changes_from_defaults
+    if @readonly_clone
+      @changed_attributes = @changed_attributes.dup if @changed_attributes # otherwise changes to the clone will dirty the original
+    else
+      super # no reason to do this if we're creating a readonly clone - can take a long time with serialized columns
     end
-
-    relation.where_values = where_values
-    relation.bind_values  = bind_values
-
-    if values[:reordering]
-      # override any order specified in the original relation
-      relation.reorder! values[:order]
-    elsif values[:order]
-      # merge in order_values from r
-      relation.order! values[:order]
-    end
-
-    relation.extend(*values[:extending]) unless values[:extending].blank?
   end
 end
-ActiveRecord::Relation::Merger.prepend(MultiMergeWithoutConnection) if CANVAS_RAILS4_0
+ActiveRecord::Base.prepend(ReadonlyCloning)
 
-ActiveRecord::Associations::Builder::BelongsTo.singleton_class.prepend(SkipTouchCallbacks::BelongsTo) unless CANVAS_RAILS4_0
+if CANVAS_RAILS4_2
+  # https://github.com/rails/rails/commit/696f1766148453160e1f6f21e4d7d7aac1356c7d
+  # the fix was backported into rails 5-0-stable
+  module DecimalCastRescueRuby24
+    def cast_value(value)
+      if value.is_a?(::String)
+        begin
+          super(value)
+        rescue ArgumentError
+          BigDecimal(0)
+        end
+      else
+        super(value)
+      end
+    end
+  end
+  ActiveRecord::Type::Decimal.prepend DecimalCastRescueRuby24
+end

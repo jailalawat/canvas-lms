@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 describe "layout" do
@@ -7,38 +24,6 @@ describe "layout" do
     course_with_student_logged_in
     @user.update_attribute(:name, "</script><b>evil html & name</b>")
     get "/"
-  end
-
-  it "should auto-scroll the sidebar when $.scrollSidebar is called" do
-    skip if Account.default.feature_enabled?(:use_new_styles)
-    exec_cs  <<-CS
-      $("#content").height(10000)
-      $("#right-side").height(5000)
-      $.scrollSidebar()
-    CS
-
-    rs_wrapper = f('#right-side-wrapper')
-    expect(rs_wrapper).not_to have_class 'with-scrolling-right-side'
-    expect(rs_wrapper).not_to have_class 'with-sidebar-pinned-to-bottom'
-
-    f('#footer').location_once_scrolled_into_view
-    # We sleep here because the window scroll triggers a call to scrollSidebar that might
-    # be slightly throttled. We don't want to actually call scrollSidebar() ourselves
-    # because that's subverting part of the test. The throttle shouldn't be more than 50ms,
-    # so sleeping 100ms should be sufficient for it to fire.
-    sleep 0.1
-    expect(rs_wrapper).not_to have_class 'with-scrolling-right-side'
-    expect(rs_wrapper).to have_class 'with-sidebar-pinned-to-bottom'
-
-    f('#dashboard').location_once_scrolled_into_view
-    sleep 0.1
-    expect(rs_wrapper).to have_class 'with-scrolling-right-side'
-    expect(rs_wrapper).not_to have_class 'with-sidebar-pinned-to-bottom'
-
-    f('#header').location_once_scrolled_into_view
-    sleep 0.1
-    expect(rs_wrapper).not_to have_class 'with-scrolling-right-side'
-    expect(rs_wrapper).not_to have_class 'with-sidebar-pinned-to-bottom'
   end
 
   it "should have ENV available to the JavaScript from js_env" do

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/calendar2_common')
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/scheduler_common')
@@ -39,7 +56,7 @@ describe "scheduler" do
       open_edit_dialog
       edit_form = f('#edit_appointment_form')
       expect(edit_form).to be_displayed
-      f('.ui-dialog-buttonset .btn-primary').click
+      f('.ui-dialog-buttonset .Button--primary').click
       wait_for_ajaximations
       new_appointment_group.reload
       expect(new_appointment_group.workflow_state).to eq 'active'
@@ -132,7 +149,7 @@ describe "scheduler" do
       get "/calendar2"
       click_scheduler_link
       click_appointment_link
-      fj('.agenda-event .ig-row').click
+      fj('.agenda-event__item .agenda-event__item-container').click
       wait_for_ajaximations
       driver.execute_script("$('.event-details .delete_event_link').trigger('click')")
       wait_for_ajaximations

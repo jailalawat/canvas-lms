@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,6 +19,7 @@
 module Api::V1::Group
   include Api::V1::Json
   include Api::V1::Context
+  include Api::V1::Tab
 
   API_GROUP_JSON_OPTS = {
     :only => %w(id name description is_public join_level group_category_id max_membership),
@@ -45,7 +46,7 @@ module Api::V1::Group
 
     if includes.include?('users')
       users = group.grants_right?(@current_user, :read_as_admin) ?
-        group.users.order_by_sortable_name.uniq : group.participating_users_in_context(sort: true).uniq
+        group.users.order_by_sortable_name.distinct : group.participating_users_in_context(sort: true).distinct
 
       # TODO: this should be switched to user_display_json
       hash['users'] = users.map{ |u| user_json(u, user, session) }
@@ -60,8 +61,16 @@ module Api::V1::Group
     hash['sis_group_id'] = group.sis_source_id if group.context_type == 'Account' && group.account.grants_any_right?(user, session, :read_sis, :manage_sis)
     hash['sis_import_id'] = group.sis_batch_id if group.context_type == 'Account' && group.account.grants_right?(user, session, :manage_sis)
     hash['has_submission'] = group.submission?
-    hash['concluded'] = group.context.concluded?
+    hash['concluded'] = group.context.concluded? || group.context.deleted?
+    hash['tabs'] = tabs_available_json(group, user, session, ['external']) if includes.include?('tabs')
 
+    if includes.include?('can_access')
+      hash['can_access'] = group.grants_right?(@current_user, :read)
+    end
+
+    if includes.include?('can_message')
+      hash['can_message'] = group.grants_right?(@current_user, :send_messages)
+    end
     hash
   end
 

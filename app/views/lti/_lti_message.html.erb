@@ -1,3 +1,21 @@
+<%
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <% content_for :page_title do %><%= @lti_launch.link_text %><% end %>
 
 <% js_bundle 'legacy/external_tools_tool_show' %>
@@ -12,7 +30,8 @@
     </div>
 <% end %>
 
-<div class="tool_content_wrapper">
+<div class="tool_content_wrapper
+  <%= 'custom_height' unless @lti_launch.tool_dimensions[:selection_height] == '100%' %>">
 
 <form action="<%= @lti_launch.resource_url %>"
       class="hide"
@@ -23,7 +42,7 @@
       data-tool-path="<%= @lti_launch.resource_path %>"
       data-message-type="<%= @lti_launch.analytics_message_type %>">
     <% @lti_launch.params.each do |key, value| %>
-        <%= hidden_field_tag key, value %>
+        <%= hidden_field_tag key, value.to_s %>
     <% end %>
     <div style="margin-bottom: 20px;">
         <div class="load_tab">
@@ -40,8 +59,10 @@
         </div>
     </div>
 </form>
+
 <%= iframe("about:blank", :name => 'tool_content', :id => 'tool_content', :class => "tool_launch",
-           allowfullscreen: "true", webkitallowfullscreen: "true", mozallowfullscreen: "true", tabindex:"0", title:t('Tool Content')) %>
+           allowfullscreen: "true", webkitallowfullscreen: "true", mozallowfullscreen: "true", tabindex:"0", title:t('Tool Content'),
+          :style=> "height:#{@lti_launch.tool_dimensions[:selection_height]};width:#{@lti_launch.tool_dimensions[:selection_width]};") %>
 
 </div>
 

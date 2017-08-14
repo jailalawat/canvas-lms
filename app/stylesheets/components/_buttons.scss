@@ -1,4 +1,21 @@
-//
+/*
+ * Copyright (C) 2014 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 // Buttons
 // --------------------------------------------------
 
@@ -131,7 +148,7 @@ listen to the "click" and "keyclick" events and add `tabindex="0"` and `role="bu
 
 .btn,       // <-- deprecated- do not use
 .Button {
-  @include canvas-button(darken($ic-color-light, 3%), $textColor);
+  @include canvas-button($ic-color-medium-light, $ic-color-dark);
   border-radius: $baseBorderRadius;
   transition: background-color 0.2s ease-in-out;
   display: inline-block;
@@ -147,12 +164,11 @@ listen to the "click" and "keyclick" events and add `tabindex="0"` and `role="bu
   overflow: hidden;
   text-shadow: none;
   user-select: none;
-  @if $use_new_styles and $use_high_contrast == false { font-weight: 300; }
 
   &:focus {
     text-decoration: none;
     outline: none;
-    @if $use_high_contrast == false { outline: none; }
+    @if not $use_high_contrast { outline: none; }
   }
 
   &:hover { text-decoration: none; }
@@ -273,10 +289,18 @@ input[type="button"] {
   cursor: pointer;
   color: $ic-link-color;
 
+  body.Underline-All-Links__enabled & {
+    text-decoration: underline;
+  }
+
   &:hover {
     color: $ic-link-color-hover;
     text-decoration: underline;
     background: transparent;
+
+    body.Underline-All-Links__enabled & {
+      text-decoration: none;
+    }
     &:focus { color: $ic-link-color; }
   }
 
@@ -297,6 +321,14 @@ input[type="button"] {
   i[class*=icon-], i[class^=icon-] {
     margin-right: 3px;
   }
+}
+
+.Button--link--has-divider {
+  display: block;
+  text-align: left;
+  border-bottom: 1px solid $ic-border-color;
+  color: $ic-color-dark;
+  padding: $ic-sp;
 }
 
 // Icon "action" buttons
@@ -332,8 +364,6 @@ input[type="button"] {
   &:focus { @include button-focus-dark; }
 }
 
-// Handle jQueryUI-generated button classes
-.ui-button-icon-only .ui-button-text, .ui-button-icons-only .ui-button-text { @extend .ui-helper-hidden-accessible; }
 
 .ui-button {
   position: relative;
@@ -349,4 +379,27 @@ input[type="button"] {
 
 .Button--theme-editor-apply {
   text-decoration: none;
+}
+
+
+// "Beta" buttons
+// --------------------------------------------------
+
+// Adds a 'Beta' background image to the button
+
+.btn-beta,
+.Button--beta {
+  @mixin beta-tag {
+    background-image: url(/images/beta-tag.png);
+    background-repeat: no-repeat;
+    background-position: bottom right;
+    background-size: auto 80%;
+  }
+  @include beta-tag;
+  padding-right: 20px;
+
+  // Prevent the beta background image from disappearing on hover
+  &:hover {
+    @include beta-tag;
+  }
 }

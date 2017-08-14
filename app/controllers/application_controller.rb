@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,6 +20,18 @@
 # Likewise, all the methods added will be available for all controllers.
 
 class ApplicationController < ActionController::Base
+  class << self
+    [:before, :after, :around,
+     :skip_before, :skip_after, :skip_around,
+     :prepend_before, :prepend_after, :prepend_around].each do |type|
+      class_eval <<-RUBY, __FILE__, __LINE__ + 1
+        def #{type}_filter(*)
+          raise "Please use #{type}_action instead of #{type}_filter"
+        end
+      RUBY
+    end
+  end
+
   attr_accessor :active_tab
   attr_reader :context
 
@@ -28,8 +40,9 @@ class ApplicationController < ActionController::Base
   include Api::V1::User
   include Api::V1::WikiPage
   include LegalInformationHelper
-  around_filter :set_locale
-  around_filter :enable_request_cache
+  around_action :set_locale
+  around_action :enable_request_cache
+  around_action :batch_statsd
 
   helper :all
 
@@ -39,30 +52,30 @@ class ApplicationController < ActionController::Base
   protect_from_forgery with: :exception
 
   # load_user checks masquerading permissions, so this needs to be cleared first
-  before_filter :clear_cached_contexts
-  prepend_before_filter :load_user, :load_account
+  before_action :clear_cached_contexts
+  prepend_before_action :load_user, :load_account
   # make sure authlogic is before load_user
-  skip_before_filter :activate_authlogic
-  prepend_before_filter :activate_authlogic
+  skip_before_action :activate_authlogic
+  prepend_before_action :activate_authlogic
 
-  before_filter ::Filters::AllowAppProfiling
-  before_filter :check_pending_otp
-  before_filter :set_user_id_header
-  before_filter :set_time_zone
-  before_filter :set_page_view
-  before_filter :require_reacceptance_of_terms
-  before_filter :clear_policy_cache
-  before_filter :setup_live_events_context
-  after_filter :log_page_view
-  after_filter :discard_flash_if_xhr
-  after_filter :cache_buster
+  before_action :check_pending_otp
+  before_action :set_user_id_header
+  before_action :set_time_zone
+  before_action :set_page_view
+  before_action :require_reacceptance_of_terms
+  before_action :clear_policy_cache
+  before_action :setup_live_events_context
+  after_action :log_page_view
+  after_action :discard_flash_if_xhr
+  after_action :cache_buster
+  before_action :initiate_session_from_token
   # Yes, we're calling this before and after so that we get the user id logged
   # on events that log someone in and log someone out.
-  after_filter :set_user_id_header
-  before_filter :fix_xhr_requests
-  before_filter :init_body_classes
-  after_filter :set_response_headers
-  after_filter :update_enrollment_last_activity_at
+  after_action :set_user_id_header
+  before_action :fix_xhr_requests
+  before_action :init_body_classes
+  after_action :set_response_headers
+  after_action :update_enrollment_last_activity_at
 
   add_crumb(proc {
     title = I18n.t('links.dashboard', 'My Dashboard')
@@ -110,18 +123,22 @@ class ApplicationController < ActionController::Base
         active_brand_config_json_url: active_brand_config_json_url,
         url_to_what_gets_loaded_inside_the_tinymce_editor_css: editor_css,
         current_user_id: @current_user.try(:id),
-        current_user: user_display_json(@current_user, :profile),
+        current_user: Rails.cache.fetch(['user_display_json', @current_user].cache_key, :expires_in => 1.hour) { user_display_json(@current_user, :profile) },
         current_user_roles: @current_user.try(:roles, @domain_root_account),
         current_user_disabled_inbox: @current_user.try(:disabled_inbox?),
         files_domain: HostUrl.file_host(@domain_root_account || Account.default, request.host_with_port),
         DOMAIN_ROOT_ACCOUNT_ID: @domain_root_account.try(:global_id),
-        use_new_styles: use_new_styles?,
         k12: k12?,
+        help_link_name: help_link_name,
+        help_link_icon: help_link_icon,
         use_high_contrast: @current_user.try(:prefers_high_contrast?),
         SETTINGS: {
           open_registration: @domain_root_account.try(:open_registration?),
-          eportfolios_enabled: @current_user.try(:eportfolios_enabled?)
-        }
+          eportfolios_enabled: (@domain_root_account && @domain_root_account.settings[:enable_eportfolios] != false), # checking all user root accounts is slow
+          collapse_global_nav: @current_user.try(:collapse_global_nav?),
+          show_feedback_link: show_feedback_link?,
+          enable_profiles: (@domain_root_account && @domain_root_account.settings[:enable_profiles] != false)
+        },
       }
       @js_env[:page_view_update_url] = page_view_path(@page_view.id, page_view_token: @page_view.token) if @page_view
       @js_env[:IS_LARGE_ROSTER] = true if !@js_env[:IS_LARGE_ROSTER] && @context.respond_to?(:large_roster?) && @context.large_roster?
@@ -163,7 +180,7 @@ class ApplicationController < ActionController::Base
   end
   helper_method :rce_js_env
 
-  def conditional_release_js_env(assignment = nil)
+  def conditional_release_js_env(assignment = nil, includes: [])
     return unless ConditionalRelease::Service.enabled_in_context?(@context)
     cr_env = ConditionalRelease::Service.env_for(
       @context,
@@ -171,7 +188,8 @@ class ApplicationController < ActionController::Base
       session: session,
       assignment: assignment,
       domain: request.env['HTTP_HOST'],
-      real_user: @real_current_user
+      real_user: @real_current_user,
+      includes: includes
     )
     js_env(cr_env)
   end
@@ -214,27 +232,97 @@ class ApplicationController < ActionController::Base
   def k12?
     @domain_root_account && @domain_root_account.feature_enabled?(:k12)
   end
-  helper_method 'k12?'
+  helper_method :k12?
 
-  def use_new_styles?
-    @domain_root_account && @domain_root_account.feature_enabled?(:use_new_styles) || k12?
+  def grading_periods?
+    !!@context.try(:grading_periods?)
   end
-  helper_method 'use_new_styles?'
+  helper_method :grading_periods?
 
-  def multiple_grading_periods?
-    is_account_and_mgp_is_allowed = !!(@context &&
-                                       @context.is_a?(Account) &&
-                                       @context.feature_allowed?(:multiple_grading_periods))
-    (@context && @context.feature_enabled?(:multiple_grading_periods)) || is_account_and_mgp_is_allowed
+  def master_courses?
+    @domain_root_account && @domain_root_account.feature_enabled?(:master_courses)
   end
-  helper_method 'multiple_grading_periods?'
+  helper_method :master_courses?
+
+  def setup_master_course_restrictions(objects, course)
+    return unless master_courses? && course.is_a?(Course) && course.grants_right?(@current_user, session, :read_as_admin)
+
+    if MasterCourses::MasterTemplate.is_master_course?(course)
+      MasterCourses::Restrictor.preload_default_template_restrictions(objects, course)
+      return :master # return master/child status
+    elsif MasterCourses::ChildSubscription.is_child_course?(course)
+      MasterCourses::Restrictor.preload_child_restrictions(objects)
+      return :child
+    end
+  end
+  helper_method :setup_master_course_restrictions
+
+  def set_master_course_js_env_data(object, course)
+    return unless object.respond_to?(:master_course_api_restriction_data) && object.persisted?
+    status = setup_master_course_restrictions([object], course)
+    return unless status
+    # we might have to include more information about the object here to make it easier to plug a common component in
+    data = object.master_course_api_restriction_data(status)
+    if status == :master
+      data[:default_restrictions] = MasterCourses::MasterTemplate.full_template_for(course).default_restrictions_for(object)
+    end
+    js_env(:MASTER_COURSE_DATA => data)
+  end
+  helper_method :set_master_course_js_env_data
+
+  def load_blueprint_courses_ui
+    return unless @context && @context.is_a?(Course) && master_courses? && @context.grants_right?(@current_user, :manage)
+
+    is_child = MasterCourses::ChildSubscription.is_child_course?(@context)
+    is_master = MasterCourses::MasterTemplate.is_master_course?(@context)
+
+    return unless is_master || is_child
+
+    js_bundle :blueprint_courses
+    css_bundle :blueprint_courses
+
+    master_course = is_master ? @context : @context.master_course_subscriptions.active.first.master_template.course
+    js_env :DEBUG_BLUEPRINT_COURSES => Rails.env.development? || Rails.env.test?
+    js_env :BLUEPRINT_COURSES_DATA => {
+      isMasterCourse: is_master,
+      isChildCourse: is_child,
+      accountId: @context.account.id,
+      masterCourse: master_course.slice(:id, :name, :enrollment_term_id),
+      course: @context.slice(:id, :name, :enrollment_term_id),
+      subAccounts: @context.account.sub_accounts.pluck(:id, :name).map{|id, name| {id: id, name: name}},
+      terms: @context.account.root_account.enrollment_terms.active.pluck(:id, :name).map{|id, name| {id: id, name: name}},
+      canManageCourse: MasterCourses::MasterTemplate.is_master_course?(@context) && @context.account.grants_right?(@current_user, :manage_master_courses)
+    }
+    if is_master && js_env.key?(:NEW_USER_TUTORIALS)
+      js_env[:NEW_USER_TUTORIALS][:is_enabled] = false
+    end
+  end
+  helper_method :load_blueprint_courses_ui
+
+  def editing_restricted?(content, edit_type=:any)
+    return false unless master_courses? && content.respond_to?(:editing_restricted?)
+    content.editing_restricted?(edit_type)
+  end
+  helper_method :editing_restricted?
+
+  def tool_dimensions
+    tool_dimensions = {selection_width: '100%', selection_height: '100%'}
+
+    tool_dimensions.each do |k, v|
+      tool_dimensions[k] = @tool.settings[k] || v
+      tool_dimensions[k] = tool_dimensions[k].to_s << 'px' unless tool_dimensions[k].to_s =~ /%|px/
+    end
+
+    tool_dimensions
+  end
+  private :tool_dimensions
 
   # Reject the request by halting the execution of the current handler
   # and returning a helpful error message (and HTTP status code).
   #
   # @param [String] cause
   #   The reason the request is rejected for.
-  # @param [Optional, Fixnum|Symbol, Default :bad_request] status
+  # @param [Optional, Integer|Symbol, Default :bad_request] status
   #   HTTP status code or symbol.
   def reject!(cause, status=:bad_request)
     raise RequestError.new(cause, status)
@@ -272,7 +360,7 @@ class ApplicationController < ActionController::Base
     include_host = opts[-1].delete(:include_host)
     if !include_host
       opts[-1][:host] = context.host_name rescue nil
-      opts[-1][:only_path] = true
+      opts[-1][:only_path] = true unless name.end_with?("_path")
     end
     self.send name, *opts
   end
@@ -315,10 +403,12 @@ class ApplicationController < ActionController::Base
     I18n.localizer = nil
   end
 
-  def enable_request_cache
-    RequestCache.enable do
-      yield
-    end
+  def enable_request_cache(&block)
+    RequestCache.enable(&block)
+  end
+
+  def batch_statsd(&block)
+    CanvasStatsd::Statsd.batch(&block)
   end
 
   def store_session_locale
@@ -379,7 +469,7 @@ class ApplicationController < ActionController::Base
 
   def check_pending_otp
     if session[:pending_otp] && params[:controller] != 'login/otp'
-      return render text: "Please finish logging in", status: 403 if request.xhr?
+      return render plain: "Please finish logging in", status: 403 if request.xhr?
 
       reset_session
       redirect_to login_url
@@ -394,10 +484,12 @@ class ApplicationController < ActionController::Base
 
   def tab_enabled?(id, opts = {})
     return true unless @context && @context.respond_to?(:tabs_available)
-    tabs = @context.tabs_available(@current_user,
-                                   :session => session,
-                                   :include_hidden_unused => true,
-                                   :root_account => @domain_root_account)
+    tabs = Rails.cache.fetch(['tabs_available', @context, @current_user, @domain_root_account,
+      session[:enrollment_uuid]].cache_key, expires_in: 1.hour) do
+
+      @context.tabs_available(@current_user,
+        :session => session, :include_hidden_unused => true, :root_account => @domain_root_account)
+    end
     valid = tabs.any?{|t| t[:id] == id }
     render_tab_disabled unless valid || opts[:no_render]
     return valid
@@ -462,7 +554,7 @@ class ApplicationController < ActionController::Base
       # to a web browser - but you've lost your cookies! This breaks not only store_location,
       # but in the case of delegated authentication where the provider does an additional
       # redirect storing important information in session, makes it impossible to log in at all
-      render text: '', status: 200
+      render plain: '', status: 200
       return false
     end
     true
@@ -479,10 +571,12 @@ class ApplicationController < ActionController::Base
       format.html {
         return unless fix_ms_office_redirects
         store_location
-        return redirect_to login_url(params.slice(:authentication_provider)) if !@files_domain && !@current_user
+        return redirect_to login_url(params.permit(:authentication_provider)) if !@files_domain && !@current_user
 
         if @context.is_a?(Course) && @context_enrollment
-          start_date = @context_enrollment.enrollment_dates.map(&:first).compact.min if @context_enrollment.state_based_on_date == :inactive
+          if @context_enrollment.inactive?
+            start_date = @context_enrollment.available_at
+          end
           if @context.claimed?
             @unauthorized_message = t('#application.errors.unauthorized.unpublished', "This course has not been published by the instructor yet.")
             @unauthorized_reason = :unpublished
@@ -496,19 +590,19 @@ class ApplicationController < ActionController::Base
       }
       format.zip { redirect_to(url_for(path_params)) }
       format.json { render_json_unauthorized }
+      format.all { render plain: 'Unauthorized', status: :unauthorized }
     end
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Cache-Control"] = "no-cache, no-store, max-age=0, must-revalidate"
+    set_no_cache_headers
   end
 
-  # To be used as a before_filter, requires controller or controller actions
+  # To be used as a before_action, requires controller or controller actions
   # to have their urls scoped to a context in order to be valid.
   # So /courses/5/assignments or groups/1/assignments would be valid, but
   # not /assignments
   def require_context
     get_context
     if !@context
-      if request.path.match(/\A\/profile/)
+      if @context_is_current_user
         store_location
         redirect_to login_url
       elsif params[:context_id]
@@ -543,7 +637,7 @@ class ApplicationController < ActionController::Base
 
   MAX_ACCOUNT_LINEAGE_TO_SHOW_IN_CRUMBS = 3
 
-  # Can be used as a before_filter, or just called from controller code.
+  # Can be used as a before_action, or just called from controller code.
   # Assigns the variable @context to whatever context the url is scoped
   # to.  So /courses/5/assignments would have a @context=Course.find(5).
   # Also assigns @context_membership to the membership type of @current_user
@@ -552,12 +646,12 @@ class ApplicationController < ActionController::Base
     unless @context
       if params[:course_id]
         @context = api_find(Course.active, params[:course_id])
+        @context.root_account = @domain_root_account if @context.root_account_id == @domain_root_account.id # no sense in refetching it
         params[:context_id] = params[:course_id]
         params[:context_type] = "Course"
         if @context && @current_user
-          context_enrollments = @context.enrollments.where(user_id: @current_user)
-          Canvas::Builders::EnrollmentDateBuilder.preload(context_enrollments)
-          @context_enrollment = context_enrollments.sort_by{|e| [e.state_with_date_sortable, e.rank_sortable, e.id] }.first
+          @context_enrollment = @context.enrollments.where(user_id: @current_user).joins(:enrollment_state).
+            order(Enrollment.state_by_date_rank_sql, Enrollment.type_rank_sql).readonly(false).first
         end
         @context_membership = @context_enrollment
         check_for_readonly_enrollment_state
@@ -585,6 +679,7 @@ class ApplicationController < ActionController::Base
         @context = api_find(CourseSection, params[:course_section_id])
       elsif request.path.match(/\A\/profile/) || request.path == '/' || request.path.match(/\A\/dashboard\/files/) || request.path.match(/\A\/calendar/) || request.path.match(/\A\/assignments/) || request.path.match(/\A\/files/) || request.path == '/api/v1/calendar_events/visible_contexts'
         # ^ this should be split out into things on the individual controllers
+        @context_is_current_user = true
         @context = @current_user
         @context_membership = @context
       end
@@ -637,30 +732,39 @@ class ApplicationController < ActionController::Base
       # we already know the user can read these courses and groups, so skip
       # the grants_right? check to avoid querying for the various memberships
       # again.
-      enrollment_scope = @context.enrollments.current.shard(@context).preload(:course)
-      group_scope = opts[:include_groups] ? @context.current_groups : nil
+      enrollment_scope = Enrollment.for_user(@context).current.active_by_date
+      include_groups = !!opts[:include_groups]
+      group_ids = nil
 
+      courses = []
       if only_contexts.present?
         # find only those courses and groups passed in the only_contexts
         # parameter, but still scoped by user so we know they have rights to
         # view them.
         course_ids = only_contexts.select { |c| c.first == "Course" }.map(&:last)
-        if course_ids.empty?
-          enrollment_scope = enrollment_scope.none
-        else
-          enrollment_scope = enrollment_scope.where(:course_id => course_ids)
+        unless course_ids.empty?
+          courses = Course.where(:id => course_ids).where(:id => enrollment_scope.select(:course_id)).to_a
         end
-        if group_scope
+        if include_groups
           group_ids = only_contexts.select { |c| c.first == "Group" }.map(&:last)
-          if group_ids.empty?
-            group_scope = group_scope.none
-          else
-            group_scope = group_scope.where(:id => group_ids)
+          include_groups = false if group_ids.empty?
+        end
+      else
+        courses = Course.shard(opts[:cross_shard] ? @context.in_region_associated_shards : Shard.current).
+          where(:id => enrollment_scope.select(:course_id)).to_a
+      end
+
+      groups = []
+      if include_groups
+        if group_ids
+          Shard.partition_by_shard(group_ids) do |shard_group_ids|
+            groups += @context.current_groups.shard(Shard.current).where(:id => shard_group_ids).to_a
           end
+        else
+          groups = @context.current_groups.shard(opts[:cross_shard] ? @context.in_region_associated_shards : Shard.current).to_a
         end
       end
-      courses = enrollment_scope.select { |e| e.state_based_on_date == :active }.map(&:course).uniq
-      groups = group_scope ? group_scope.shard(@context).to_a.reject{|g| g.context_type == "Course" && g.context.concluded?} : []
+      groups.reject!{|g| g.context_type == "Course" && g.context.concluded?}
 
       if opts[:favorites_first]
         favorite_course_ids = @context.favorite_context_ids("Course")
@@ -677,7 +781,7 @@ class ApplicationController < ActionController::Base
         # don't load it again if we've already got it
         next if @contexts.any? { |c| c.asset_string == include_context }
         context = Context.find_by_asset_string(include_context)
-        @contexts << context if context && context.grants_right?(@current_user, :read)
+        @contexts << context if context && context.grants_right?(@current_user, session, :read)
       end
     end
 
@@ -730,96 +834,36 @@ class ApplicationController < ActionController::Base
     badge_counts
   end
 
-  # Retrieves all assignments for all contexts held in the @contexts variable.
-  # Also retrieves submissions and sorts the assignments based on
-  # their due dates and submission status for the given user.
-  def get_sorted_assignments
-    @courses = @contexts.select{ |c| c.is_a?(Course) }
-    @just_viewing_one_course = @context.is_a?(Course) && @courses.length == 1
-    @context_codes = @courses.map(&:asset_string)
-    @context = @courses.first
+  def get_upcoming_assignments(course)
+    assignments = AssignmentGroup.visible_assignments(
+      @current_user,
+      course,
+      course.assignment_groups.active
+    ).to_a
 
-    if @just_viewing_one_course
-
-      # fake assignment used for checking if the @current_user can read unpublished assignments
-      fake = @context.assignments.temp_record
-      fake.workflow_state = 'unpublished'
-
-      assignment_scope = :active_assignments
-      if !fake.grants_right?(@current_user, session, :read)
-        # user should not see unpublished assignments
-        assignment_scope = :published_assignments
-      end
-
-      @groups = @context.assignment_groups.active
-      @assignments = AssignmentGroup.visible_assignments(@current_user, @context, @groups).to_a
-    else
-      assignments_and_groups = Shard.partition_by_shard(@courses) do |courses|
-        [[Assignment.published.for_course(courses).all,
-         AssignmentGroup.active.for_course(courses).order(:position).all]]
-      end
-      @assignments = assignments_and_groups.map(&:first).flatten
-      @groups = assignments_and_groups.map(&:last).flatten
-    end
-    @assignment_groups = @groups
-
-    @courses.each { |course| log_course(course) }
+    log_course(course)
 
     if @current_user
-      @submissions = @current_user.submissions.shard(@current_user).to_a
-      @submissions.each{ |s| s.mute if s.muted_assignment? }
+      submissions = @current_user.submissions.shard(@current_user).to_a
+      submissions.each{ |s| s.mute if s.muted_assignment? }
     else
-      @submissions = []
+      submissions = []
     end
 
-    @assignments.map! {|a| a.overridden_for(@current_user)}
+    assignments.map! {|a| a.overridden_for(@current_user)}
     sorted = SortsAssignments.by_due_date({
-      :assignments => @assignments,
+      :assignments => assignments,
       :user => @current_user,
       :session => session,
       :upcoming_limit => 1.week.from_now,
-      :submissions => @submissions
+      :submissions => submissions
     })
 
-    @past_assignments = sorted.past
-    @undated_assignments = sorted.undated
-    @ungraded_assignments = sorted.ungraded
-    @upcoming_assignments = sorted.upcoming
-    @future_assignments = sorted.future
-    @overdue_assignments = sorted.overdue
-
-    condense_assignments if requesting_main_assignments_page?
-
-    categorized_assignments.each(&:sort!)
-  end
-
-  def categorized_assignments
-    [
-      @assignments,
-      @upcoming_assignments,
-      @past_assignments,
-      @ungraded_assignments,
-      @undated_assignments,
-      @future_assignments
-    ]
-  end
-
-  def condense_assignments
-    num_weeks = @future_assignments.length > 5 ? 2 : 4
-    @future_assignments = SortsAssignments.up_to(@future_assignments, num_weeks.weeks.from_now)
-    num_weeks = @past_assignments.length < 5 ? 2 : 4
-    @past_assignments = SortsAssignments.down_to(@past_assignments, num_weeks.weeks.ago)
-
-    @overdue_assignments = SortsAssignments.down_to(@overdue_assignments, 4.weeks.ago)
-    @ungraded_assignments = SortsAssignments.down_to(@ungraded_assignments, 4.weeks.ago)
+    sorted.upcoming.sort
   end
 
   def log_course(course)
     log_asset_access([ "assignments", course ], "assignments", "other")
-  end
-
-  def requesting_main_assignments_page?
-    request.path.match(/\A\/assignments/)
   end
 
   # Calculates the file storage quota for @context
@@ -920,8 +964,6 @@ class ApplicationController < ActionController::Base
   def discard_flash_if_xhr
     if request.xhr? || request.format.to_s == 'text/plain'
       flash.discard
-    else
-      flash.keep
     end
   end
 
@@ -934,6 +976,59 @@ class ApplicationController < ActionController::Base
     # then the local cache is used when the user clicks the 'back' button.  I don't know how
     # to tell the browser to ALWAYS check back other than to disable caching...
     return true if @cancel_cache_buster || request.xhr? || api_request?
+    set_no_cache_headers
+  end
+
+  def initiate_session_from_token
+    # Login from a token generated via API
+    if params[:session_token]
+      token = SessionToken.parse(params[:session_token])
+      if token&.valid?
+        pseudonym = Pseudonym.active.find_by(id: token.pseudonym_id)
+
+        if pseudonym
+          unless pseudonym.works_for_account?(@domain_root_account, true)
+            # if the logged in pseudonym doesn't work, we can only switch to another pseudonym
+            # that does work if it's the same password, and it's not a managed pseudonym
+            alternates = pseudonym.user.all_active_pseudonyms.select { |p|
+              !p.managed_password? &&
+                p.works_for_account?(@domain_root_account, true) &&
+                p.password_salt == pseudonym.password_salt &&
+                p.crypted_password == pseudonym.crypted_password }
+            # prefer a site admin pseudonym, then a pseudonym in this account, and then any old
+            # pseudonym
+            pseudonym = alternates.find { |p| p.account_id == Account.site_admin.id }
+            pseudonym ||= alternates.find { |p| p.account_id == @domain_root_account.id }
+            pseudonym ||= alternates.first
+          end
+          if pseudonym && pseudonym != @current_pseudonym
+            return_to = session.delete(:return_to)
+            reset_session
+            PseudonymSession.create!(pseudonym)
+            session[:used_remember_me_token] = true if token.used_remember_me_token
+          end
+          if pseudonym && token.current_user_id
+            target_user = User.find(token.current_user_id)
+            session[:become_user_id] = token.current_user_id if target_user.can_masquerade?(pseudonym.user, @domain_root_account)
+          end
+        end
+        return redirect_to return_to if return_to
+        # do one final redirect to get the token out of the URL
+        redirect_to remove_query_params(request.original_url, 'session_token')
+      end
+    end
+  end
+
+  def remove_query_params(url, *params)
+    uri = URI.parse(url)
+    return url unless uri.query
+    qs = Rack::Utils.parse_query(uri.query)
+    qs.except!(*params)
+    uri.query = qs.empty? ? nil : Rack::Utils.build_query(qs)
+    uri.to_s
+  end
+
+  def set_no_cache_headers
     response.headers["Pragma"] = "no-cache"
     response.headers["Cache-Control"] = "no-cache, no-store, max-age=0, must-revalidate"
   end
@@ -949,13 +1044,13 @@ class ApplicationController < ActionController::Base
     # We only record page_views for html page requests coming from within the
     # app, or if coming from a developer api request and specified as a
     # page_view.
-    if (@developer_key && params[:user_request]) || (!@developer_key && @current_user && !request.xhr? && request.get?)
+    if @current_user && !request.xhr? && request.get?
       generate_page_view
     end
   end
 
   def require_reacceptance_of_terms
-    if session[:require_terms] && !api_request? && request.get?
+    if session[:require_terms] && request.get? && !api_request? && !verified_file_request?
       render "shared/terms_required", status: :unauthorized
       false
     end
@@ -966,17 +1061,10 @@ class ApplicationController < ActionController::Base
   end
 
   def generate_page_view(user=@current_user)
-    attributes = { :user => user, :developer_key => @developer_key, :real_user => @real_current_user }
+    attributes = { :user => user, :real_user => @real_current_user }
     @page_view = PageView.generate(request, attributes)
     @page_view.user_request = true if params[:user_request] || (user && !request.xhr? && request.get?)
     @page_before_render = Time.now.utc
-  end
-
-  def generate_new_page_view
-    return true if !page_views_enabled?
-
-    generate_page_view
-    @page_view.generated_by_hand = true
   end
 
   def disable_page_views
@@ -1040,61 +1128,78 @@ class ApplicationController < ActionController::Base
 
     user = @current_user || (@accessed_asset && @accessed_asset[:user])
     if user && @log_page_views != false
-      updated_fields = params.slice(:interaction_seconds)
-      if request.xhr? && params[:page_view_token] && !updated_fields.empty? && !(@page_view && @page_view.generated_by_hand)
-        RequestContextGenerator.store_interaction_seconds_update(params[:page_view_token], updated_fields[:interaction_seconds])
-
-        page_view_info = PageView.decode_token(params[:page_view_token])
-        @page_view = PageView.find_for_update(page_view_info[:request_id])
-        if @page_view
-          if @page_view.id
-            response.headers["X-Canvas-Page-View-Update-Url"] = page_view_path(
-              @page_view.id, page_view_token: @page_view.token)
-          end
-          @page_view.do_update(updated_fields)
-          @page_view_update = true
-        end
-      end
-      # If we're logging the asset access, and it's either a participatory action
-      # or it's not an update to an already-existing page_view.  We check to make sure
-      # it's not an update because if the page_view already existed, we don't want to
-      # double-count it as multiple views when it's really just a single view.
-
-      if @accessed_asset && (@accessed_asset[:level] == 'participate' || !@page_view_update)
-        @access = AssetUserAccess.where(user_id: user.id, asset_code: @accessed_asset[:code]).first_or_initialize
-        @accessed_asset[:level] ||= 'view'
-        @access.log @context, @accessed_asset
-
-        if @page_view.nil? && page_views_enabled? && %w{participate submit}.include?(@accessed_asset[:level])
-          generate_page_view(user)
-        end
-
-        if @page_view
-          @page_view.participated = %w{participate submit}.include?(@accessed_asset[:level])
-          @page_view.asset_user_access = @access
-        end
-
-        @page_view_update = true
-      end
-      if @page_view && !request.xhr? && request.get? && (response.content_type || "").to_s.match(/html/)
-        @page_view.render_time ||= (Time.now.utc - @page_before_render) rescue nil
-        @page_view_update = true
-      end
-      if @page_view && @page_view_update
-        @page_view.context = @context if !@page_view.context_id
-        @page_view.account_id = @domain_root_account.id
-        @page_view.developer_key_id = @access_token.try(:developer_key_id)
-        @page_view.store
-        RequestContextGenerator.store_page_view_meta(@page_view)
-      end
+      add_interaction_seconds
+      log_participation(user)
+      log_gets
+      finalize_page_view
     else
       @page_view.destroy if @page_view && !@page_view.new_record?
     end
+
   rescue StandardError, CassandraCQL::Error::InvalidRequestException => e
     Canvas::Errors.capture_exception(:page_view, e)
     logger.error "Pageview error!"
     raise e if Rails.env.development?
     true
+  end
+
+  def add_interaction_seconds
+    updated_fields = params.slice(:interaction_seconds)
+    if request.xhr? && params[:page_view_token] && !updated_fields.empty? && !(@page_view && @page_view.generated_by_hand)
+      RequestContextGenerator.store_interaction_seconds_update(params[:page_view_token], updated_fields[:interaction_seconds])
+
+      page_view_info = PageView.decode_token(params[:page_view_token])
+      @page_view = PageView.find_for_update(page_view_info[:request_id])
+      if @page_view
+        if @page_view.id
+          response.headers["X-Canvas-Page-View-Update-Url"] = page_view_path(
+            @page_view.id, page_view_token: @page_view.token)
+        end
+        @page_view.do_update(updated_fields)
+        @page_view_update = true
+      end
+    end
+  end
+
+  def log_participation(user)
+    # If we're logging the asset access, and it's either a participatory action
+    # or it's not an update to an already-existing page_view.  We check to make sure
+    # it's not an update because if the page_view already existed, we don't want to
+    # double-count it as multiple views when it's really just a single view.
+    if @accessed_asset && (@accessed_asset[:level] == 'participate' || !@page_view_update)
+      @access = AssetUserAccess.where(user_id: user.id, asset_code: @accessed_asset[:code]).first_or_initialize
+      @accessed_asset[:level] ||= 'view'
+      @access.log @context, @accessed_asset
+
+      if @page_view.nil? && page_views_enabled? && %w{participate submit}.include?(@accessed_asset[:level])
+        generate_page_view(user)
+      end
+
+      if @page_view
+        @page_view.participated = %w{participate submit}.include?(@accessed_asset[:level])
+        @page_view.asset_user_access = @access
+      end
+
+      @page_view_update = true
+    end
+  end
+
+  def log_gets
+    if @page_view && !request.xhr? && request.get? && (((response.content_type || "").to_s.match(/html/)) ||
+      (Setting.get('create_get_api_page_views', 'true') == 'true') && api_request?)
+      @page_view.render_time ||= (Time.now.utc - @page_before_render) rescue nil
+      @page_view_update = true
+    end
+  end
+
+  def finalize_page_view
+    if @page_view && @page_view_update
+      @page_view.context = @context if !@page_view.context_id && PageView::CONTEXT_TYPES.include?(@context.class.name)
+      @page_view.account_id = @domain_root_account.id
+      @page_view.developer_key_id = @access_token.try(:developer_key_id)
+      @page_view.store
+      RequestContextGenerator.store_page_view_meta(@page_view)
+    end
   end
 
   rescue_from Exception, :with => :rescue_exception
@@ -1296,8 +1401,8 @@ class ApplicationController < ActionController::Base
     @api_request ||= !!request.path.match(API_REQUEST_REGEX)
   end
 
-  def session_loaded?
-    session.send(:loaded?) rescue false
+  def verified_file_request?
+    params[:controller] == 'files' && params[:action] == 'show' && params[:verifier].present?
   end
 
   # Retrieving wiki pages needs to search either using the id or
@@ -1316,6 +1421,7 @@ class ApplicationController < ActionController::Base
 
     unless @page
       if params[:titleize].present? && !value_to_boolean(params[:titleize])
+        @page_name = CGI.unescape(@page_name)
         @page = @wiki.build_wiki_page(@current_user, :title => @page_name)
       else
         @page = @wiki.build_wiki_page(@current_user, :url => @page_name)
@@ -1337,6 +1443,8 @@ class ApplicationController < ActionController::Base
       redirect_to named_context_url(context, :context_discussion_topic_url, tag.content_id, url_params)
     elsif tag.content_type == 'Rubric'
       redirect_to named_context_url(context, :context_rubric_url, tag.content_id, url_params)
+    elsif tag.content_type == 'AssessmentQuestionBank'
+      redirect_to named_context_url(context, :context_question_bank_url, tag.content_id, url_params)
     elsif tag.content_type == 'Lti::MessageHandler'
       url_params[:module_item_id] = params[:module_item_id] if params[:module_item_id]
       url_params[:resource_link_fragment] = "ContentTag:#{tag.id}"
@@ -1376,7 +1484,8 @@ class ApplicationController < ActionController::Base
         log_asset_access(@tool, "external_tools", "external_tools", overwrite: false)
         @opaque_id = @tool.opaque_identifier_for(@tag)
 
-        @lti_launch = @tool.settings['post_only'] ? Lti::Launch.new(post_only: true) : Lti::Launch.new
+        launch_settings = @tool.settings['post_only'] ? {post_only: true, tool_dimensions: tool_dimensions} : {tool_dimensions: tool_dimensions}
+        @lti_launch = Lti::Launch.new(launch_settings)
 
         success_url = case tag_type
         when :assignments
@@ -1560,6 +1669,8 @@ class ApplicationController < ActionController::Base
         !!WebConference.config
       elsif feature == :crocodoc
         !!Canvas::Crocodoc.config
+      elsif feature == :vericite
+        Canvas::Plugin.find(:vericite).try(:enabled?)
       elsif feature == :lockdown_browser
         Canvas::Plugin.all_for_tag(:lockdown_browser).any? { |p| p.settings[:enabled] }
       else
@@ -1578,10 +1689,6 @@ class ApplicationController < ActionController::Base
     feature_enabled?(feature) && service_enabled?(feature)
   end
   helper_method :feature_and_service_enabled?
-
-  def show_new_dashboard?
-    @current_user && @current_user.preferences[:new_dashboard]
-  end
 
   def temporary_user_code(generate=true)
     if generate
@@ -1669,6 +1776,23 @@ class ApplicationController < ActionController::Base
   end
   helper_method :user_content
 
+  def public_user_content(str, context=@context, user=@current_user, is_public=false)
+    return nil unless str
+
+    rewriter = UserContent::HtmlRewriter.new(context, user)
+    rewriter.set_handler('files') do |match|
+      UserContent::FilesHandler.new(
+        match: match,
+        context: context,
+        user: user,
+        preloaded_attachments: {},
+        is_public: is_public
+      ).processed_url
+    end
+    UserContent.escape(rewriter.translate_content(str), request.host_with_port)
+  end
+  helper_method :public_user_content
+
   def find_bank(id, check_context_chain=true)
     bank = @context.assessment_question_banks.active.where(id: id).first || @current_user.assessment_question_banks.active.where(id: id).first
     if bank
@@ -1730,7 +1854,8 @@ class ApplicationController < ActionController::Base
   end
 
   def json_cast(obj)
-    stringify_json_ids? ? Api.recursively_stringify_json_ids(obj) : obj
+    obj = obj.as_json if obj.respond_to?(:as_json) unless obj.is_a?(Hash) || obj.is_a?(Array)
+    stringify_json_ids? ? StringifyIds.recursively_stringify_ids(obj) : obj
   end
 
   def render(options = nil, extra_options = {}, &block)
@@ -1751,12 +1876,19 @@ class ApplicationController < ActionController::Base
       # fix for some browsers not properly handling json responses to multipart
       # file upload forms and s3 upload success redirects -- we'll respond with text instead.
       if options[:as_text] || json_as_text?
-        options[:text] = json
-        options[:content_type] = "text/html"
+        options[:html] = json.html_safe
+        options[:content_type] = "text/html" if CANVAS_RAILS4_2
       else
         options[:json] = json
       end
     end
+    super
+  end
+
+  # flash is normally only preserved for one redirect; make sure we carry
+  # it along in case there are more
+  def redirect_to(*)
+    flash.keep
     super
   end
 
@@ -1774,10 +1906,6 @@ class ApplicationController < ActionController::Base
   end
   helper_method :css_bundle
 
-  alias_method :jammit_css, :css_bundle
-  deprecate :jammit_css
-  helper_method :jammit_css
-
   def js_bundles; @js_bundles ||= []; end
   helper_method :js_bundles
 
@@ -1788,14 +1916,14 @@ class ApplicationController < ActionController::Base
   #
   # Bundles are defined in app/coffeescripts/bundles/<bundle>.coffee
   #
-  # usage: js_bundle :gradebook2
+  # usage: js_bundle :gradebook
   #
   # Only allows multiple arguments to support old usage of jammit_js
   #
   # Optional :plugin named parameter allows you to specify a plugin which
   # contains the bundle. Example:
   #
-  # js_bundle :gradebook2, :plugin => :my_feature
+  # js_bundle :gradebook, :plugin => :my_feature
   #
   # will look for the bundle in
   # /plugins/my_feature/(optimized|javascripts)/compiled/bundles/ rather than
@@ -1892,35 +2020,42 @@ class ApplicationController < ActionController::Base
     data = user_profile_json(profile, viewer, session, includes, profile)
     data[:can_edit] = viewer == profile.user
     data[:can_edit_name] = data[:can_edit] && profile.user.user_can_edit_name?
-    known_user = viewer.load_messageable_user(profile.user)
-    common_courses = []
-    common_groups = []
-    if viewer != profile.user
-      if known_user
-        common_courses = known_user.common_courses.map do |course_id, roles|
-          next if course_id.zero?
-          c = course_json(Course.find(course_id), @current_user, session, ['html_url'], false)
-          c[:roles] = roles.map { |role| Enrollment.readable_type(role) }
-          c
-        end.compact
-        common_groups = known_user.common_groups.map do |group_id, roles|
-          next if group_id.zero?
-          g = group_json(Group.find(group_id), @current_user, session, :include => ['html_url'])
-          # in the future groups will have more roles and we'll need soemthing similar to
-          # the roles.map above in courses
-          g[:roles] = [t('#group.memeber', "Member")]
-          g
-        end.compact
-      end
+    data[:known_user] = viewer.address_book.known_user(profile.user)
+    if data[:known_user] && viewer != profile.user
+      common_courses = viewer.address_book.common_courses(profile.user)
+      common_groups = viewer.address_book.common_groups(profile.user)
+    else
+      common_courses = {}
+      common_groups = {}
     end
-    data[:common_contexts] = [] + common_courses + common_groups
-    data[:known_user] = known_user
+    data[:common_contexts] = common_contexts(common_courses, common_groups, @current_user, session)
     data
+  end
+
+  def common_contexts(common_courses, common_groups, current_user, session)
+    courses = Course.where(id: common_courses.keys).to_a
+    groups = Group.where(id: common_groups.keys).to_a
+
+    common_courses = courses.map do |course|
+      course_json(course, current_user, session, ['html_url'], false).merge({
+        roles: common_courses[course.id].map { |role| Enrollment.readable_type(role) }
+      })
+    end
+
+    common_groups = groups.map do |group|
+      group_json(group, current_user, session, include: ['html_url']).merge({
+        # in the future groups will have more roles and we'll need soemthing similar to
+        # the roles.map above in courses
+        roles: [t('#group.memeber', "Member")]
+      })
+    end
+
+    common_courses + common_groups
   end
 
   def self.batch_jobs_in_actions(opts = {})
     batch_opts = opts.delete(:batch)
-    around_filter(opts) do |controller, action|
+    around_action(opts) do |controller, action|
       Delayed::Batch.serial_batch(batch_opts || {}) do
         action.call
       end
@@ -1957,16 +2092,20 @@ class ApplicationController < ActionController::Base
     end
 
     if @page
-      hash[:WIKI_PAGE] = wiki_page_json(@page, @current_user, session, true, :deep_check_if_needed => true)
-      hash[:WIKI_PAGE_REVISION] = (current_version = @page.versions.current) ? Api.stringify_json_id(current_version.number) : nil
+      if @context.wiki.grants_right?(@current_user, :manage)
+        mc_status = setup_master_course_restrictions(@page, @context)
+      end
+
+      hash[:WIKI_PAGE] = wiki_page_json(@page, @current_user, session, true, :deep_check_if_needed => true, :master_course_status => mc_status)
+      hash[:WIKI_PAGE_REVISION] = (current_version = @page.versions.current) ? StringifyIds.stringify_id(current_version.number) : nil
       hash[:WIKI_PAGE_SHOW_PATH] = named_context_url(@context, :context_wiki_page_path, @page)
       hash[:WIKI_PAGE_EDIT_PATH] = named_context_url(@context, :edit_context_wiki_page_path, @page)
       hash[:WIKI_PAGE_HISTORY_PATH] = named_context_url(@context, :context_wiki_page_revisions_path, @page)
+    end
 
-      if @context.is_a?(Course) && @context.grants_right?(@current_user, :read)
-        hash[:COURSE_ID] = @context.id
-        hash[:MODULES_PATH] = polymorphic_path([@context, :context_modules])
-      end
+    if @context.is_a?(Course) && @context.grants_right?(@current_user, session, :read)
+      hash[:COURSE_ID] = @context.id.to_s
+      hash[:MODULES_PATH] = polymorphic_path([@context, :context_modules])
     end
 
     js_env hash
@@ -1977,6 +2116,7 @@ class ApplicationController < ActionController::Base
     permissions = @context.rights_status(@current_user, *rights)
     permissions[:manage_course] = permissions[:manage]
     permissions[:manage] = permissions[:manage_assignments]
+
     js_env({
       :URLS => {
         :new_assignment_url => new_polymorphic_url([@context, :assignment]),
@@ -1988,15 +2128,18 @@ class ApplicationController < ActionController::Base
       },
       :POST_TO_SIS => Assignment.sis_grade_export_enabled?(@context),
       :PERMISSIONS => permissions,
-      :MULTIPLE_GRADING_PERIODS_ENABLED => @context.feature_enabled?(:multiple_grading_periods),
+      :HAS_GRADING_PERIODS => @context.grading_periods?,
       :VALID_DATE_RANGE => CourseDateRange.new(@context),
       :assignment_menu_tools => external_tools_display_hashes(:assignment_menu),
       :discussion_topic_menu_tools => external_tools_display_hashes(:discussion_topic_menu),
       :quiz_menu_tools => external_tools_display_hashes(:quiz_menu),
       :current_user_has_been_observer_in_this_course => @context.user_has_been_observer?(@current_user),
-      :observed_student_ids => ObserverEnrollment.observed_student_ids(@context, @current_user)
+      :observed_student_ids => ObserverEnrollment.observed_student_ids(@context, @current_user),
     })
-    if @context.feature_enabled?(:multiple_grading_periods)
+
+    conditional_release_js_env(includes: :active_rules)
+
+    if @context.grading_periods?
       js_env(:active_grading_periods => GradingPeriod.json_for(@context, @current_user))
     end
   end
@@ -2038,15 +2181,6 @@ class ApplicationController < ActionController::Base
     @user_has_google_drive ||= google_drive_connection.authorized?
   end
 
-  def twitter_connection
-    if @current_user
-      service = @current_user.user_services.where(service: "twitter").first
-      return Twitter::Connection.new(service.token, service.secret)
-    else
-      return Twitter::Connection.new(session[:oauth_twitter_access_token_token], session[:oauth_twitter_access_token_secret])
-    end
-  end
-
   def self.region
     nil
   end
@@ -2063,13 +2197,21 @@ class ApplicationController < ActionController::Base
 
   def setup_live_events_context
     ctx = {}
-    ctx[:root_account_id] = @domain_root_account.global_id if @domain_root_account
-    ctx[:root_account_lti_guid] = @domain_root_account.lti_guid if @domain_root_account
+
+    if @domain_root_account
+      ctx[:root_account_uuid] = @domain_root_account.uuid
+      ctx[:root_account_id] = @domain_root_account.global_id
+      ctx[:root_account_lti_guid] = @domain_root_account.lti_guid
+    end
+
+    if @current_pseudonym
+      ctx[:user_login] = @current_pseudonym.unique_id
+      ctx[:user_account_id] = @current_pseudonym.global_account_id
+      ctx[:user_sis_id] = @current_pseudonym.sis_user_id
+    end
+
     ctx[:user_id] = @current_user.global_id if @current_user
     ctx[:real_user_id] = @real_current_user.global_id if @real_current_user
-    ctx[:user_login] = @current_pseudonym.unique_id if @current_pseudonym
-    ctx[:hostname] = request.host
-    ctx[:user_agent] = request.headers['User-Agent']
     ctx[:context_type] = @context.class.to_s if @context
     ctx[:context_id] = @context.global_id if @context
     if @context_membership
@@ -2088,6 +2230,11 @@ class ApplicationController < ActionController::Base
       ctx[:session_id] = tctx[:session_id]
     end
 
+    ctx[:hostname] = request.host
+    ctx[:user_agent] = request.headers['User-Agent']
+    ctx[:producer] = 'canvas'
+
+    StringifyIds.recursively_stringify_ids(ctx)
     LiveEvents.set_context(ctx)
   end
 

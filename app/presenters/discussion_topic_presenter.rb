@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 class DiscussionTopicPresenter
   attr_reader :topic, :assignment, :user, :override_list
 
@@ -76,9 +93,7 @@ class DiscussionTopicPresenter
   #
   # Returns a boolean.
   def comments_disabled?
-    !!((topic.is_a?(Announcement) &&
-      topic.context.is_a?(Course) &&
-      topic.context.settings[:lock_all_announcements]))
+    topic.comments_disabled?
   end
 
   # Public: Determine if the discussion's context has a large roster flag set.
@@ -98,4 +113,27 @@ class DiscussionTopicPresenter
   def allows_speed_grader?
     !large_roster? && topic.assignment.published?
   end
+
+  def author_link_attrs
+    attrs = {
+      class: "author",
+      title: I18n.t("Author's Name"),
+    }
+
+    if topic.context.is_a?(Course)
+      student_enrollment = topic.user.enrollments.active.where(
+        course_id: topic.context.id,
+        type: "StudentEnrollment",
+      ).first
+
+      if student_enrollment
+        attrs[:"data-student_id"] = student_enrollment.user_id
+        attrs[:"data-course_id"] = student_enrollment.course_id
+        attrs[:class] << " student_context_card_trigger"
+      end
+    end
+
+    attrs
+  end
+
 end

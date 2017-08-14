@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 # This is what is in charge of regenerating all of the child
 # brand configs when an account saves theirs in the theme editor
 class BrandConfigRegenerator
@@ -19,8 +36,21 @@ class BrandConfigRegenerator
   def things_that_need_to_be_regenerated
     @things_that_need_to_be_regenerated ||= begin
       all_subaccounts = @account.sub_accounts_recursive(100000, nil)
-      branded_subaccounts = all_subaccounts.select(&:brand_config)
-      branded_subaccounts + SharedBrandConfig.where(account_id: all_subaccounts)
+      result = all_subaccounts.select(&:brand_config_md5)
+      result.concat(SharedBrandConfig.where(account_id: all_subaccounts))
+      if @account.site_admin?
+        # note: this is only root accounts on the same shard as site admin
+        @account.shard.activate do
+          root_scope = Account.root_accounts.active.where.not(id: @account)
+          result.concat(root_scope.select(&:brand_config_md5))
+          result.concat(SharedBrandConfig.where(account_id: root_scope))
+
+          sub_scope = Account.active.where(root_account_id: root_scope)
+          result.concat(sub_scope.select(&:brand_config_md5))
+          result.concat(SharedBrandConfig.where(account_id: sub_scope))
+        end
+      end
+      result
     end.freeze
   end
 

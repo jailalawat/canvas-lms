@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module QuizzesCommon
 
   def create_quiz_with_due_date(opts={})
@@ -101,18 +118,13 @@ module QuizzesCommon
 
   def add_quiz_question(points)
     click_questions_tab
-    @points_total += points.to_i
-    @question_count += 1
     click_new_question_button
     wait_for_ajaximations
     question = fj('.question_form:visible')
     replace_content(question.find_element(:css, "input[name='question_points']"), points)
     submit_form(question)
     wait_for_ajaximations
-    questions = ffj(".question_holder:visible")
-    expect(questions.length).to eq @question_count
     click_settings_tab
-    expect(f(".points_possible").text).to eq @points_total.to_s
   end
 
   def quiz_with_multiple_type_questions(goto_edit=true)
@@ -211,14 +223,14 @@ module QuizzesCommon
     @quiz
   end
 
-  def quiz_with_new_questions(goto_edit=true)
+  def quiz_with_new_questions(goto_edit=true, *answers)
     @context = @course
     bank = @context.assessment_question_banks.create!(title: 'Test Bank')
     @quiz = quiz_model
     a = bank.assessment_questions.create!
     b = bank.assessment_questions.create!
 
-    answers = [ {id: 1}, {id: 2}, {id: 3} ]
+    answers = [ {id: 1}, {id: 2}, {id: 3} ] if answers.empty?
 
     @quest1 = @quiz.quiz_questions.create!(
       question_data: {
@@ -255,7 +267,7 @@ module QuizzesCommon
 
   def click_questions_tab
     wait_for_ajaximations
-    fj('#quiz_tabs ul:first a:eq(1)').click
+    f("a[href='#questions_tab']").click
   end
 
   # Locate an anchor using its text() node value. The anchor is expected to
@@ -305,9 +317,22 @@ module QuizzesCommon
   end
 
   def start_quiz_question
-    get "/courses/#{@course.id}/quizzes"
-    expect_new_page_load { f('.new-quiz-link').click }
+    @context = @course
+    quiz_model
+    open_quiz_edit_form
     click_questions_tab
+    click_new_question_button
+    wait_for_ajaximations
+    Quizzes::Quiz.last
+  end
+
+  def rcs_start_quiz_question
+    @context = @course
+    quiz_model
+    open_quiz_edit_form
+    wait_for_ajaximations
+    click_questions_tab
+    wait_for_ajaximations
     click_new_question_button
     wait_for_ajaximations
     Quizzes::Quiz.last
@@ -320,7 +345,6 @@ module QuizzesCommon
 
   def answer_question(question_answer_id)
     fj("input[type=radio][value=#{question_answer_id}]").click
-    wait_for_js
   end
 
   def take_quiz
@@ -353,11 +377,11 @@ module QuizzesCommon
     end
 
     if access_code.nil?
-      expect_new_page_load { f('#take_quiz_link').click }
+      wait_for_new_page_load { f('#take_quiz_link').click }
     else
       f('#quiz_access_code').send_keys(access_code)
-      expect_new_page_load { fj('.btn', '#main').click }
-    end
+      wait_for_new_page_load { fj('.btn', '#main').click }
+    end or raise "unable to start quiz"
 
     wait_for_quiz_to_begin
   end
@@ -368,7 +392,9 @@ module QuizzesCommon
   end
 
   def submit_quiz
-    expect_new_page_load(true) { f('#submit_quiz_button').click }
+    f('#submit_quiz_button').click
+    accept_alert if alert_present?
+    wait_for_ajax_requests
 
     expect(f('.quiz-submission .quiz_score .score_value')).to be_truthy
   end
@@ -410,12 +436,10 @@ module QuizzesCommon
      case quiz.stored_questions[o][:question_type]
      when "multiple_choice_question"
        fj("input[type=radio][name= 'question_#{question}']").click
-       wait_for_js
      when "essay_question"
        type_in_tiny ".question:visible textarea[name = 'question_#{question}']", 'This is an essay question.'
      when "numerical_question"
        fj("input[type=text][name= 'question_#{question}']").send_keys('10')
-       wait_for_js
      end
     end
 
@@ -448,9 +472,6 @@ module QuizzesCommon
   end
 
   def select_different_correct_answer(index_of_new_correct_answer)
-    # wait for success flash_message to go away
-    expect_no_flash_message :success
-
     new_correct_answer = fj('.select_answer_link', question_answers[index_of_new_correct_answer])
     hover(new_correct_answer)
     new_correct_answer.click
@@ -683,16 +704,15 @@ module QuizzesCommon
     course = opts.fetch(:course, @course)
     @quiz = course.quizzes.create
 
-    answers = [
-      { weight: 100, answer_text: 'A', answer_comments: '', id: 1490 },
-      { weight: 0, answer_text: 'B', answer_comments: '', id: 1020 },
-      { weight: 0, answer_text: 'C', answer_comments: '', id: 7051 }
-    ]
     data = {
       question_name: 'Question 1',
       points_possible: 1,
       question_text: 'This is a multiple choice question',
-      answers: answers,
+      answers: [
+        { weight: 100, answer_text: 'A', answer_comments: '', id: 1490 },
+        { weight: 0, answer_text: 'B', answer_comments: '', id: 1020 },
+        { weight: 0, answer_text: 'C', answer_comments: '', id: 7051 }
+      ],
       question_type: 'multiple_choice_question'
     }
 
@@ -710,7 +730,7 @@ module QuizzesCommon
   end
 
   def seed_quiz_with_submission(num=1, opts={})
-    quiz_data = [
+    quiz_data = opts[:question_data] || [
       {
         question_name: 'Multiple Choice',
         points_possible: 10,
@@ -742,7 +762,6 @@ module QuizzesCommon
     ]
 
     quiz = @course.quizzes.create title: 'Quiz Me!'
-
     num.times do
       quiz_data.each do |question|
         quiz.quiz_questions.create! question_data: question

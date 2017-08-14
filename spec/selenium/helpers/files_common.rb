@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 
 module FilesCommon
@@ -6,11 +23,12 @@ module FilesCommon
   # - fixture: location of the file to be uploaded
   # - context: course in which file would be uploaded
   # - name: file name
-  def add_file(fixture, context, name)
+  # - folder: course folder it should go under (defaults to root folder)
+  def add_file(fixture, context, name, folder = Folder.root_folders(context).first)
     context.attachments.create! do |attachment|
       attachment.uploaded_data = fixture
       attachment.filename = name
-      attachment.folder = Folder.root_folders(context).first
+      attachment.folder = folder
     end
   end
 
@@ -18,7 +36,7 @@ module FilesCommon
     ff('.al-trigger-gray')[row_selected].click
     fln("Rename").click
     expect(f(".ef-edit-name-cancel")).to be_displayed
-    file_name_textbox_el = f('.input-block-level')
+    file_name_textbox_el = f('.ef-edit-name-form__input')
     replace_content(file_name_textbox_el, file_name_new)
     file_name_textbox_el.send_keys(:return)
   end
@@ -42,8 +60,7 @@ module FilesCommon
       ff('.ef-item-row')[row_selected].click
       f('.btn-move').click
     end
-    wait_for_ajaximations
-    expect(f(".ReactModal__Header-Title h4").text).to eq "Where would you like to move #{file_name}?"
+    expect(f(".ReactModal__Header-Title h4")).to include_text "Where would you like to move #{file_name}?"
     if destination.present?
       folders = destination.split('/')
       folders.each do |folder|
@@ -59,7 +76,7 @@ module FilesCommon
 
   def move_multiple_using_toolbar(files = [])
     files.each do |file_name|
-      file = driver.find_element(xpath: "//span[contains(text(), '#{file_name}') and @class='media-body']")
+      file = driver.find_element(xpath: "//span[contains(text(), '#{file_name}') and @class='ef-name-col__text']")
                    .find_element(xpath: "../..")
       driver.action.key_down(:control).click(file).key_up(:control).perform
     end
@@ -138,14 +155,14 @@ module FilesCommon
 
   def add_folder(name = 'new folder')
     click_new_folder_button
-    new_folder = f("input.input-block-level")
+    new_folder = f("input[aria-label='Folder Name']")
     new_folder.send_keys(name)
     new_folder.send_keys(:return)
     wait_for_ajaximations
   end
 
   def click_new_folder_button
-    f(".btn-add-folder").click
+    f("button[aria-label='Add Folder']").click
     wait_for_ajaximations
   end
 
@@ -157,6 +174,7 @@ module FilesCommon
   end
 
   def all_files_folders
+    # TODO: switch to ff once specs stop using this to find non-existence of stuff
     driver.find_elements(:class, 'ef-item-row')
   end
 
@@ -164,6 +182,8 @@ module FilesCommon
     if insert_into == :quiz
       ff(".ui-tabs-anchor")[6].click
     else
+      file_tab = ff(".ui-tabs-anchor")[1]
+      expect(file_tab).to be_displayed
       ff(".ui-tabs-anchor")[1].click
     end
     ff(".name.text")[0].click
@@ -176,7 +196,7 @@ module FilesCommon
       ff(".name.text")[3].click
       ff(".btn-primary")[3].click
     elsif insert_into == :discussion
-      ff(".btn-primary")[2].click
+      f("#edit_discussion_form_buttons .btn-primary").click
     else
       f(".btn-primary").click
     end

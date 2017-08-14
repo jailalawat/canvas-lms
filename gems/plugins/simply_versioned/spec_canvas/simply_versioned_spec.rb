@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__)+'/../../../../spec/apis/api_spec_helper')
 
 describe 'simply_versioned' do
@@ -127,6 +144,61 @@ describe 'simply_versioned' do
     it "should be false for the #model of any version" do
       expect(@woozel.versions.current.model).not_to be_current_version
       expect(@woozel.versions.map { |v| v.model.current_version? }).to eq [false, false]
+    end
+  end
+
+  describe "#versions.current_version" do
+    before do
+      @woozel = Woozel.new name: 'test'
+    end
+
+    it "should return nil when no current version is available" do
+      expect(@woozel.versions.current_version).to be_nil
+
+      @woozel.with_versioning(explicit: true, &:save!)
+      expect(@woozel.versions.current_version).not_to be_nil
+    end
+
+    it "should return the latest version" do
+      @woozel.with_versioning(explicit: true, &:save!)
+      @woozel.name = 'testier'
+      @woozel.with_versioning(explicit: true, &:save!)
+      expect(@woozel.versions.current_version.model.name).to eq 'testier'
+    end
+  end
+
+  describe "#versions.previous_version" do
+    before do
+      @woozel = Woozel.new name: 'test'
+    end
+
+    it "should return nil when no previous version is available" do
+      expect(@woozel.versions.previous_version).to be_nil
+
+      @woozel.with_versioning(explicit: true, &:save!)
+      expect(@woozel.versions.previous_version).to be_nil
+
+      @woozel.with_versioning(explicit: true, &:save!)
+      expect(@woozel.versions.previous_version).not_to be_nil
+    end
+
+    context "with previous versions" do
+      before do
+        @woozel.with_versioning(explicit: true, &:save!)
+        @woozel.name = 'testier'
+        @woozel.with_versioning(explicit: true, &:save!)
+        @woozel.name = 'testiest'
+        @woozel.with_versioning(explicit: true, &:save!)
+      end
+
+      it "should return the previous version" do
+        expect(@woozel.versions.previous_version.model.name).to eq 'testier'
+      end
+
+      it "should return the previous version for a specific number" do
+        expect(@woozel.versions.previous_version(1)).to be_nil
+        expect(@woozel.versions.previous_version(2).model.name).to eq 'test'
+      end
     end
   end
 

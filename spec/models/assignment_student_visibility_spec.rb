@@ -1,9 +1,29 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../spec_helper'
+require_relative '../sharding_spec_helper'
 
 # need tests for:
 # overrides that arent date related
 
 describe "differentiated_assignments" do
+  specs_require_sharding
+
   def course_with_differentiated_assignments_enabled
     @course = Course.create!
     @user = user_model
@@ -31,10 +51,6 @@ describe "differentiated_assignments" do
 
   def assignment_with_false_only_visible_to_overrides
     make_assignment({date: Time.now, ovto: false})
-  end
-
-  def assignment_with_null_only_visible_to_overrides
-    make_assignment({date: Time.now, ovto: nil})
   end
 
   def group_assignment_with_true_only_visible_to_overrides(opts={})
@@ -126,6 +142,7 @@ describe "differentiated_assignments" do
     visible_assignment_ids = AssignmentStudentVisibility.where(user_id: @user.id, course_id: @course.id).pluck(:assignment_id)
     expect(visible_assignment_ids.map(&:to_i).include?(@assignment.id)).to be_truthy
     expect(AssignmentStudentVisibility.visible_assignment_ids_in_course_by_user(user_id: [@user.id], course_id: [@course.id])[@user.id]).to include(@assignment.id)
+    expect(AssignmentStudentVisibility.visible_assignment_ids_in_course_by_user(user_id: [@user.id], course_id: [@course.id], use_global_id: true)[Shard.global_id_for(@user.id)]).to include(@assignment.id)
   end
 
   context "table" do
@@ -205,26 +222,28 @@ describe "differentiated_assignments" do
 
         context "user in group with override who then changes groups" do
           before do
-            enroll_user_in_group(@group_foo, {user: @user})
+            @student = @user
+            teacher_in_course(course: @course)
+            enroll_user_in_group(@group_foo, {user: @student})
           end
           it "should keep the assignment visible if there is a grade" do
-            @assignment.grade_student(@user, {grade: 10})
-            @user.group_memberships.each(&:destroy!)
-            enroll_user_in_group(@group_bar, {user: @user})
+            @assignment.grade_student(@student, grade: 10, grader: @teacher)
+            @student.group_memberships.each(&:destroy!)
+            enroll_user_in_group(@group_bar, {user: @student})
             ensure_user_sees_assignment
           end
 
           it "should not keep the assignment visible if there is no grade" do
-            @assignment.grade_student(@user, {grade: nil})
-            @user.group_memberships.each(&:destroy!)
-            enroll_user_in_group(@group_bar, {user: @user})
+            @assignment.grade_student(@student, grade: nil, grader: @teacher)
+            @student.group_memberships.each(&:destroy!)
+            enroll_user_in_group(@group_bar, {user: @student})
             ensure_user_does_not_see_assignment
           end
 
           it "should keep the assignment visible if the grade is zero" do
-            @assignment.grade_student(@user, {grade: 0})
-            @user.group_memberships.each(&:destroy!)
-            enroll_user_in_group(@group_bar, {user: @user})
+            @assignment.grade_student(@student, grade: 0, grader: @teacher)
+            @student.group_memberships.each(&:destroy!)
+            enroll_user_in_group(@group_bar, {user: @student})
             ensure_user_sees_assignment
           end
         end
@@ -273,23 +292,30 @@ describe "differentiated_assignments" do
           give_section_due_date(@assignment, @section_foo)
         end
         context "user in section with override who then changes sections" do
-          before{enroller_user_in_section(@section_foo)}
+          before do
+            teacher_in_course(course: @course)
+            enroller_user_in_section(@section_foo)
+          end
+
           it "should keep the assignment visible if there is a grade" do
-            @assignment.grade_student(@user, {grade: 10})
+            @assignment.grade_student(@user, grade: 10, grader: @teacher)
+            Score.where(enrollment_id: @user.enrollments).delete_all
             @user.enrollments.each(&:destroy_permanently!)
             enroller_user_in_section(@section_bar, {user: @user})
             ensure_user_sees_assignment
           end
 
           it "should not keep the assignment visible if there is no grade" do
-            @assignment.grade_student(@user, {grade: nil})
+            @assignment.grade_student(@user, grade: nil, grader: @teacher)
+            Score.where(enrollment_id: @user.enrollments).delete_all
             @user.enrollments.each(&:destroy_permanently!)
             enroller_user_in_section(@section_bar, {user: @user})
             ensure_user_does_not_see_assignment
           end
 
           it "should keep the assignment visible if the grade is zero" do
-            @assignment.grade_student(@user, {grade: 0})
+            @assignment.grade_student(@user, grade: 0, grader: @teacher)
+            Score.where(enrollment_id: @user.enrollments).delete_all
             @user.enrollments.each(&:destroy_permanently!)
             enroller_user_in_section(@section_bar, {user: @user})
             ensure_user_sees_assignment
@@ -356,37 +382,6 @@ describe "differentiated_assignments" do
           it "should not show deleted assignments" do
             @assignment.destroy
             ensure_user_does_not_see_assignment
-          end
-        end
-        context "user in section with override" do
-          before{enroller_user_in_section(@section_foo)}
-          it "should show the assignment to the user" do
-            ensure_user_sees_assignment
-          end
-        end
-        context "user in section with no override" do
-          before{enroller_user_in_section(@section_bar)}
-          it "should show the assignment to the user" do
-            ensure_user_sees_assignment
-          end
-        end
-        context "user in section with override and one without override" do
-          before do
-            enroller_user_in_both_sections
-          end
-          it "should show the assignment to the user" do
-            ensure_user_sees_assignment
-          end
-        end
-      end
-      context "assignment with null only_visible_to_overrides" do
-        before do
-          assignment_with_null_only_visible_to_overrides
-          give_section_due_date(@assignment, @section_foo)
-        end
-        context "user in default section" do
-          it "should show the assignment to the user" do
-            ensure_user_sees_assignment
           end
         end
         context "user in section with override" do

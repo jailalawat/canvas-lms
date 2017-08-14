@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,7 +23,7 @@ describe ImportedHtmlConverter do
 
   context ".convert" do
     before :once do
-      course
+      course_factory
       @path = "/courses/#{@course.id}/"
       @migration = @course.content_migrations.create!
       @converter = @migration.html_converter

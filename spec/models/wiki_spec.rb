@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,7 +20,7 @@ require File.expand_path(File.dirname(__FILE__) + '/../sharding_spec_helper.rb')
 
 describe Wiki do
   before :once do
-    course
+    course_factory
     @wiki = @course.wiki
   end
 
@@ -73,13 +73,20 @@ describe Wiki do
   context 'set policy' do
     before :once do
       @course.offer!
-      user :active_all => true
+      user_factory :active_all => true
     end
 
     it 'should give read rights to public courses' do
       @course.is_public = true
       @course.save!
       expect(@course.wiki.grants_right?(@user, :read)).to be_truthy
+    end
+
+    it 'should not give read rights to unpublished public courses' do
+      @course.workflow_state = 'claimed'
+      @course.is_public = true
+      @course.save!
+      expect(@course.wiki.grants_right?(@user, :read)).to be_falsey
     end
 
     it 'should give manage rights to teachers' do

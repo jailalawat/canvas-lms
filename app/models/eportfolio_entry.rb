@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,7 +20,6 @@ require 'atom'
 require 'sanitize'
 
 class EportfolioEntry < ActiveRecord::Base
-  attr_accessible :eportfolio, :eportfolio_category, :name, :allow_comments, :show_comments
   attr_readonly :eportfolio_id, :eportfolio_category_id
   belongs_to :eportfolio, touch: true
   belongs_to :eportfolio_category

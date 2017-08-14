@@ -22,7 +22,7 @@ describe Quizzes::QuizQuestionsController, type: :request do
 
   context 'as a teacher' do
     before :once do
-      @course = course
+      @course = course_factory
       teacher_in_course active_all: true
       @quiz = @course.quizzes.create!(:title => "A Sample Quiz")
     end
@@ -184,14 +184,11 @@ describe Quizzes::QuizQuestionsController, type: :request do
       end
 
       context "non-existent question" do
-        before do
-          @json = api_call(:get, "/api/v1/courses/#{@course.id}/quizzes/#{@quiz.id}/questions/9034831",
-                           {:controller => "quizzes/quiz_questions", :action => "show", :format => "json", :course_id => @course.id.to_s, :quiz_id => @quiz.id.to_s, :id => "9034831"},
-                             {}, {}, {:expected_status => 404})
-        end
-
         it "should return a not found error message" do
-          expect(@json.inspect).to include "does not exist"
+          json = api_call(:get, "/api/v1/courses/#{@course.id}/quizzes/#{@quiz.id}/questions/9034831",
+                          {:controller => "quizzes/quiz_questions", :action => "show", :format => "json", :course_id => @course.id.to_s, :quiz_id => @quiz.id.to_s, :id => "9034831"},
+                            {}, {}, {:expected_status => 404})
+          expect(json.inspect).to include "does not exist"
         end
       end
     end
@@ -231,7 +228,7 @@ describe Quizzes::QuizQuestionsController, type: :request do
 
     context 'whom has started a quiz' do
       before :once do
-        @quiz.generate_submission(@student)
+        @submission = @quiz.generate_submission(@student)
       end
 
       describe 'GET /courses/:course_id/quizzes/:quiz_id/questions (index)' do
@@ -240,6 +237,15 @@ describe Quizzes::QuizQuestionsController, type: :request do
                               :controller => "quizzes/quiz_questions", :action => "index", :format => "json",
                               :course_id => @course.id.to_s, :quiz_id => @quiz.id.to_s)
           assert_status(401)
+        end
+
+        it 'should be authorized with quiz_submission_id & attempt' do
+          url = "/api/v1/courses/#{@course.id}/quizzes/#{@quiz.id}/questions?quiz_submission_id=#{@submission.id}&quiz_submission_attempt=1"
+          raw_api_call(:get, url,
+                              :controller => "quizzes/quiz_questions", :action => "index", :format => "json",
+                              :course_id => @course.id.to_s, :quiz_id => @quiz.id.to_s,
+                              :quiz_submission_id => @submission.id, :quiz_submission_attempt => 1)
+          assert_status(200)
         end
       end
 

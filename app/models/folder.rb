@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -24,7 +24,6 @@ class Folder < ActiveRecord::Base
     best_unicode_collation_key(col)
   end
   include Workflow
-  attr_accessible :name, :full_name, :parent_folder, :workflow_state, :lock_at, :unlock_at, :locked, :hidden, :context, :position
 
   ROOT_FOLDER_NAME = "course files"
   PROFILE_PICS_FOLDER_NAME = "profile pictures"
@@ -369,20 +368,6 @@ class Folder < ActiveRecord::Base
     folder
   end
 
-  def self.find_folder(context, folder_id)
-    if folder_id
-      current_folder = context.folders.active.find(folder_id)
-    else
-      # TODO i18n
-      if context.is_a? Course
-        t :course_content_folder_name, 'course content'
-        current_folder = context.folders.active.where(full_name: "course content").first
-      elsif @context.is_a? User
-        current_folder = context.folders.active.where(full_name: MY_FILES_FOLDER_NAME).first
-      end
-    end
-  end
-
   def self.find_attachment_in_context_with_path(context, path)
     components = path.split('/')
     component = components.shift
@@ -473,9 +458,10 @@ class Folder < ActiveRecord::Base
 
   # find all unlocked/visible folders that can be reached by following unlocked/visible folders from the root
   def self.all_visible_folder_ids(context)
-    folder_tree = context.active_folders.not_hidden.not_locked.select([:id, :parent_folder_id]).inject({}) do |folders, item|
-      folders[item.parent_folder_id] ||= []
-      folders[item.parent_folder_id] << item.id
+    folder_tree = context.active_folders.not_hidden.not_locked.pluck(:id, :parent_folder_id).inject({}) do |folders, row|
+      id, parent_folder_id = row
+      folders[parent_folder_id] ||= []
+      folders[parent_folder_id] << id
       folders
     end
     visible_ids = []

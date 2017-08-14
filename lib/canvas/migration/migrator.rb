@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -33,7 +33,10 @@ class Migrator
     @course = {:file_map=>{}, :wikis=>[]}
     @course[:name] = @settings[:course_name]
 
-    unless @settings[:no_archive_file]
+    if @settings[:unzipped_file_path]
+      @unzipped = true
+      @unzipped_file_path = @settings[:unzipped_file_path]
+    elsif !@settings[:no_archive_file]
       @archive = @settings[:archive] || Canvas::Migration::Archive.new(@settings)
       @archive_file = @archive.file
       @unzipped_file_path = @archive.unzipped_file_path
@@ -50,6 +53,7 @@ class Migrator
   end
 
   def unzip_archive
+    return if @unzipped
     @archive.unzip_archive
     @archive.warnings.each do |warn|
       add_warning(warn)
@@ -75,7 +79,7 @@ class Migrator
       FileUtils.copy(@archive_file.path, full_path)
     end
   end
-  
+
   def package_course_files(base_dir=nil)
     base_dir ||= @unzipped_file_path
     zip_file = File.join(@base_export_dir, MigratorHelper::ALL_FILES_ZIP)

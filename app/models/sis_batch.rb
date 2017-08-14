@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -34,8 +34,6 @@ class SisBatch < ActiveRecord::Base
   validates_length_of :diffing_data_set_identifier, maximum: 128
 
   attr_accessor :zip_path
-  attr_accessible :batch_mode, :batch_mode_term
-
   def self.max_attempts
     5
   end
@@ -91,6 +89,7 @@ class SisBatch < ActiveRecord::Base
     state :cleanup_batch
     state :imported
     state :imported_with_messages
+    state :aborted
     state :failed
     state :failed_with_messages
   end
@@ -107,6 +106,8 @@ class SisBatch < ActiveRecord::Base
       end
     end
   end
+
+  class Aborted < RuntimeError; end
 
   def add_errors(messages)
     self.processing_errors = (self.processing_errors || []) + messages
@@ -149,22 +150,32 @@ class SisBatch < ActiveRecord::Base
   # once no SisBatch#process_without_send_later jobs are being created anymore, we
   # can rename this to something more sensible.
   def process_without_send_later
-    self.options ||= {}
-    if self.workflow_state == 'created'
-      self.workflow_state = :importing
-      self.progress = 0
-      self.started_at = Time.now.utc
-      self.save
-
-      import_scheme = SisBatch.valid_import_types[self.data[:import_type]]
-      if import_scheme.nil?
-        self.data[:error_message] = t 'errors.unrecorgnized_type', "Unrecognized import type"
-        self.workflow_state = :failed
+    self.class.transaction do
+      self.options ||= {}
+      if self.workflow_state == 'aborted'
+        self.progress = 100
+        self.save
+        return
+      end
+      if self.workflow_state == 'created'
+        self.workflow_state = :importing
+        self.progress = 0
+        self.started_at = Time.now.utc
         self.save
       else
-        import_scheme[:callback].call(self)
+        return
       end
     end
+
+    import_scheme = SisBatch.valid_import_types[self.data[:import_type]]
+    if import_scheme.nil?
+      self.data[:error_message] = t 'errors.unrecorgnized_type', "Unrecognized import type"
+      self.workflow_state = :failed
+      self.save
+      return
+    end
+
+    import_scheme[:callback].call(self)
   rescue => e
     self.data[:error_message] = e.to_s
     self.data[:stack_trace] = "#{e}\n#{e.backtrace.join("\n")}"
@@ -172,8 +183,22 @@ class SisBatch < ActiveRecord::Base
     self.save
   end
 
+  def abort_batch
+    SisBatch.not_completed.where(id: self).update_all(workflow_state: 'aborted')
+  end
+
+  def self.abort_all_pending_for_account(account)
+    self.transaction do
+      account.sis_batches.not_started.lock(:no_key_update).order(:id).find_in_batches do |batch|
+        SisBatch.where(id: batch).update_all(workflow_state: 'aborted', progress: 100)
+      end
+    end
+  end
+
+  scope :not_started, -> { where(workflow_state: ['initializing', 'created']) }
   scope :needs_processing, -> { where(:workflow_state => 'created').order(:created_at) }
-  scope :importing, -> { where(:workflow_state => 'importing') }
+  scope :importing, -> { where(workflow_state: ['importing', 'cleanup_batch']) }
+  scope :not_completed, -> { where(workflow_state: %w[initializing created importing cleanup_batch]) }
   scope :succeeded, -> { where(:workflow_state => %w[imported imported_with_messages]) }
 
   def self.process_all_for_account(account)
@@ -195,7 +220,10 @@ class SisBatch < ActiveRecord::Base
   def fast_update_progress(val)
     return true if val == self.progress
     self.progress = val
-    SisBatch.where(id: self).update_all(progress: val)
+    state = SisBatch.connection.select_value(<<-SQL)
+      UPDATE #{SisBatch.quoted_table_name} SET progress=#{val} WHERE id=#{self.id} RETURNING workflow_state
+    SQL
+    raise SisBatch::Aborted if state == 'aborted'
   end
 
   def importing?
@@ -249,6 +277,7 @@ class SisBatch < ActiveRecord::Base
   def finish(import_finished)
     @data_file.close if @data_file
     @data_file = nil
+    return self if workflow_state == 'aborted'
     if import_finished
       remove_previous_imports if self.batch_mode?
       self.workflow_state = :imported
@@ -264,7 +293,7 @@ class SisBatch < ActiveRecord::Base
 
   def non_batch_courses_scope
     if data[:supplied_batches].include?(:course)
-      scope = account.all_courses.active.where.not(sis_batch_id: nil).where.not(sis_batch_id: self)
+      scope = account.all_courses.active.where.not(sis_batch_id: nil, sis_source_id: nil).where.not(sis_batch_id: self)
       scope.where(enrollment_term_id: self.batch_mode_term)
     end
   end
@@ -276,6 +305,9 @@ class SisBatch < ActiveRecord::Base
       course.clear_sis_stickiness(:workflow_state)
       course.skip_broadcasts = true
       course.destroy
+
+      Auditors::Course.record_deleted(course, self.user, :source => :sis, :sis_batch => self)
+
       current_row += 1
       self.fast_update_progress(current_row.to_f/total_rows * 100)
     end
@@ -286,7 +318,7 @@ class SisBatch < ActiveRecord::Base
   def non_batch_sections_scope
     if data[:supplied_batches].include?(:section)
       scope = self.account.course_sections.active.where(courses: {enrollment_term_id: self.batch_mode_term})
-      scope = scope.where.not(sis_batch_id: nil).where.not(sis_batch_id: self)
+      scope = scope.where.not(sis_batch_id: nil, sis_source_id: nil).where.not(sis_batch_id: self)
       scope.joins("INNER JOIN #{Course.quoted_table_name} ON courses.id=COALESCE(nonxlist_course_id, course_id)").readonly(false)
     end
   end
@@ -341,9 +373,13 @@ class SisBatch < ActiveRecord::Base
     count += sections.count if sections
     count += enrollments.count if enrollments
 
-    row = remove_non_batch_courses(courses, count) if courses
-    row = remove_non_batch_sections(sections, count, row) if sections
-    remove_non_batch_enrollments(enrollments, count, row) if enrollments
+    begin
+      row = remove_non_batch_courses(courses, count) if courses
+      row = remove_non_batch_sections(sections, count, row) if sections
+      remove_non_batch_enrollments(enrollments, count, row) if enrollments
+    rescue SisBatch::Aborted
+      return self
+    end
   end
 
   def as_json(options={})

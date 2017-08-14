@@ -10,15 +10,15 @@ describe "users" do
       user_session(admin)
 
       @user = User.create!
-      course.enroll_student(@user)
+      course_factory.enroll_student(@user)
 
       get "/users/#{@user.id}"
       pseudonym_form = f('#edit_pseudonym_form')
       f(".add_pseudonym_link").click
       wait_for_ajaximations
       pseudonym_form.find_element(:css, "#pseudonym_unique_id").send_keys('new_user')
-      pseudonym_form.find_element(:css, "#pseudonym_password").send_keys('qwerty1')
-      pseudonym_form.find_element(:css, "#pseudonym_password_confirmation").send_keys('qwerty1')
+      pseudonym_form.find_element(:css, "#pseudonym_password").send_keys('qwertyuiop')
+      pseudonym_form.find_element(:css, "#pseudonym_password_confirmation").send_keys('qwertyuiop')
       submit_form(pseudonym_form)
       wait_for_ajaximations
 
@@ -26,7 +26,7 @@ describe "users" do
       expect(new_login).not_to be_nil
       expect(new_login.find_element(:css, '.account_name').text()).not_to be_blank
       pseudonym = Pseudonym.by_unique_id('new_user').first
-      expect(pseudonym.valid_password?('qwerty1')).to be_truthy
+      expect(pseudonym.valid_password?('qwertyuiop')).to be_truthy
     end
   end
 
@@ -52,7 +52,7 @@ describe "users" do
     it "should validate page view with a participation" do
       page_view(:user => @student, :course => @course, :participated => true)
       get "/users/#{@student.id}"
-      expect(f("#page_view_results img")).to have_attribute(:src, '/images/checked.png')
+      expect(f("#page_view_results .icon-check")).to be_displayed
     end
 
     it "should validate a page view url" do
@@ -157,7 +157,7 @@ describe "users" do
       wait_for_ajaximations
       expect_new_page_load { f('.button-secondary').click }
       wait_for_ajaximations
-      expect(f(ENV['CANVAS_FORCE_USE_NEW_STYLES'] ? '#global_nav_courses_link' : '#courses_menu_item')).to be_displayed
+      expect(f('#global_nav_courses_link')).to be_displayed
       expect(@student_1.workflow_state).to eq 'registered'
       expect(@student_2.workflow_state).to eq 'registered'
     end
@@ -168,7 +168,7 @@ describe "users" do
       f('#manual_user_id').send_keys(@student_1.id)
       expect_new_page_load { f('button[type="submit"]').click }
       wait_for_ajaximations
-      expect_flash_message :error, /You can't merge an account with itself./
+      expect_flash_message :error, "You can't merge an account with itself."
     end
 
     it "should show an error if invalid text is entered in the id box" do
@@ -177,7 +177,7 @@ describe "users" do
       f('#manual_user_id').send_keys("azxcvbytre34567uijmm23456yhj")
       expect_new_page_load { f('button[type="submit"]').click }
       wait_for_ajaximations
-      expect_flash_message :error, /No active user with that ID was found./
+      expect_flash_message :error, "No active user with that ID was found."
     end
 
     it "should show an error if the user id doesnt exist" do
@@ -185,7 +185,7 @@ describe "users" do
       expect_no_flash_message :error
       f('#manual_user_id').send_keys(1234567809)
       expect_new_page_load { f('button[type="submit"]').click }
-      expect_flash_message :error, /No active user with that ID was found./
+      expect_flash_message :error, "No active user with that ID was found."
     end
   end
 
@@ -239,7 +239,7 @@ describe "users" do
 
     it "should register a student with a join code" do
       Account.default.allow_self_enrollment!
-      course(:active_all => true)
+      course_factory(active_all: true)
       @course.update_attribute(:self_enrollment, true)
 
       get '/register'
@@ -289,7 +289,7 @@ describe "users" do
     end
 
     it "should register an observer" do
-      user_with_pseudonym(:active_all => true, :password => 'lolwut')
+      user_with_pseudonym(:active_all => true, :password => 'lolwut12')
 
       get '/register'
       f('#signup_parent').click
@@ -298,7 +298,7 @@ describe "users" do
       f('#parent_name').send_keys('parent!')
       f('#parent_email').send_keys('parent@example.com')
       f('#parent_child_username').send_keys(@pseudonym.unique_id)
-      f('#parent_child_password').send_keys('lolwut')
+      f('#parent_child_password').send_keys('lolwut12')
       f('input[name="user[terms_of_use]"]', form).click
 
       expect_new_page_load { form.submit }

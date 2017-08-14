@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -26,7 +26,7 @@ describe PageView::CsvReport do
   end
 
   before(:once) do
-    @user = user
+    @user = user_factory
   end
 
   describe "#records" do

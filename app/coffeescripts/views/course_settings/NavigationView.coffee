@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'Backbone'
@@ -34,6 +51,7 @@ define [
         .attr('class', '')
         .attr('class', 'icon-plus enable_nav_item_link')
         .text("Enable")
+      $targetItem.find('a.al-trigger').focus()
 
     enableNavLink: (e) ->
       $targetItem = $(e.currentTarget).closest('.navitem')
@@ -42,6 +60,7 @@ define [
         .attr('class', '')
         .attr('class', 'icon-x disable_nav_item_link')
         .text("Disable")
+      $targetItem.find('a.al-trigger').focus()
 
     moveNavLink: (e) ->
       dialog = @$move_dialog
@@ -68,6 +87,7 @@ define [
         height: 300
         close: ->
           dialog.dialog('close')
+          which_item.find('a.al-trigger').focus()
         )
 
     moveSubmit: (e) ->
@@ -81,11 +101,13 @@ define [
         selected_item.after current_item
       $('#move_nav_item_form').attr('aria-hidden', 'true')
       $('#move_nav_item_form').dialog('close')
-      current_item.focus()
+      current_item.find('a.al-trigger').focus()
 
     cancelMove: ->
+      current_item = $('#move_nav_item_form').data 'current_item'
       $('#move_nav_item_form').attr('aria-hidden', 'true')
       $('#move_nav_item_form').dialog('close')
+      current_item.find('a.al-trigger').focus()
 
     focusKeyboardHelp: (e) ->
       $('.drag_and_drop_warning').removeClass('screenreader-only')

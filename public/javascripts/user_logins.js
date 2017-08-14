@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,20 +12,19 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'i18n!user_logins',
-  'jquery' /* $ */,
-  'compiled/models/Pseudonym',
-  'jquery.instructure_forms' /* formSubmit, fillFormData, formErrors */,
-  'jqueryui/dialog',
-  'compiled/jquery/fixDialogButtons' /* fix dialog formatting */,
-  'jquery.instructure_misc_plugins' /* confirmDelete, showIf */,
-  'jquery.templateData' /* fillTemplateData, getTemplateData */
-], function(I18n, $, Pseudonym) {
+import I18n from 'i18n!user_logins'
+import $ from 'jquery'
+import Pseudonym from 'compiled/models/Pseudonym'
+import './jquery.instructure_forms' /* formSubmit, fillFormData, formErrors */
+import 'jqueryui/dialog'
+import 'compiled/jquery/fixDialogButtons'
+import './jquery.instructure_misc_plugins' /* confirmDelete, showIf */
+import './jquery.templateData'
+
 $(document).ready(function() {
   var $form = $("#edit_pseudonym_form");
   $form.formSubmit({
@@ -81,17 +80,21 @@ $(document).ready(function() {
   .delegate('.edit_pseudonym_link', 'click', function(event) {
     event.preventDefault();
     var $form = $("#edit_pseudonym_form"),
-        $sis_row = $form.find('.sis_user_id');
+        $sis_row = $form.find('.sis_user_id'),
+        $integration_id_row = $form.find('.integration_id');
     $sis_row.hide();
+    $integration_id_row.hide();
     $form.attr('action', $(this).attr('rel')).attr('method', 'PUT');
-    var data = $(this).parents(".login").getTemplateData({textValues: ['unique_id', 'sis_user_id', 'can_edit_sis_user_id']});
+    var data = $(this).parents(".login").getTemplateData({textValues: ['unique_id', 'sis_user_id', 'integration_id', 'can_edit_sis_user_id']});
     data.password = "";
     data.password_confirmation = "";
     $form.fillFormData(data, {object_name: 'pseudonym'});
     if( data.can_edit_sis_user_id == 'true' ){
       $sis_row.show();
+      $integration_id_row.show();
     } else {
       $sis_row.remove();
+      $integration_id_row.remove();
     }
     var passwordable = $(this).parents(".links").hasClass('passwordable');
     var delegated = passwordable && $(this).parents(".links").hasClass('delegated-auth');
@@ -161,5 +164,4 @@ $(document).ready(function() {
     });
     event.preventDefault();
   });
-});
 });

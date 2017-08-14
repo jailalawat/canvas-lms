@@ -1,23 +1,30 @@
-group :development do
-  gem 'guard', '1.8.0'
-  gem 'guard-gulp', '~>0.0.2', require: false
-  gem 'guard-shell', '~>0.6.1', require: false
-  gem 'listen', '~>1.3' # pinned to fix guard error
-  gem 'rb-inotify', '~>0.9.0', require: false
-  gem 'rb-fsevent', require: false
-  gem 'rb-fchange', require: false
-  gem 'colorize', require: false
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 
-  gem "letter_opener"
-  gem 'spring', '>= 1.3.0'
-  gem 'spring-commands-rspec', '1.0.2'
+group :development do
+  gem 'colorize', '0.8.1', require: false
+  gem 'letter_opener', '1.4.1'
+  gem 'spring', '2.0.0'
+  gem 'spring-commands-rspec', '1.0.4'
 
   # Option to DISABLE_RUBY_DEBUGGING is helpful IDE-based debugging.
   # The ruby debug gems conflict with the IDE-based debugger gem.
   # Set this option in your dev environment to disable.
-
-
   unless ENV['DISABLE_RUBY_DEBUGGING']
-    gem 'byebug', '~> 9.0', platform: :mri
+    gem 'byebug', '9.0.6', platform: :mri
   end
 end

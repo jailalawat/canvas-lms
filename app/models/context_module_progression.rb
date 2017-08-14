@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,7 +18,7 @@
 
 class ContextModuleProgression < ActiveRecord::Base
   include Workflow
-  attr_accessible :context_module, :user
+
   belongs_to :context_module
   belongs_to :user
   before_save :set_completed_at
@@ -27,6 +27,8 @@ class ContextModuleProgression < ActiveRecord::Base
 
   serialize :requirements_met, Array
   serialize :incomplete_requirements, Array
+
+  validates_presence_of :user_id, :context_module_id
 
   def completion_requirements
     context_module.try(:completion_requirements) || []
@@ -178,7 +180,7 @@ class ContextModuleProgression < ActiveRecord::Base
 
         calc.check_action!(req, req_met)
       elsif req[:type] == 'min_score'
-        calc.check_action!(req, evaluate_score_requirement_met(req, subs))
+        calc.check_action!(req, evaluate_score_requirement_met(req, subs, tag))
       end
     end
     calc.check_view_requirements
@@ -230,10 +232,19 @@ class ContextModuleProgression < ActiveRecord::Base
     end
   end
 
-  def evaluate_score_requirement_met(requirement, subs)
+  def evaluate_score_requirement_met(requirement, subs, tag)
     return unless requirement[:type] == "min_score"
     remove_incomplete_requirement(requirement[:id]) # start from a fresh slate so we don't hold onto a max score that doesn't exist anymore
-    subs && subs.any? do |sub|
+    return unless subs && subs.any?
+
+    if tag.assignment && tag.assignment.muted?
+      if subs.any?{|sub| sub.is_a?(Submission) && !sub.unsubmitted? }
+        self.update_incomplete_requirement!(requirement, nil)
+      end
+      return
+    end
+
+    subs.any? do |sub|
       score = get_submission_score(sub)
       requirement_met = (score.present? && score >= requirement[:min_score].to_f)
       if requirement_met
@@ -253,7 +264,7 @@ class ContextModuleProgression < ActiveRecord::Base
     return nil unless requirement
 
     requirement_met = true
-    requirement_met = points && points >= requirement[:min_score].to_f if requirement[:type] == 'min_score'
+    requirement_met = points && points >= requirement[:min_score].to_f && !(tag.assignment && tag.assignment.muted?) if requirement[:type] == 'min_score'
     requirement_met = false if requirement[:type] == 'must_submit' # calculate later; requires the submission
 
     if !requirement_met
@@ -428,9 +439,12 @@ class ContextModuleProgression < ActiveRecord::Base
 
     # invalidate all, then re-evaluate each
     Shackles.activate(:master) do
-      progressions.each(&:mark_as_outdated!)
+      ContextModuleProgression.where(:id => progressions, :current => true).update_all(:current => false)
+      User.where(:id => progressions.map(&:user_id)).touch_all
+
       progressions.each do |progression|
-        progression.send_later_if_production(:evaluate!, self)
+        progression.send_later_if_production_enqueue_args(:evaluate!,
+          {:n_strand => ["dependent_progression_reevaluation", context_module.global_context_id]}, self)
       end
     end
   end

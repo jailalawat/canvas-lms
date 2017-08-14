@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 .lock_date {
   color: #444;
   padding-left: 20px;
@@ -14,10 +32,6 @@
       height: 72px;
     }
   }
-}
-
-#edit_assignment_wrapper {
-  padding: 1em;
 }
 
 #point_change_warning {
@@ -56,7 +70,7 @@
 #assignment_turnitin_settings {
   min-width: 400px;
   label {
-    width: 100%;
+    width: 95%;
   }
   .js-exclude-small-matches-options {
     margin-left: 21px;
@@ -110,28 +124,6 @@
   .form-horizontal.display-only .control-group {
     margin-bottom: 0;
   }
-  .assignment_dates {
-    @if $use_new_styles == false {
-      border-collapse: collapse;
-      width: 100%;
-      margin-bottom: 1em;
-      thead {
-        background-color: transparent;
-      }
-      tr {
-        th {
-          font-weight: bold;
-          @include fontSize($ic-font-size--small);
-          padding: 0.5em;
-        }
-        td {
-          border-top: 1px solid #BBB;
-          border-bottom: 1px solid #BBB;
-          padding: 0.5em;
-        }
-      }
-    }
-  }
   .description.student-version {
     min-height: 260px;
   }
@@ -154,6 +146,19 @@
   }
 }
 
+.control-group {
+  .controls-url {
+    padding-top: 5px;
+    word-wrap: break-word;
+  }
+}
+
+.omit-from-final-warning {
+  padding: 12px;
+  border-width: 1px;
+  margin: 5px;
+}
+
 #assignment-draft-state {
   padding: 10px;
   line-height: 33px;
@@ -165,6 +170,8 @@
 
 #sidebar_content {
   .details {
+    border: none;
+    padding: 0;
     h3 {
       margin: 0;
     }
@@ -184,7 +191,7 @@
         padding-top: 10px;
       }
       .late {
-        color: #880000;
+        color: $ic-color-danger;
         font-weight: bold;
       }
       .unstyled_list {

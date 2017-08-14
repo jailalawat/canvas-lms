@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module ActiveModel
   module BetterErrors
     # This is backwards compatible with what our existing javascript expects to get
@@ -104,6 +121,37 @@ module ActiveModel
                message: message)
       end
     end
+
+    class ErrorMessageSet
+      def grep(*args)
+        Array(find(args).first)
+      end
+    end
+
+    module AutosaveAssociation
+      def _ensure_no_duplicate_errors
+        errors.error_collection.keys.each do |attribute|
+          errors[attribute].uniq!
+        end
+      end
+    end
+  end
+end
+
+module Rails5Errors
+  def details
+    error_collection
+  end
+
+  def copy!(other)
+    @error_collection = ActiveModel::BetterErrors::ErrorCollection.new(base)
+    @error_collection.instance_variable_set(:@collection, other.error_collection.instance_variable_get(:@collection).dup)
+  end
+end
+
+module Rails5ErrorCollection
+  def each_key(&block)
+    @collection.each_key(&block)
   end
 end
 
@@ -117,3 +165,8 @@ ActiveModel::BetterErrors.formatter = ActiveModel::BetterErrors::InstructureForm
 # backwards compatibility with all the existing Canvas code that expects the
 # old format. The ApiReporter is specifically activated by the API error
 # response code.
+
+# make better errors compatible with Rails 5
+ActiveRecord::Base.include(ActiveModel::BetterErrors::AutosaveAssociation) unless CANVAS_RAILS4_2
+ActiveModel::BetterErrors::Errors.include(Rails5Errors)
+ActiveModel::BetterErrors::ErrorCollection.include(Rails5ErrorCollection)

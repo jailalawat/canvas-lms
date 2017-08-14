@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,10 +20,10 @@
 # API for accessing information about the users a user is observing.
 
 class UserObserveesController < ApplicationController
-  before_filter :require_user
+  before_action :require_user
 
-  before_filter :self_or_admin_permission_check, except: [:update]
-  before_filter :admin_permission_check, only: [:update]
+  before_action :self_or_admin_permission_check, except: [:update]
+  before_action :admin_permission_check, only: [:update]
 
   # @API List observees
   #
@@ -178,11 +178,9 @@ class UserObserveesController < ApplicationController
 
   def add_observee(observee)
     @current_user.shard.activate do
-      UserObserver.unique_constraint_retry do
-        unless has_observee?(observee)
-          user.user_observees.create_or_restore(user_id: observee)
-          user.touch
-        end
+      unless has_observee?(observee)
+        user.user_observees.create_or_restore(user_id: observee)
+        user.touch
       end
     end
   end

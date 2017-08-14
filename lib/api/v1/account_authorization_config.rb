@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -31,6 +31,10 @@ module Api::V1::AccountAuthorizationConfig
     sensitive_params = aac.class.const_get(:SENSITIVE_PARAMS)
     (allowed_params - sensitive_params).each do |param|
       result[param] = aac.public_send(param)
+    end
+
+    if aac.class.recognized_federated_attributes != []
+      result['federated_attributes'] = aac.federated_attributes_for_api
     end
 
     # These settings were moved to the account settings level,

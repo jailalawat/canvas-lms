@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2012 Instructure, Inc.
+/*
+ * Copyright (C) 2012 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,31 +12,88 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'i18n!assignments' /* I18n.t */,
-  'jquery' /* $ */,
-  'underscore' /* _ */,
-  'compiled/views/GoogleDocsTreeView',
-  'jst/assignments/homework_submission_tool',
-  'compiled/external_tools/HomeworkSubmissionLtiContainer',
-  'compiled/views/editor/KeyboardShortcuts' /* TinyMCE Keyboard Shortcuts for a11y */,
-  'jsx/shared/rce/RichContentEditor',
-  'compiled/jquery.rails_flash_notifications',
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.inst_tree' /* instTree */,
-  'jquery.instructure_forms' /* ajaxJSONPreparedFiles, getFormData */,
-  'jqueryui/dialog',
-  'jquery.instructure_misc_plugins' /* fragmentChange, showIf, /\.log\(/ */,
-  'jquery.templateData' /* getTemplateData */,
-  'media_comments' /* mediaComment */,
-  'vendor/jquery.scrollTo' /* /\.scrollTo/ */,
-  'jqueryui/tabs' /* /\.tabs/ */
-], function(I18n, $, _, GoogleDocsTreeView, homework_submission_tool,
-     HomeworkSubmissionLtiContainer, RCEKeyboardShortcuts, RichContentEditor) {
+
+import I18n from 'i18n!assignments'
+import $ from 'jquery'
+import _ from 'underscore'
+import GoogleDocsTreeView from 'compiled/views/GoogleDocsTreeView'
+import homework_submission_tool from 'jst/assignments/homework_submission_tool'
+import HomeworkSubmissionLtiContainer from 'compiled/external_tools/HomeworkSubmissionLtiContainer'
+import RCEKeyboardShortcuts from 'compiled/views/editor/KeyboardShortcuts' /* TinyMCE Keyboard Shortcuts for a11y */
+import RichContentEditor from 'jsx/shared/rce/RichContentEditor'
+import {submitContentItem} from './submit_assignment_helper'
+import 'compiled/jquery.rails_flash_notifications'
+import './jquery.ajaxJSON'
+import './jquery.inst_tree'
+import './jquery.instructure_forms' /* ajaxJSONPreparedFiles, getFormData */
+import 'jqueryui/dialog'
+import './jquery.instructure_misc_plugins' /* fragmentChange, showIf, /\.log\(/ */
+import './jquery.templateData'
+import './media_comments'
+import './vendor/jquery.scrollTo'
+import 'jqueryui/tabs'
+
+  var SubmitAssignment = {
+    toolDropDownClickHandler: function(event) {
+      event.preventDefault();
+
+      var tool = $(this).data('tool');
+      var url = "/courses/" + ENV.COURSE_ID + "/external_tools/" + tool.id + "/resource_selection?homework=1&assignment_id=" + ENV.SUBMIT_ASSIGNMENT.ID;
+
+      var width = tool.get('homework_submission').selection_width || tool.get('selection_width');
+      var height = tool.get('homework_submission').selection_height || tool.get('selection_height');
+      var title = tool.get('display_text');
+      var $div = $("<div/>", {id: "homework_selection_dialog", style: "padding: 0; overflow-y: hidden;"}).appendTo($("body"));
+
+      $div.append($("<iframe/>", {
+        frameborder: 0,
+        src: url,
+        id: "homework_selection_iframe",
+        tabindex: '0'
+      }).css({width: width, height: height}))
+        .bind('selection', function(event, data) {
+          submitContentItem(event.contentItems[0]);
+          $div.off('dialogbeforeclose', SubmitAssignment.dialogCancelHandler)
+          $div.dialog('close');
+        })
+        .on('dialogbeforeclose', SubmitAssignment.dialogCancelHandler)
+        .dialog({
+          width: 'auto',
+          height: 'auto',
+          title: title,
+          close: function() {
+            $div.remove();
+          }
+        });
+
+      var tabHelperHeight = 35;
+      $div.append(
+      $('<div/>',
+        {id: 'tab-helper', style: 'height:0px;padding:5px', tabindex: '0'}
+      ).focus(function () {
+        $(this).height(tabHelperHeight + 'px')
+        var joke = document.createTextNode(I18n.t('Q: What goes black, white, black, white?  A: A panda rolling down a hill.'))
+        this.appendChild(joke)
+      }).blur(function () {
+        $(this).html('').height('0px');
+      }))
+
+      return $div;
+    },
+    beforeUnloadHandler: function(e) {
+      return (e.returnValue = I18n.t("Changes you made may not be saved."));
+    },
+    dialogCancelHandler: function(event, ui) {
+      var r = confirm(I18n.t("Are you sure you want to cancel? Changes you made may not be saved."));
+      if (r == false){
+        event.preventDefault();
+      }
+    }
+  };
 
   window.submissionAttachmentIndex = -1;
 
@@ -65,6 +122,7 @@ define([
     submissionForm.submit(function(event) {
       var self = this;
       var $turnitin = $(this).find(".turnitin_pledge");
+      var $vericite = $(this).find(".vericite_pledge");
       if($("#external_tool_submission_type").val() == "online_url_to_file") {
         event.preventDefault();
         event.stopPropagation();
@@ -72,6 +130,13 @@ define([
         return;
       }
       if($turnitin.length > 0 && !$turnitin.attr('checked')) {
+        alert(I18n.t('messages.agree_to_pledge', "You must agree to the submission pledge before you can submit this assignment."));
+        event.preventDefault();
+        event.stopPropagation();
+        return false;
+      }
+
+      if($vericite.length > 0 && !$vericite.attr('checked')) {
         alert(I18n.t('messages.agree_to_pledge', "You must agree to the submission pledge before you can submit this assignment."));
         event.preventDefault();
         event.stopPropagation();
@@ -170,11 +235,12 @@ define([
       }
     });
 
-    window.onbeforeunload = function() {
+    $(window).on('beforeunload', function(e) {
       if($("#submit_assignment:visible").length > 0 && !submitting) {
-        return I18n.t('messages.not_submitted_yet', "You haven't finished submitting your assignment.  You still need to click \"Submit\" to finish turning it in.  Do you want to leave this page anyway?");
+        e.returnValue = I18n.t('messages.not_submitted_yet', "You haven't finished submitting your assignment.  You still need to click \"Submit\" to finish turning it in.  Do you want to leave this page anyway?");
+        return e.returnValue;
       }
-    };
+    });
 
     $(document).fragmentChange(function(event, hash) {
       if(hash && hash.indexOf("#submit") == 0) {
@@ -229,9 +295,9 @@ define([
         },
         activate: function(event, ui) {
           if (ui.newTab.find('a').hasClass('submit_online_text_entry_option')) {
-            $el = $("#submit_online_text_entry_form textarea:first");
+            var $el = $("#submit_online_text_entry_form textarea:first");
             if (!RichContentEditor.callOnRCE($el, 'exists?')) {
-              RichContentEditor.loadNewEditor($el);
+              RichContentEditor.loadNewEditor($el, {manageParent: true});
             }
           }
 
@@ -241,9 +307,9 @@ define([
         },
         create: function(event, ui) {
           if (ui.tab.find('a').hasClass('submit_online_text_entry_option')) {
-            $el = $("#submit_online_text_entry_form textarea:first");
+            var $el = $("#submit_online_text_entry_form textarea:first");
             if (!RichContentEditor.callOnRCE($el, 'exists?')) {
-              RichContentEditor.loadNewEditor($el);
+              RichContentEditor.loadNewEditor($el, {manageParent: true});
             }
           }
 
@@ -442,70 +508,7 @@ define([
     });
     $tools.disableWhileLoading(promise, {buttons: {'.submit': I18n.t('getting_file', 'Retrieving File...')}})
   };
-  $("#submit_from_external_tool_form .tools li").live('click', function(event) {
-    event.preventDefault();
 
-    var tool = $(this).data('tool');
-    var url = "/courses/" + ENV.COURSE_ID + "/external_tools/" + tool.id + "/resource_selection?homework=1&assignment_id=" + ENV.SUBMIT_ASSIGNMENT.ID;
+  $("#submit_from_external_tool_form .tools li").live('click', SubmitAssignment.toolDropDownClickHandler);
 
-    var width = tool.get('homework_submission').selection_width || tool.get('selection_width');
-    var height = tool.get('homework_submission').selection_height || tool.get('selection_height');
-    var title = tool.get('display_text');
-    var $div = $("<div/>", {id: "homework_selection_dialog", style: "padding: 0; overflow-y: hidden;"}).appendTo($("body"));
-    function invalidToolReturn(message) {
-      $.flashError(I18n.t("invalid_tool_return", "The launched tool returned an invalid resource for this assignment"));
-      console.log(message);
-      $div.dialog('close');
-    }
-    $div.append($("<iframe/>", {frameborder: 0, src: url, id: "homework_selection_iframe"}).css({width: width, height: height}))
-      .bind('selection', function(event, data) {
-        var valid_submission = true
-        if(data.return_type == 'url') {
-          if($("#submit_online_url_form").length) {
-            $("#external_tool_url").val(data.url);
-            $("#external_tool_submission_type").val('online_url');
-            $("#submit_from_external_tool_form").addClass('has_submission');
-            var $link = $("<a/>", {href: data.url}).text(data.text || data.title);
-            $("#external_tool_submission_details").empty().append($link).attr('class', 'url_submission');
-          } else {
-            invalidToolReturn("this assignment doesn't accept URL submissions");
-            return;
-          }
-        } else if(data.return_type == 'file') {
-          if($("#submit_online_upload_form").length) {
-            var ext = data.text.split(/\./).pop();
-            if(ENV.SUBMIT_ASSIGNMENT && ENV.SUBMIT_ASSIGNMENT.ALLOWED_EXTENSIONS && ENV.SUBMIT_ASSIGNMENT.ALLOWED_EXTENSIONS.length > 0) {
-              if(!data.text.match(/\./) || $.inArray(ext, ENV.SUBMIT_ASSIGNMENT.ALLOWED_EXTENSIONS) < 0) {
-                valid_submission = false;
-              }
-            }
-            $("#external_tool_url").val(data.url);
-            $("#external_tool_submission_type").val('online_url_to_file');
-            $("#external_tool_filename").val(data.text);
-            $("#external_tool_content_type").val(data.content_type);
-            $("#submit_from_external_tool_form").addClass('has_submission');
-            var $link = $("<a/>", {href: data.url}).text(data.text);
-            $("#external_tool_submission_details").empty().append($link).attr('class', 'file_submission');
-          } else {
-            invalidToolReturn("this assignment doesn't accept file submissions");
-            return;
-          }
-        } else {
-          invalidToolReturn("return_type must be 'link' or 'file'");
-          return;
-        }
-
-        $('#submit_from_external_tool_form .bad_ext_msg').showIf(!valid_submission);
-        $('#submit_from_external_tool_form button[type=submit]').attr('disabled', !valid_submission);
-        $div.dialog('close');
-      })
-      .dialog({
-        width: 'auto',
-        height: 'auto',
-        title: title,
-        close: function() {
-          $div.remove();
-        }
-      });
-  });
-});
+export default SubmitAssignment;

@@ -16,16 +16,14 @@
  *	jquery.ui.position.js
  *	jquery.ui.resizable.js
  */
-define([
- 'jquery',
- 'jqueryui/core',
- 'jqueryui/widget',
- 'jqueryui/button',
- 'jqueryui/draggable',
- 'jqueryui/mouse',
- 'jqueryui/position',
- 'jqueryui/resizable'
-], function( $ ) {
+import $ from 'jquery'
+import 'jqueryui/core'
+import 'jqueryui/widget'
+import 'jqueryui/button'
+import 'jqueryui/draggable'
+import 'jqueryui/mouse'
+import 'jqueryui/position'
+import 'jqueryui/resizable'
 
 var uiDialogClasses = "ui-dialog ui-widget ui-widget-content ui-corner-all ",
 	sizeRelatedOptions = {
@@ -129,10 +127,8 @@ $.widget("ui.dialog", {
 					"ui-corner-all  ui-helper-clearfix" )
 				.prependTo( uiDialog ),
 
-			uiDialogTitlebarClose = $( "<a href='#'></a>" )
+			uiDialogTitlebarClose = $( "<button></button>" )
 				.addClass( "ui-dialog-titlebar-close  ui-corner-all" )
-				.attr( "role", "button" )
-				.attr( "tabindex", 0)
 				.click(function( event ) {
 					event.preventDefault();
 					that.close( event );
@@ -347,7 +343,12 @@ $.widget("ui.dialog", {
 				var targetIndex = index + (event.shiftKey ? -1 : 1);
 				targetIndex = (targetIndex + tabbables.length) % tabbables.length;
 				var target = tabbables.eq(targetIndex)
-				target.focus();
+
+        if (target[0].nodeName.toUpperCase() !== 'IFRAME') {
+          target.focus();
+        } else {
+          return;
+        }
 
 				// when switching to a target for which the browser would select the
 				// full contents on default tab behavior, we still want to do the same.
@@ -375,7 +376,12 @@ $.widget("ui.dialog", {
 
 		this.uiDialog.attr('aria-hidden', false);
 		if ($.browser && $.browser.safari) {
-			hasFocus.eq( 0 ).focus();
+      var titleClose = this.uiDialog.find('.ui-dialog-titlebar-close');
+      if (titleClose.length) {
+        titleClose.focus();
+      } else {
+        hasFocus.eq( 0 ).focus();
+      }
 		}
 
 		this._isOpen = true;
@@ -887,4 +893,4 @@ $.extend( $.ui.dialog.overlay.prototype, {
 	}
 });
 
-});
+

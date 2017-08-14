@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 environment_configuration(defined?(config) && config) do |config|
   # Settings specified here will take precedence over those in config/application.rb
 
@@ -27,17 +44,13 @@ environment_configuration(defined?(config) && config) do |config|
   # The ruby debug gems conflict with the IDE-based debugger gem.
   # Set this option in your dev environment to disable.
   unless ENV['DISABLE_RUBY_DEBUGGING']
-    if RUBY_VERSION >= '2.0.0'
-      require 'byebug'
-      if ENV['REMOTE_DEBUGGING_ENABLED']
-        require 'byebug/core'
-        Byebug.start_server('0.0.0.0', 0)
-        puts "Byebug listening on 0.0.0.0:#{Byebug.actual_port}" # rubocop:disable Rails/Output
-        byebug_port_file = File.join(Dir.tmpdir, 'byebug.port')
-        File.write(byebug_port_file, Byebug.actual_port)
-      end
-    else
-      require "debugger"
+    require 'byebug'
+    if ENV['REMOTE_DEBUGGING_ENABLED']
+      require 'byebug/core'
+      Byebug.start_server('0.0.0.0', 0)
+      puts "Byebug listening on 0.0.0.0:#{Byebug.actual_port}" # rubocop:disable Rails/Output
+      byebug_port_file = File.join(Dir.tmpdir, 'byebug.port')
+      File.write(byebug_port_file, Byebug.actual_port)
     end
   end
 
@@ -52,6 +65,26 @@ environment_configuration(defined?(config) && config) do |config|
   config.active_record.schema_format = :sql
 
   config.eager_load = false
+
+
+  config.after_initialize do
+    ActiveMerchant::Billing::Base.mode = :test
+    paypal = {
+      :login => "seller_1229899173_biz_api1.railscasts.com" ,
+      :password => "FXWU58S7KXFC6HBE",
+      :signature => "AGjv6SW.mTiKxtkm6L9DcSUCUgePAUDQ3L-kTdszkPG8mRfjaRZDYtSu"
+    }
+    ::EXPRESS = ActiveMerchant::Billing::PaypalExpressGateway.new(paypal)
+  end
+  
+  PAYTM_MERCHANT_KEY = "5cjAqbssNYunuMjV"
+  WEBSITE = "WEB_STAGING"
+  MID = "IITIAN94490226667854"
+  INDUSTRY_TYPE_ID = "Retail"
+  CHANNEL_ID = "WEB"
+  PAYTM_URL = "http://localhost:3000"
+  PAYTM_PAY_URL = "https://pguat.paytm.com/oltp-web/processTransaction"
+
 
   # eval <env>-local.rb if it exists
   Dir[File.dirname(__FILE__) + "/" + File.basename(__FILE__, ".rb") + "-*.rb"].each { |localfile| eval(File.new(localfile).read, nil, localfile, 1) }

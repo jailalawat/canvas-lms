@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!groups'
   'jquery'
@@ -82,7 +99,7 @@ define [
       $target = $(e.currentTarget)
       @fromAddButton = true
       assignToGroupMenu = @_getAssignToGroup()
-      assignToGroupMenu.model = @collection.get($target.data('user-id'))
+      assignToGroupMenu.model = @collection.getUser($target.data('user-id'))
       assignToGroupMenu.showBy($target, true)
 
     showAssignToGroup: (e) ->
@@ -92,7 +109,7 @@ define [
       $target = $(e.currentTarget)
 
       assignToGroupMenu = @_getAssignToGroup()
-      assignToGroupMenu.model = @collection.get($target.data('user-id'))
+      assignToGroupMenu.model = @collection.getUser($target.data('user-id'))
       assignToGroupMenu.showBy($target)
 
 
@@ -104,9 +121,16 @@ define [
         )
         @assignToGroupMenu.on("close", (options) =>
           studentElements = $("li.group-user a.assign-to-group", @$el)
-          if @elementIndex != -1 and options.escapePressed and studentElements.length > 0
-            focusElement = $(studentElements[@elementIndex] || studentElements[studentElements.length - 1])
-            focusElement.focus()
+          if @elementIndex != -1
+            if studentElements.length == 0
+              $('.filterable-unassigned-users').focus()
+            else if options.escapePressed
+              $(studentElements[@elementIndex] || studentElements[studentElements.length - 1]).focus()
+            else if options.userMoved
+              if @elementIndex == 0
+                $('.filterable-unassigned-users').focus()
+              else
+                $(studentElements[@elementIndex - 1] || studentElements[studentElements.length - 1]).focus()
             @elementIndex = -1
         )
       return @assignToGroupMenu

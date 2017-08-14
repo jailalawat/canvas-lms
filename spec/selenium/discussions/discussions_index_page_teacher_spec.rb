@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/discussions_common')
 
 describe "discussions" do
@@ -33,14 +50,13 @@ describe "discussions" do
       end
 
       it "should display 100 discussions", priority: "1", test_id: 272278 do
-        skip_if_chrome('chrome does not read order right')
         #Setup: Creates 100 discussion topics
         1.upto(100) do |n|
           DiscussionTopic.create!(context: course, user: teacher,
                                   title: "Discussion Topic #{n}")
         end
 
-        get url
+        with_timeouts(script: 10) { get url }
 
         #Validate: Makes sure each topic is listed.
         #Since topics are displayed in reverse order from creation (i.e. 100 is listed first), we use the topic index [100-n]
@@ -155,7 +171,7 @@ describe "discussions" do
           end
           topic = DiscussionTopic.where(context_id: course.id).order('id DESC').last
           expect(topic).not_to be_pinned
-          get(url)
+          with_timeouts(script: 10) { get(url) }
           fj("[data-id=#{topic.id}] .al-trigger").click
           fj('.icon-pin:visible').click
           wait_for_ajaximations
@@ -207,13 +223,13 @@ describe "discussions" do
           topic.save!
           get "/courses/#{@course.id}/undelete"
           expect(f('#deleted_items_list').text).to include('teacher topic title')
-          f('.restore_link').click
+          hover_and_click('.restore_link')
           driver.switch_to.alert.accept
           wait_for_ajaximations
           get url
-          expect(f('#open-discussions .discussion-title').text).to include('teacher topic title')
-          fln('teacher topic title').click
-          expect(ff('.discussion-entries .entry').count).to eq(1)
+          expect(f('#open-discussions .discussion-title')).to include_text('teacher topic title')
+          expect_new_page_load { fln('teacher topic title').click }
+          expect(ff('.discussion-entries .entry')).to have_size(1)
         end
 
         it "should sort the discussions", priority: "1", test_id: 150509 do

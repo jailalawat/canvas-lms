@@ -1,16 +1,33 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'timezone'
   'i18nObj'
-  'vendor/timezone/America/Detroit'
-  'vendor/timezone/fr_FR'
-  'vendor/timezone/pt_PT'
-  'vendor/timezone/zh_CN'
+  'timezone/America/Detroit'
+  'timezone/fr_FR'
+  'timezone/pt_PT'
+  'timezone/zh_CN'
   'helpers/I18nStubber'
   'underscore'
   'translations/_core_en'
 ], (tz, i18nObj, detroit, french, portuguese, chinese, I18nStubber, _, trans)->
 
-  module 'timezone',
+  QUnit.module 'timezone',
     setup: ->
       @snapshot = tz.snapshot()
       I18nStubber.pushFrame()
@@ -290,14 +307,6 @@ define [
     tz.changeZone(detroit, 'America/Detroit')
     ok !tz.isMidnight(epoch)
 
-  test "isMidnight() is true when date is midnight adjusted for zone.", ->
-    tz.changeZone(detroit, 'America/Detroit')
-    date = tz.parse('2012-09-02 00:00:00')
-    ok tz.isMidnight(date, { timezone: 'America/Detroit' })
-
-  test "isMidnight() is false when date is not midnight adjusted for zone.", ->
-    ok !tz.isMidnight(epoch, { timezone: 'America/Detroit' })
-
   test "changeToTheSecondBeforeMidnight() returns null when no argument given.", ->
     equal tz.changeToTheSecondBeforeMidnight(), null
 
@@ -312,7 +321,7 @@ define [
   test "mergeTimeAndDate() finds the given time of day on the given date.", ->
     equal +tz.mergeTimeAndDate(moonwalk, epoch), +(new Date(Date.UTC(1970, 0, 1, 2, 56)))
 
-  module 'english tz',
+  QUnit.module 'english tz',
     setup: ->
       @snapshot = tz.snapshot()
       I18nStubber.pushFrame()
@@ -396,7 +405,7 @@ define [
     d = tz.parse('18:06')
     equal tz.format(d, '%H:%M'), '18:06'
 
-  module 'french tz',
+  QUnit.module 'french tz',
     setup: ->
       @snapshot = tz.snapshot()
       I18nStubber.pushFrame()
@@ -471,7 +480,7 @@ define [
       d = tz.parse(dateTime)
       equal tz.format(d, '%d %H'), '03 18', "this works: #{dateTime}"
 
-  module 'chinese tz',
+  QUnit.module 'chinese tz',
     setup: ->
       setup: ->
       @snapshot = tz.snapshot()

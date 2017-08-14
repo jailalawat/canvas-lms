@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -125,8 +125,8 @@ class ContentMigrationsController < ApplicationController
   include Api::V1::ContentMigration
   include Api::V1::ExternalTools
 
-  before_filter :require_context
-  before_filter :require_auth
+  before_action :require_context
+  before_action :require_auth
 
   # @API List content migrations
   #
@@ -171,6 +171,7 @@ class ContentMigrationsController < ApplicationController
       js_env(:OLD_START_DATE => datetime_string(@context.start_at, :verbose))
       js_env(:OLD_END_DATE => datetime_string(@context.conclude_at, :verbose))
       js_env(:SHOW_SELECT => @current_user.manageable_courses.count <= 100)
+      set_tutorial_js_env
     end
   end
 
@@ -458,7 +459,8 @@ class ContentMigrationsController < ApplicationController
 
   def update_migration
     @content_migration.update_migration_settings(params[:settings]) if params[:settings]
-    @content_migration.set_date_shift_options(params[:date_shift_options])
+    date_shift_params = params[:date_shift_options] ? params[:date_shift_options].to_hash.with_indifferent_access : {}
+    @content_migration.set_date_shift_options(date_shift_params)
 
     params[:selective_import] = false if @plugin.settings && @plugin.settings[:no_selective_import]
     if Canvas::Plugin.value_to_boolean(params[:selective_import])
@@ -470,7 +472,7 @@ class ContentMigrationsController < ApplicationController
         params[:do_not_run] = true
       end
     elsif params[:copy]
-      copy_options = ContentMigration.process_copy_params(params[:copy])
+      copy_options = ContentMigration.process_copy_params(params[:copy].to_hash.with_indifferent_access)
       @content_migration.migration_settings[:migration_ids_to_import] ||= {}
       @content_migration.migration_settings[:migration_ids_to_import][:copy] = copy_options
       @content_migration.copy_options = copy_options
@@ -489,6 +491,7 @@ class ContentMigrationsController < ApplicationController
           @content_migration.workflow_state = 'pre_process_error'
         end
         @content_migration.save!
+        @content_migration.reset_job_progress
       elsif !params.has_key?(:do_not_run) || !Canvas::Plugin.value_to_boolean(params[:do_not_run])
         @content_migration.queue_migration(@plugin)
       end

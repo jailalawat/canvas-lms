@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -51,7 +51,7 @@ describe Api::V1::CourseEvent do
       p.assign_attributes({
         :request_id => @request_id,
         :remote_ip => '10.10.10.10'
-      }, :without_protection => true)
+      })
     }
 
     PageView.stubs(

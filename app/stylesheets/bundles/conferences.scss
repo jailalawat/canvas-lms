@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2013 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 
 /* Helper classes */
@@ -14,15 +32,6 @@
 }
 
 /* Page styles */
-@if $use_new_styles == false {
-  body.conferences { min-width: 960px; }
-  #main { background: #e8ecef; }
-  #content {
-    color: #434343;
-    padding: 0;
-  }
-}
-
 header:not(.ic-app-header) {
   background: #fff;
   border-bottom: 1px solid #b6babf;
@@ -44,19 +53,30 @@ header:not(.ic-app-header) {
     }
   }
 
-  i[class*=icon-]:before, i[class^=icon-]:before {
-    font-size: 13px;
-  }
+}
 
+.ig-row-label {
+  margin-right: $ic-sp;
+  @include breakpoint(desktop) {
+    margin-right: $ic-sp*1.5;
+  }
 }
 
 .ig-header-title a {
-  color: #434343;
+  color: $ic-font-color-dark;
 }
 
-.ig-list .ig-row  {
+.ig-list .ig-row {
+  padding-left: $ic-sp;
+  padding-right: $ic-sp;
+}
 
-  .ellipses { color: $ic-font-color--subdued; }
+.ig-info {
+  margin-left: 0;
+}
+
+.ig-title {
+  margin-bottom: 0;
 }
 
 #add_conference_form {
@@ -72,19 +92,10 @@ header:not(.ic-app-header) {
 }
 
 .item-group-expandable .emptyMessage {
-  color: #676b6e;
-  background: #f3f6f7;
+  color: $ic-font-color--subdued;
+  background: $ic-color-light;
   text-align: center;
-  padding: 10px;
+  padding: $ic-sp;
   margin: 0;
   border-radius: 3px;
-}
-
-.ig-title {
-  flex: 0 0 200px;
-  @include breakpoint(desktop) { flex: 0 0 40%; }
-}
-
-.ig-details {
-  flex: 1;
 }

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,12 +22,12 @@ module LiveEvents
   class << self
     attr_accessor :logger, :cache, :statsd
 
-    def plugin_settings=(settings)
-      @plugin_settings = settings
+    def settings=(settings)
+      @settings = settings
     end
 
-    def plugin_settings
-      @plugin_settings.call
+    def settings
+      @settings.call
     end
 
     def max_queue_size=(size)
@@ -40,6 +40,10 @@ module LiveEvents
 
     require 'live_events/client'
     require 'live_events/async_worker'
+
+    def get_context
+      Thread.current[:live_events_ctx].try(:clone)
+    end
 
     # Set (on the current thread) the context to be used for future calls to post_event.
     def set_context(ctx)

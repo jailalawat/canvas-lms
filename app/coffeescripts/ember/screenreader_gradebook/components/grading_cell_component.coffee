@@ -1,12 +1,32 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!grading_cell'
-  'compiled/gradebook2/GRADEBOOK_TRANSLATIONS'
-  'compiled/gradebook2/GradebookHelpers'
+  'compiled/gradebook/GradebookTranslations'
+  'compiled/gradebook/GradebookHelpers'
+  'jsx/gradebook/shared/helpers/GradeFormatHelper'
+  'jsx/grading/helpers/OutlierScoreHelper'
+  'jsx/shared/helpers/numberHelper'
   'underscore'
   'ember'
   'jquery'
   'jquery.ajaxJSON'
-], (I18n, GRADEBOOK_TRANSLATIONS, GradebookHelpers, _, Ember, $) ->
+], (I18n, GRADEBOOK_TRANSLATIONS, GradebookHelpers, GradeFormatHelper, OutlierScoreHelper, numberHelper, _, Ember, $) ->
 
   GradingCellComponent = Ember.Component.extend
 
@@ -18,9 +38,9 @@ define [
     isPercent: Ember.computed.equal('assignment.grading_type', 'percent')
     isLetterGrade: Ember.computed.equal('assignment.grading_type', 'letter_grade')
     isPassFail: Ember.computed.equal('assignment.grading_type', 'pass_fail')
-    isInPastGradingPeriodAndNotAdmin: ( ->
-      GradebookHelpers.gradeIsLocked(@assignment, ENV)
-    ).property('assignment')
+    isInPastGradingPeriodAndNotAdmin: (->
+      @submission?.gradeLocked
+    ).property('submission')
     nilPointsPossible: Ember.computed.none('assignment.points_possible')
     isGpaScale: Ember.computed.equal('assignment.grading_type', 'gpa_scale')
 
@@ -49,13 +69,15 @@ define [
       else if @get('isGpaScale')
         ""
       else if @get('isLetterGrade') or @get('isPassFail')
-        I18n.t "out_of_with_score", "(%{score} out of %{points})",
-          points: @assignment.points_possible
+        I18n.t(
+          "(%{score} out of %{points})",
+          points: I18n.n @assignment.points_possible
           score: @get('score')
+        )
       else if @get('nilPointsPossible')
-        I18n.t "out_of_nil", "No points possible"
+        I18n.t("No points possible")
       else
-        I18n.t "out_of", "(out of %{points})", points: @assignment.points_possible
+        I18n.t("(out of %{points})", points: I18n.n(@assignment.points_possible))
     ).property('submission.score', 'assignment')
 
     changeGradeURL: ->
@@ -69,7 +91,7 @@ define [
     ).property('submission.assignment_id', 'submission.user_id')
 
     score: (->
-      if @submission.score? then @submission.score else ' -'
+      if @submission.score? then I18n.n(@submission.score) else ' -'
     ).property('submission.score')
 
     ajax: (url, options) ->
@@ -101,11 +123,14 @@ define [
                  @submission?.grade || '-'
 
       @setExcusedWithoutTriggeringSave(@submission?.excused)
-      @set 'value', newVal
+      @set 'value', GradeFormatHelper.formatGrade(newVal)
     ).observes('submission').on('init')
 
     onUpdateSuccess: (submission) ->
       @sendAction 'on-submit-grade', submission.all_submissions
+      unless submission.excused
+        outlierScoreHelper = new OutlierScoreHelper(submission.score, @assignment.points_possible)
+        $.flashWarning(outlierScoreHelper.warningMessage()) if outlierScoreHelper.hasWarning()
 
     onUpdateError: ->
       $.flashError(GRADEBOOK_TRANSLATIONS.submission_update_error)
@@ -118,11 +143,17 @@ define [
 
       url = @get('saveURL')
       value = @$('input, select').val()
-      @setExcusedWithoutTriggeringSave(value?.toUpperCase() == 'EX')
+
+      excused = typeof value == 'string' && value.toUpperCase() == 'EX'
+      @setExcusedWithoutTriggeringSave(excused)
+
       if @get('isPassFail') and value == '-'
         value = ''
+
+      value = GradeFormatHelper.delocalizeGrade(value)
+
       return if value == submission.grade
-      data = if value?.toUpperCase() == 'EX'
+      data = if typeof value == 'string' && value.toUpperCase() == 'EX'
                { "submission[excuse]": true }
              else
                { "submission[posted_grade]": value }

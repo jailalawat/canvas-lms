@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,8 +21,6 @@ class Quizzes::QuizStatistics < ActiveRecord::Base
   DefaultMaxSubmissions = 1000
 
   self.table_name = :quiz_statistics
-
-  attr_accessible :includes_all_versions, :anonymous, :report_type
 
   belongs_to :quiz, class_name: 'Quizzes::Quiz'
   has_one :csv_attachment, :class_name => 'Attachment', :as => 'context',

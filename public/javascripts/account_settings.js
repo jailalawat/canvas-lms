@@ -1,45 +1,63 @@
-define([
-  'i18n!account_settings',
-  'jquery', // $
-  'tinymce.config',
-  'global_announcements',
-  'jquery.ajaxJSON', // ajaxJSON
-  'jquery.instructure_date_and_time', // date_field, time_field, datetime_field, /\$\.datetime/
-  'jquery.instructure_forms', // formSubmit, getFormData, validateForm
-  'jqueryui/dialog',
-  'jquery.instructure_misc_helpers', // replaceTags
-  'jquery.instructure_misc_plugins', // confirmDelete, showIf, /\.log/
-  'jquery.loadingImg', // loadingImg, loadingImage
-  'vendor/date', // Date.parse
-  'vendor/jquery.scrollTo', // /\.scrollTo/
-  'jqueryui/tabs' // /\.tabs/
-], function(I18n, $, EditorConfig, globalAnnouncements) {
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
 
-  EditorConfig.prototype.balanceButtonsOverride = function(instructure_buttons) {
-    var instBtnGroup = "table,instructure_links,unlink" + instructure_buttons;
-    var top_row_buttons = "";
-    var bottom_row_buttons = "";
+import I18n from 'i18n!account_settings'
+import $ from 'jquery'
+import EditorConfig from './tinymce.config'
+import globalAnnouncements from './global_announcements'
+import './jquery.ajaxJSON'
+import './jquery.instructure_date_and_time' // date_field, time_field, datetime_field, /\$\.datetime/
+import './jquery.instructure_forms' // formSubmit, getFormData, validateForm
+import 'jqueryui/dialog'
+import './jquery.instructure_misc_helpers' // replaceTags
+import './jquery.instructure_misc_plugins' // confirmDelete, showIf, /\.log/
+import './jquery.loadingImg'
+import './vendor/date' // Date.parse
+import './vendor/jquery.scrollTo'
+import 'jqueryui/tabs'
 
-    top_row_buttons = this.formatBtnGroup + "," + this.positionBtnGroup;
-    bottom_row_buttons = instBtnGroup + "," + this.fontBtnGroup;
+  export function openReportDescriptionLink (event) {
+    event.preventDefault();
+    var title = $(this).parents('.title').find('span.title').text();
+    var $desc = $(this).parent('.reports').find('.report_description');
+    $desc.clone().dialog({
+      title: title,
+      width: 800
+    });
+  }
 
-    return [top_row_buttons, bottom_row_buttons];
-  };
-
-  EditorConfig.prototype.toolbar = function() {
-    var instructure_buttons = this.buildInstructureButtons();
-    return this.balanceButtonsOverride(instructure_buttons);
+  export function addUsersLink (event) {
+    event.preventDefault();
+    var $enroll_users_form = $('#enroll_users_form');
+    $(this).hide();
+    $enroll_users_form.show();
+    $('html,body').scrollTo($enroll_users_form);
+    $enroll_users_form.find('#admin_role_id').focus().select();
   }
 
   $(document).ready(function() {
-    checkFutureListingSetting = function() {
-
+    function checkFutureListingSetting () {
       if ($('#account_settings_restrict_student_future_view_value').is(':checked')) {
         $('.future_listing').show();
       } else {
         $('.future_listing').hide();
       }
-    };
+    }
     checkFutureListingSetting();
     $('#account_settings_restrict_student_future_view_value').change(checkFutureListingSetting);
 
@@ -62,7 +80,7 @@ define([
         $this.find('.remove_ip_filters').remove(); // just in case it's left over after a failed validation
       }
 
-      var validations = {
+      var account_validations = {
         object_name: 'account',
         required: ['name'],
         property_validations: {
@@ -71,7 +89,23 @@ define([
           }
         }
       };
-      var result = $this.validateForm(validations);
+
+      var result = $this.validateForm(account_validations)
+
+      // Work around for Safari to enforce help menu name validation until `required` is supported
+      if ($('#custom_help_link_settings').length > 0) {
+        var help_menu_validations = {
+          object_name: 'account[settings]',
+          required: ['help_link_name'],
+          property_validations: {
+            'help_link_name': function(value){
+              if (value && value.length > 30) { return I18n.t("help_menu_name_too_long", "Help menu name is too long")}
+            }
+          }
+        }
+        result = (result && $this.validateForm(help_menu_validations));
+      }
+
       if(!result) {
         return false;
       }
@@ -150,13 +184,25 @@ define([
       });
     });
 
-    $("#turnitin, #account_settings_global_includes, #enable_equella").change(function() {
-      var $myFieldset = $('#'+ $(this).attr('id') + '_settings'),
-          iAmChecked = $(this).attr('checked');
+    $('#enable_equella, ' +
+      '#account_settings_sis_syncing_value, ' +
+      '#account_settings_sis_default_grade_export_value').change(function () {
+        var $myFieldset = $('#'+ $(this).attr('id') + '_settings');
+        var iAmChecked = $(this).prop('checked');
       $myFieldset.showIf(iAmChecked);
       if (!iAmChecked) {
-        $myFieldset.find("input,textarea").val("");
+        $myFieldset.find(":text").val("");
+        $myFieldset.find(":checkbox").prop("checked", false);
       }
+    }).change();
+
+    $('#account_settings_sis_syncing_value,' +
+      '#account_settings_sis_default_grade_export_value,' +
+      '#account_settings_sis_assignment_name_length_value').change(function() {
+        var attr_id = $(this).attr('id');
+        var $myFieldset = $('#'+ attr_id + '_settings');
+        var iAmChecked = $(this).attr('checked');
+        $myFieldset.showIf(iAmChecked);
     }).change();
 
     $(".turnitin_account_settings").change(function() {
@@ -185,23 +231,9 @@ define([
     });
 
     // Admins tab
-    $(".add_users_link").click(function(event) {
-        var $enroll_users_form = $("#enroll_users_form");
-        $(this).hide();
-        event.preventDefault();
-        $enroll_users_form.show();
-        $("html,body").scrollTo($enroll_users_form);
-        $enroll_users_form.find("textarea").focus().select();
-      });
+    $(".add_users_link").click(addUsersLink);
 
-    $(".open_report_description_link").click(function(event) {
-      event.preventDefault();
-      var title = $(this).parents(".title").find("span.title").text();
-      $(this).parent(".reports").find(".report_description").dialog({
-        title: title,
-        width: 800
-      });
-    });
+    $(".open_report_description_link").click(openReportDescriptionLink);
 
     $(".run_report_link").click(function(event) {
       event.preventDefault();
@@ -292,5 +324,3 @@ define([
       $('#global_includes_warning_message_wrapper').toggleClass('alert', this.checked);
     }).trigger('change');
   });
-
-});

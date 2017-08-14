@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -154,7 +154,7 @@ describe LoginController do
     end
 
     it "renders if you are logged in" do
-      user_session(user)
+      user_session(user_factory)
       get 'logout_confirm'
       expect(response).to be_success
     end

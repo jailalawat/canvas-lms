@@ -1,6 +1,25 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'react'
+  'react-dom'
+  'prop-types'
   'i18n!restrict_student_access'
   'compiled/models/Folder'
   '../modules/customPropTypes'
@@ -8,7 +27,7 @@ define [
   '../utils/updateModelsUsageRights'
   'jquery.instructure_date_and_time'
   'jquery.instructure_forms'
-], ($, React, I18n, Folder, customPropTypes, setUsageRights, updateModelsUsageRights) ->
+], ($, React, ReactDOM, PropTypes, I18n, Folder, customPropTypes, setUsageRights, updateModelsUsageRights) ->
 
   RestrictedDialogForm =
 
@@ -16,9 +35,9 @@ define [
     displayName: 'RestrictedDialogForm'
 
     propTypes:
-      closeDialog: React.PropTypes.func.isRequired,
-      models: React.PropTypes.arrayOf(customPropTypes.filesystemObject).isRequired
-      usageRightsRequiredForContext: React.PropTypes.bool.isRequired
+      closeDialog: PropTypes.func.isRequired,
+      models: PropTypes.arrayOf(customPropTypes.filesystemObject).isRequired
+      usageRightsRequiredForContext: PropTypes.bool.isRequired
 
     getInitialState: ->
       submitable: false
@@ -45,7 +64,7 @@ define [
         values = @refs.usageSelection.getValues()
         # They didn't choose a use justification
         if (values.use_justification == 'choose')
-          $(@refs.usageSelection.refs.usageRightSelection.getDOMNode()).errorBox(I18n.t('You must specify a usage right.'))
+          $(ReactDOM.findDOMNode(@refs.usageSelection.refs.usageRightSelection)).errorBox(I18n.t('You must specify a usage right.'))
           return false
 
         # We need to first set usage rights before handling the setting of
@@ -64,7 +83,7 @@ define [
     setRestrictedAccess: ->
       attributes = @refs.restrictedSelection.extractFormValues()
       if attributes.unlock_at and attributes.lock_at and attributes.unlock_at > attributes.lock_at
-        $(@refs.restrictedSelection.refs.unlock_at.getDOMNode()).errorBox(I18n.t('"Available From" date must precede "Available Until"'))
+        $(ReactDOM.findDOMNode(@refs.restrictedSelection.refs.unlock_at)).errorBox(I18n.t('"Available From" date must precede "Available Until"'))
         return false
       promises = @props.models.map (item) ->
         # Calling .save like this (passing data as the 'attrs' property on
@@ -78,7 +97,7 @@ define [
 
       dfd = $.when(promises...)
       dfd.done => @props.closeDialog()
-      $(@refs.dialogForm.getDOMNode()).disableWhileLoading dfd
+      $(ReactDOM.findDOMNode(@refs.dialogForm)).disableWhileLoading dfd
 
 
     ###

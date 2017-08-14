@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -12,8 +12,8 @@
 # A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
 # details.
 #
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <http://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
 define [
@@ -23,12 +23,11 @@ define [
   'compiled/views/editor/KeyboardShortcuts'
   'jquery.instructure_date_and_time' # dateString, datepicker #
   'jquery.instructure_forms' # formSubmit, formErrors #
-  'jquery.instructure_misc_helpers' # scrollSidebar #
   'jquery.instructure_misc_plugins' # ifExists, showIf #
   'jquery.loadingImg' # loadingImage #
   'vendor/jquery.scrollTo' # /\.scrollTo/ #
   'jqueryui/datepicker' # /\.datepicker/ #
-], ($, calendarMonths, RichContentEditor, KeyboardShortcuts) ->
+], ($, {changeMonth}, RichContentEditor, KeyboardShortcuts) ->
 
   specialDatesAreHidden = false
 
@@ -44,11 +43,19 @@ define [
     if !$mini_month or !$syllabus
       return
 
-    $mini_month.find('.day.has_event').removeClass 'has_event'
+    events = $mini_month.find('.day.has_event')
+    events.removeClass 'has_event'
+    wrapper = events.find('.day_wrapper')
+    wrapper.removeAttr 'role'
+    wrapper.removeAttr 'tabindex'
 
     $syllabus.find('tr.date:visible').each ->
       date = $(this).find('.day_date').attr('data-date')
-      $mini_month.find("#mini_day_#{date}").addClass 'has_event'
+      events = $mini_month.find("#mini_day_#{date}")
+      events.addClass 'has_event'
+      wrapper = events.find('.day_wrapper')
+      wrapper.attr 'role', 'link'
+      wrapper.attr 'tabindex', '0'
 
   # Sets highlighting on a given date
   #    Removes all highlighting then highlights the given
@@ -116,7 +123,7 @@ define [
     todayString = $.datepicker.formatDate 'yy_mm_dd', new Date
     highlightDate todayString
 
-  selectRow = ($row, e) ->
+  selectRow = ($row) ->
     if $row.length > 0
       $('tr.selected').removeClass('selected')
       $row.addClass('selected')
@@ -132,26 +139,29 @@ define [
     $mini_month = $('.mini_month')
 
     prev_next_links = $mini_month.find('.next_month_link, .prev_month_link')
-    prev_next_links.on 'click', false
-    prev_next_links.on 'mousedown', (ev) ->
+    prev_next_links.on 'click', (ev) ->
       ev.preventDefault()
-      calendarMonths.changeMonth $mini_month, if $(this).hasClass('next_month_link') then 1 else -1
+      changeMonth $mini_month, if $(this).hasClass('next_month_link') then 1 else -1
       highlightDaysWithEvents()
 
-    $mini_month.on 'click', '.mini_calendar_day', (ev) ->
+    miniCalendarDayClick = (ev) ->
       ev.preventDefault()
-      date = this.id.slice(9)
+      date = $(ev.target).closest('.mini_calendar_day')[0].id.slice(9)
       [year, month, day] = date.split('_')
-
-      calendarMonths.changeMonth $mini_month, "#{month}/#{day}/#{year}"
+      changeMonth $mini_month, "#{month}/#{day}/#{year}"
       highlightDaysWithEvents()
       selectDate(date)
-
       $(".events_#{date}").ifExists ($events) ->
-        selectRow($events, ev)
+        setTimeout (=> selectRow($events)), 0 # focus race condition hack. why do you do this to me, IE?
 
-    $mini_month.on 'mouseover mouseout', '.mini_calendar_day', (ev) ->
-      date = this.id.slice(9) unless ev.type == 'mouseout'
+    $mini_month.on 'keypress', '.day_wrapper', (ev) ->
+      if ev.which == 13 || ev.which == 32
+        miniCalendarDayClick(ev)
+
+    $mini_month.on 'click', '.day_wrapper', miniCalendarDayClick
+
+    $mini_month.on 'focus blur mouseover mouseout', '.day_wrapper', (ev) ->
+      date = $(ev.target).closest('.mini_calendar_day')[0].id.slice(9) unless ev.type == 'mouseout' or ev.type == 'blur'
       highlightDate date
 
     $('.jump_to_today_link').on 'click', (ev) ->
@@ -163,12 +173,12 @@ define [
         return false if !dateString || dateString > todayString
         $lastBefore = $(this)
 
-      calendarMonths.changeMonth $mini_month, $.datepicker.formatDate 'mm/dd/yy', new Date
+      changeMonth $mini_month, $.datepicker.formatDate 'mm/dd/yy', new Date
       highlightDaysWithEvents()
 
       $lastBefore ||= $('tr.date:first')
       selectDate(todayString)
-      selectRow($lastBefore, ev)
+      selectRow($lastBefore)
 
   # Binds to edit syllabus dom events
   bindToEditSyllabus = ->
@@ -186,19 +196,25 @@ define [
     # Add the backbone view for keyboardshortup help here
     $('.toggle_views_link').first().before((new KeyboardShortcuts()).render().$el)
 
+    resetToggleLinks = () ->
+      $('.toggle_html_editor_link').show()
+      $('.toggle_rich_editor_link').hide()
+
     $edit_course_syllabus_form = $('#edit_course_syllabus_form')
     $course_syllabus_body = $('#course_syllabus_body')
     $course_syllabus_details = $('#course_syllabus_details')
 
     RichContentEditor.initSidebar({
-      show: -> $('#sidebar_content').hide(),
-      hide: -> $('#sidebar_content').show()
+      show: -> $('#sidebar_content, #course_show_secondary').hide(),
+      hide: -> $('#sidebar_content, #course_show_secondary').show()
     })
 
     $edit_course_syllabus_form.on 'edit', ->
       $edit_course_syllabus_form.show()
+      $edit_syllabus_link.hide()
       $course_syllabus.hide()
       $course_syllabus_details.hide()
+      $course_syllabus_body = RichContentEditor.freshNode($course_syllabus_body)
       $course_syllabus_body.val($course_syllabus.data('syllabus_body'))
       RichContentEditor.loadNewEditor($course_syllabus_body, { focus: true, manageParent: true })
 
@@ -206,10 +222,13 @@ define [
 
     $edit_course_syllabus_form.on 'hide_edit', ->
       $edit_course_syllabus_form.hide()
+      $edit_syllabus_link.show()
       $course_syllabus.show()
       text = $.trim $course_syllabus.html()
       $course_syllabus_details.showIf not text
       RichContentEditor.destroyRCE($course_syllabus_body)
+      resetToggleLinks()
+      $edit_syllabus_link.focus()
 
     $edit_syllabus_link.on 'click', (ev) ->
       ev.preventDefault()

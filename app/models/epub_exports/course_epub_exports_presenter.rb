@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module EpubExports
   class CourseEpubExportsPresenter
     def initialize(current_user)
@@ -22,9 +39,9 @@ module EpubExports
         where(Enrollment::QueryBuilder.new(:current_and_concluded).conditions).
         where(
         'enrollments.type IN (?) AND enrollments.user_id = ?',
-        [StudentEnrollment, TeacherEnrollment],
+        [StudentEnrollment, TeacherEnrollment, TaEnrollment],
         current_user
-      )
+      ).to_a
     end
 
     def courses_with_feature_enabled
@@ -36,7 +53,8 @@ module EpubExports
     def epub_exports
       @_epub_exports ||= EpubExport.where({
         course_id: courses_with_feature_enabled,
-        user_id: current_user
+        user_id: current_user,
+        type: nil
       }).select("DISTINCT ON (epub_exports.course_id) epub_exports.*").
       order("course_id, created_at DESC").
       preload(:epub_attachment, :job_progress, :zip_attachment)

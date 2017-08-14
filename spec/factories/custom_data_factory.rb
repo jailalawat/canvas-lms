@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,13 +16,15 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-def custom_data_model(opts={})
-  @custom_data = factory_with_protected_attributes(CustomData, valid_custom_data_attributes.merge(opts))
-end
+module Factories
+  def custom_data_model(opts={})
+    @custom_data = factory_with_protected_attributes(CustomData, valid_custom_data_attributes.merge(opts))
+  end
 
-def valid_custom_data_attributes
-  {
-      user: user_model,
-      namespace: 'value for namespace'
-  }
+  def valid_custom_data_attributes
+    {
+        user: user_model,
+        namespace: 'value for namespace'
+    }
+  end
 end

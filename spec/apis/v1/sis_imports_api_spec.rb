@@ -155,6 +155,51 @@ describe SisImportsApiController, type: :request do
     })
   end
 
+  it 'should abort batch on abort' do
+    batch = @account.sis_batches.create
+    api_call(:put, "/api/v1/accounts/#{@account.id}/sis_imports/#{batch.id}/abort",
+             {controller: 'sis_imports_api', action: 'abort', format: 'json',
+              account_id: @account.id.to_s, id: batch.id.to_s})
+    expect(batch.reload.workflow_state).to eq 'aborted'
+  end
+
+  it 'should allow aborting an importing batch' do
+    batch = @account.sis_batches.create
+    SisBatch.where(id: batch).update_all(workflow_state: 'importing')
+    api_call(:put, "/api/v1/accounts/#{@account.id}/sis_imports/#{batch.id}/abort",
+             {controller: 'sis_imports_api', action: 'abort', format: 'json',
+              account_id: @account.id.to_s, id: batch.id.to_s})
+    expect(batch.reload.workflow_state).to eq 'aborted'
+  end
+
+  it 'should not explode if there is no batch' do
+    batch = @account.sis_batches.create
+    SisBatch.where(id: batch).update_all(workflow_state: 'imported')
+    raw_api_call(:put,
+                 "/api/v1/accounts/#{@account.id}/sis_imports/#{batch.id}/abort",
+                 {controller: 'sis_imports_api', action: 'abort', format: 'json',
+                  account_id: @account.id.to_s, id: batch.id.to_s})
+    assert_status(404)
+    expect(batch.reload.workflow_state).to eq 'imported'
+  end
+
+  it 'should abort all pending batches on abort' do
+    batch1 = @account.sis_batches.create
+    SisBatch.where(id: batch1).update_all(workflow_state: 'imported')
+    batch2 = @account.sis_batches.create
+    SisBatch.where(id: batch2).update_all(workflow_state: 'importing')
+    batch3 = @account.sis_batches.create
+    SisBatch.where(id: batch3).update_all(workflow_state: 'created')
+    batch4 = @account.sis_batches.create
+    api_call(:put, "/api/v1/accounts/#{@account.id}/sis_imports/abort_all_pending",
+             {controller: 'sis_imports_api', action: 'abort_all_pending',
+              format: 'json', account_id: @account.id.to_s})
+    expect(batch1.reload.workflow_state).to eq 'imported'
+    expect(batch2.reload.workflow_state).to eq 'importing'
+    expect(batch3.reload.workflow_state).to eq 'aborted'
+    expect(batch4.reload.workflow_state).to eq 'aborted'
+  end
+
   it "should skip the job for skip_sis_jobs_account_ids" do
     Setting.set('skip_sis_jobs_account_ids', "fake,#{@account.global_id}")
     expect {
@@ -181,7 +226,7 @@ describe SisImportsApiController, type: :request do
     expect(batch.batch_mode_term).to eq @account.default_enrollment_term
   end
 
-  it "should enable batch mode and require selecting a valid term" do
+  it "should enable batch with sis stickyness" do
     json = api_call(:post,
       "/api/v1/accounts/#{@account.id}/sis_imports.json",
       { controller: 'sis_imports_api', action: 'create',
@@ -482,7 +527,7 @@ describe SisImportsApiController, type: :request do
           "/api/v1/accounts/#{@account.id}/sis_imports.json?import_type=instructure_csv",
           { :controller => 'sis_imports_api', :action => 'create',
             :format => 'json', :account_id => @account.id.to_s,
-            :import_type => 'instructure_csv' },
+            :import_type => 'instructure_csv', :attachment => 'blah' },
           {},
           { 'CONTENT_TYPE' => 'text/csv' })
     batch = SisBatch.last
@@ -495,7 +540,7 @@ describe SisImportsApiController, type: :request do
           "/api/v1/accounts/#{@account.id}/sis_imports.json?import_type=instructure_csv",
           { :controller => 'sis_imports_api', :action => 'create',
             :format => 'json', :account_id => @account.id.to_s,
-            :import_type => 'instructure_csv' },
+            :import_type => 'instructure_csv', :attachment => 'blah' },
           {},
           { 'CONTENT_TYPE' => 'text/csv; charset=utf-8' })
     batch = SisBatch.last

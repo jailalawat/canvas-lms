@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,14 +23,14 @@ module Api::V1::User
 
   API_USER_JSON_OPTS = {
     :only => %w(id name).freeze,
-    :methods => %w(sortable_name short_name display_name).freeze
+    :methods => %w(sortable_name short_name).freeze
   }.freeze
 
   def user_json_preloads(users, preload_email=false, opts={})
     # for User#account
     ActiveRecord::Associations::Preloader.new.preload(users, :pseudonym => :account)
 
-    # pseudonyms for User#sis_pseudoym_for and User#find_pseudonym_for_account
+    # pseudonyms for SisPseudonym
     # pseudonyms account for Pseudonym#works_for_account?
     ActiveRecord::Associations::Preloader.new.preload(users, pseudonyms: :account) if user_json_is_admin?
     if preload_email && (no_email_users = users.reject(&:email_cached?)).present?
@@ -46,10 +46,13 @@ module Api::V1::User
     includes ||= []
     excludes ||= []
     api_json(user, current_user, session, API_USER_JSON_OPTS).tap do |json|
-
+      enrollment_json_opts = { current_grading_period_scores: includes.include?('current_grading_period_scores') }
       if !excludes.include?('pseudonym') && user_json_is_admin?(context, current_user)
         include_root_account = @domain_root_account.trust_exists?
-        if (sis_pseudonym = SisPseudonym.for(user, @domain_root_account, include_root_account))
+        pseudonym = SisPseudonym.for(user, @domain_root_account, type: :implicit, require_sis: false)
+        sis_pseudonym = pseudonym if pseudonym&.sis_user_id
+        enrollment_json_opts[:sis_pseudonym] = sis_pseudonym
+        if sis_pseudonym
           # the sis fields on pseudonym are poorly named -- sis_user_id is
           # the id in the SIS import data, where on every other table
           # that's called sis_source_id.
@@ -64,7 +67,7 @@ module Api::V1::User
           json[:root_account] = HostUrl.context_host(sis_pseudonym.account) if include_root_account
         end
 
-        if pseudonym = (sis_pseudonym || user.find_pseudonym_for_account(@domain_root_account))
+        if pseudonym
           json[:login_id] = pseudonym.unique_id
         end
       end
@@ -73,15 +76,17 @@ module Api::V1::User
         json[:avatar_url] = avatar_url_for_user(user, blank_fallback)
       end
       if enrollments
-        json[:enrollments] = enrollments.map { |e| enrollment_json(e, current_user, session, includes) }
+        json[:enrollments] = enrollments.map do |enrollment|
+          enrollment_json(enrollment, current_user, session, includes, enrollment_json_opts)
+        end
       end
       # include a permissions check here to only allow teachers and admins
       # to see user email addresses.
-      if includes.include?('email') && context.grants_right?(current_user, session, :read_roster)
+      if includes.include?('email') && !excludes.include?('personal_info') && context.grants_right?(current_user, session, :read_roster)
         json[:email] = user.email
       end
 
-      if includes.include?('bio') && @domain_root_account.enable_profiles? && user.profile
+      if includes.include?('bio') && !excludes.include?('personal_info') && @domain_root_account.enable_profiles? && user.profile
         json[:bio] = user.profile.bio
       end
 
@@ -95,10 +100,7 @@ module Api::V1::User
       # been called with {group_memberships: true} in opts
       if includes.include?('group_ids')
         context_group_ids = get_context_groups(context)
-        user_group_ids = user.group_memberships.loaded ?
-          user.group_memberships.map(&:group_id) :
-          user.group_memberships.pluck(:group_id)
-        json[:group_ids] = context_group_ids & user_group_ids
+        json[:group_ids] = context_group_ids & group_ids(user)
       end
 
       json[:locale] = user.locale if includes.include?('locale')
@@ -217,6 +219,9 @@ module Api::V1::User
   def enrollment_json(enrollment, user, session, includes = [], opts = {})
     api_json(enrollment, user, session, :only => API_ENROLLMENT_JSON_OPTS).tap do |json|
       json[:enrollment_state] = json.delete('workflow_state')
+      if enrollment.course.workflow_state == 'deleted' || enrollment.course_section.workflow_state == 'deleted'
+        json[:enrollment_state] = 'deleted'
+      end
       json[:role] = enrollment.role.name
       json[:role_id] = enrollment.role_id
       json[:last_activity_at] = enrollment.last_activity_at
@@ -225,13 +230,16 @@ module Api::V1::User
         json[:sis_import_id] = enrollment.sis_batch_id
       end
       if enrollment.student?
-        json[:grades] = grades_hash(enrollment, user, opts[:grading_period])
+        json[:grades] = grades_hash(enrollment, user, opts)
       end
       if user_can_read_sis_data?(@current_user, enrollment.course)
+        json[:sis_account_id] = enrollment.course.account.sis_source_id
         json[:sis_course_id] = enrollment.course.sis_source_id
         json[:course_integration_id] = enrollment.course.integration_id
         json[:sis_section_id] = enrollment.course_section.sis_source_id
         json[:section_integration_id] = enrollment.course_section.integration_id
+        pseudonym = opts.key?(:sis_pseudonym) ? opts[:sis_pseudonym] : sis_pseudonym_for(enrollment.user)
+        json[:sis_user_id] = pseudonym.try(:sis_user_id)
       end
       json[:html_url] = course_user_url(enrollment.course_id, enrollment.user_id)
       user_includes = includes.include?('avatar_url') ? ['avatar_url'] : []
@@ -254,43 +262,36 @@ module Api::V1::User
   end
 
   private
-  def grades_hash(enrollment, user, grading_period)
+  def grades_hash(enrollment, user, opts = {})
     grades = {
       html_url: course_student_grades_url(enrollment.course_id, enrollment.user_id)
     }
 
     if grade_permissions?(user, enrollment)
-      if grading_period
-        student_id = enrollment.is_a?(StudentEnrollment) ? enrollment.student.id : user.id
-        calculator = GradeCalculator.new(
-          student_id,
-          enrollment.course,
-          grading_period: grading_period
-        )
+      gpid = grading_period(enrollment.course, opts)&.id
 
-        computed        = calculator.compute_scores.first
-        current, final  = computed[:current], computed[:final]
-
-        grades[:current_score] = current[:grade]
-        grades[:current_grade] = enrollment.course.score_to_grade(current[:grade])
-        grades[:final_score]   = final[:grade]
-        grades[:final_grade]   = enrollment.course.score_to_grade(final[:grade])
-      else
-        grades[:current_score] = enrollment.computed_current_score
-        grades[:current_grade] = enrollment.computed_current_grade
-        grades[:final_score]   = enrollment.computed_final_score
-        grades[:final_grade]   = enrollment.computed_final_grade
-      end
+      grades[:current_score] = enrollment.computed_current_score(grading_period_id: gpid)
+      grades[:current_grade] = enrollment.computed_current_grade(grading_period_id: gpid)
+      grades[:final_score]   = enrollment.computed_final_score(grading_period_id: gpid)
+      grades[:final_grade]   = enrollment.computed_final_grade(grading_period_id: gpid)
+      grades[:grading_period_id] = gpid if opts[:current_grading_period_scores]
     end
     grades
+  end
+
+  def grading_period(course, opts)
+    return opts[:grading_period] if opts[:grading_period]
+    return nil unless opts[:current_grading_period_scores]
+
+    GradingPeriod.current_period_for(course)
   end
 
   def grade_permissions?(user, enrollment)
     course = enrollment.course
 
     (user.id == enrollment.user_id && !course.hide_final_grades?) ||
-     course.grants_any_right?(user, :manage_grades, :view_all_grades) ||
-     enrollment.user.grants_right?(user, :read_as_parent)
+      course.grants_any_right?(user, :manage_grades, :view_all_grades) ||
+      enrollment.user.grants_right?(user, :read_as_parent)
   end
 
   def get_context_groups(context)
@@ -300,8 +301,30 @@ module Api::V1::User
       context.groups.map(&:id)
   end
 
+  def sis_id_context(context)
+    case context
+    when Account, Course
+      context
+    when Group
+      context.context
+    else
+      @domain_root_account
+    end
+  end
+
   def user_can_read_sis_data?(user, context)
-    sis_id_context = (context.is_a?(Course) || context.is_a?(Account)) ? context : @domain_root_account
-    sis_id_context.grants_right?(user, :read_sis) || @domain_root_account.grants_right?(user, :manage_sis)
+    sis_id_context(context).grants_right?(user, :read_sis) || @domain_root_account.grants_right?(user, :manage_sis)
+  end
+
+  def sis_pseudonym_for(user)
+    SisPseudonym.for(user, @domain_root_account, type: :trusted)
+  end
+
+  def group_ids(user)
+    if user.group_memberships.loaded?
+      user.group_memberships.map(&:group_id)
+    else
+      user.group_memberships.pluck(:group_id)
+    end
   end
 end

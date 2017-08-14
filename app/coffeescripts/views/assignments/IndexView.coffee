@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!assignments'
   'compiled/views/KeyboardNavDialog'
@@ -5,12 +22,17 @@ define [
   'jquery'
   'underscore'
   'Backbone'
+  'react'
+  'react-dom'
   'jst/assignments/IndexView'
   'jst/assignments/NoAssignmentsSearch'
   'compiled/views/assignments/AssignmentKeyBindingsMixin'
   'compiled/userSettings'
+  'compiled/api/gradingPeriodsApi'
+  'jsx/assignments/IndexMenu'
+  'jsx/assignments/store/indexMenuStore'
   'compiled/jquery.rails_flash_notifications'
-], (I18n, KeyboardNavDialog, keyboardNavTemplate, $, _, Backbone, template, NoAssignments, AssignmentKeyBindingsMixin, userSettings) ->
+], (I18n, KeyboardNavDialog, keyboardNavTemplate, $, _, Backbone, React, ReactDOM, template, NoAssignments, AssignmentKeyBindingsMixin, userSettings, GradingPeriodsAPI, IndexMenu, configureIndexMenuStore) ->
 
   class IndexView extends Backbone.View
     @mixin AssignmentKeyBindingsMixin
@@ -21,6 +43,7 @@ define [
     @child 'assignmentGroupsView', '[data-view=assignmentGroups]'
     @child 'createGroupView', '[data-view=createGroup]'
     @child 'assignmentSettingsView', '[data-view=assignmentSettings]'
+    @child 'assignmentSyncSettingsView', '[data-view=assignmentSyncSettings]'
     @child 'showByView', '[data-view=showBy]'
 
     events:
@@ -39,6 +62,7 @@ define [
     toJSON: ->
       json = super
       json.course_home = ENV.COURSE_HOME
+      json.weight_final_grades = ENV.WEIGHT_FINAL_GRADES
       json
 
     afterRender: ->
@@ -50,7 +74,34 @@ define [
 
       if @assignmentSettingsView
         @assignmentSettingsView.hide()
-        @assignmentSettingsView.setTrigger @$assignmentSettingsButton
+        @assignmentSyncSettingsView.hide()
+
+        @indexMenuStore = configureIndexMenuStore({
+          weighted: ENV.WEIGHT_FINAL_GRADES,
+          externalTools: [],
+          modalIsOpen: false,
+          selectedTool: null
+        });
+
+        contextInfo = ENV.context_asset_string.split('_')
+        contextType = contextInfo[0]
+        contextId = parseInt(contextInfo[1], 10)
+
+        ReactDOM.render(
+          React.createElement(IndexMenu, {
+            store: @indexMenuStore,
+            contextType: contextType,
+            contextId: contextId,
+            setTrigger: @assignmentSettingsView.setTrigger.bind(@assignmentSettingsView)
+            setDisableTrigger: @assignmentSyncSettingsView.setTrigger.bind(@assignmentSyncSettingsView)
+            registerWeightToggle: @assignmentSettingsView.on.bind(@assignmentSettingsView)
+            disableSyncToSis: @assignmentSyncSettingsView.openDisableSync.bind(@assignmentSyncSettingsView)
+            sisName: ENV.SIS_NAME
+            postToSisDefault: ENV.POST_TO_SIS_DEFAULT
+            hasAssignments: ENV.HAS_ASSIGNMENTS
+          }),
+          $('#settingsMountPoint')[0]
+        )
 
       @filterKeyBindings() if !@canManage()
 
@@ -72,12 +123,14 @@ define [
       @filterResults()
     , 200
 
+    gradingPeriods: GradingPeriodsAPI.deserializePeriods(ENV.active_grading_periods)
+
     filterResults: =>
       term = $('#search_term').val()
       gradingPeriod = null
-      if ENV.MULTIPLE_GRADING_PERIODS_ENABLED
+      if ENV.HAS_GRADING_PERIODS
         gradingPeriodIndex = $("#grading_period_selector").val()
-        gradingPeriod = ENV.active_grading_periods[parseInt(gradingPeriodIndex)] if gradingPeriodIndex != "all"
+        gradingPeriod = @gradingPeriods[parseInt(gradingPeriodIndex)] if gradingPeriodIndex != "all"
         @saveSelectedGradingPeriod(gradingPeriod)
       if term == "" && _.isNull(gradingPeriod)
         #show all
@@ -146,8 +199,8 @@ define [
     selectGradingPeriod: ->
       gradingPeriodId = userSettings.contextGet('assignments_current_grading_period')
       unless _.isNull(gradingPeriodId)
-        for i of ENV.active_grading_periods
-          if ENV.active_grading_periods[i].id == gradingPeriodId
+        for i of @gradingPeriods
+          if @gradingPeriods[i].id == gradingPeriodId
             $("#grading_period_selector").val(i)
             break
 

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 class Attachments::S3Storage
   attr_reader :attachment
 
@@ -23,39 +40,65 @@ class Attachments::S3Storage
     # so there's a bit of a cost here
     if !exists?
       if !attachment.size
-        attachment.size = bucket.objects[old_full_filename].head[:content_length]
+        attachment.size = bucket.object(old_full_filename).content_length
       end
-      bucket.objects[old_full_filename].copy_to(attachment.full_filename, {
-        :acl => attachment.attachment_options[:s3_access],
-        :use_multipart_copy => (attachment.size >= 5.gigabytes),
-        :content_length => attachment.size
-      })
+      options = { acl: attachment.attachment_options[:s3_access] }
+      if attachment.size >= 5.gigabytes
+        options[:multipart_copy] = true
+        options[:content_length] = attachment.size
+      end
+      bucket.object(old_full_filename).copy_to(bucket.object(attachment.full_filename), options)
     end
   end
 
   def initialize_ajax_upload_params(local_upload_url, s3_success_url, options)
     {
-        :upload_url => "#{options[:ssl] ? "https" : "http"}://#{bucket.name}.#{bucket.config.s3_endpoint}/",
+        :upload_url => bucket.url,
         :file_param => 'file',
         :success_url => s3_success_url,
-        :upload_params => {
-            'AWSAccessKeyId' => bucket.config.access_key_id
-        }
+        :upload_params => cred_params(options[:datetime])
     }
   end
 
-  def amend_policy_conditions(policy, _)
+  def amend_policy_conditions(policy, datetime:, pseudonym: nil)
     policy['conditions'].unshift({'bucket' => bucket.name})
+    cred_params(datetime).each do |k, v|
+      policy['conditions'] << { k => v }
+    end
     policy
   end
 
-  def shared_secret
-    bucket.config.secret_access_key
+  def cred_params(datetime)
+    access_key = bucket.client.config.access_key_id
+    day_string = datetime[0,8]
+    region = bucket.client.config.region
+    credential = "#{access_key}/#{day_string}/#{region}/s3/aws4_request"
+    {
+      'x-amz-credential' => credential,
+      'x-amz-algorithm' => "AWS4-HMAC-SHA256",
+      'x-amz-date' => datetime
+    }
+  end
+
+  def shared_secret(datetime)
+    config = bucket.client.config
+    sha256 = OpenSSL::Digest::SHA256.new
+    date_key = OpenSSL::HMAC.digest(sha256, "AWS4#{config.secret_access_key}", datetime[0,8])
+    date_region_key = OpenSSL::HMAC.digest(sha256, date_key, config.region)
+    date_region_service_key = OpenSSL::HMAC.digest(sha256, date_region_key, "s3")
+    OpenSSL::HMAC.digest(sha256, date_region_service_key, "aws4_request")
+  end
+
+  def sign_policy(policy_encoded, datetime)
+    signature = OpenSSL::HMAC.hexdigest(
+      OpenSSL::Digest.new('sha256'), shared_secret(datetime), policy_encoded
+    )
+    ['x-amz-signature', signature]
   end
 
   def open(opts, &block)
-    if block
-      attachment.s3object.read(&block)
+    if block_given?
+      attachment.s3object.get(&block)
     else
       # TODO: !need_local_file -- net/http and thus AWS::S3::S3Object don't
       # natively support streaming the response, except when a block is given.
@@ -68,12 +111,9 @@ class Attachments::S3Storage
       tempfile = Tempfile.new(["attachment_#{attachment.id}", attachment.extension],
                               opts[:temp_folder].presence || Dir::tmpdir)
       tempfile.binmode
-      attachment.s3object.read do |chunk|
-        tempfile.write(chunk)
-      end
+      attachment.s3object.get(response_target: tempfile)
       tempfile.rewind
       tempfile
     end
   end
-
 end

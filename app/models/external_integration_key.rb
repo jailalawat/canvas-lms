@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 - 2015 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,8 +17,6 @@
 #
 
 class ExternalIntegrationKey < ActiveRecord::Base
-  attr_accessible
-
   belongs_to :context, polymorphic: [:account]
 
   validates_presence_of :context_id

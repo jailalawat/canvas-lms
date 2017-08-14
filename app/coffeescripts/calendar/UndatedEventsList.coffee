@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!calendar'
   'jquery'
@@ -23,13 +40,13 @@ define [
         "CommonEvent/eventSaved" : @eventSaved
         "Calendar/visibleContextListChanged" : @visibleContextListChanged
 
-      @div.on('click keyclick', '.event, .event:focus', @clickEvent)
+      @div.on('click keyclick', '.undated_event_title', @clickEvent)
           .on('click', '.undated-events-link', @show)
       if toggler = @div.prev('.element_toggler')
         toggler.on('click keyclick', @toggle)
         @div.find('.undated-events-link').hide()
 
-    load: (setFocus = false) =>
+    load: () =>
       return if @hidden
 
       loadingDfd = new $.Deferred()
@@ -75,9 +92,7 @@ define [
             event.end = null
             event.saveDates()
 
-        if setFocus
-          @div.find('.event:first').focus()
-        else if @previouslyFocusedElement
+        if @previouslyFocusedElement
           $(@previouslyFocusedElement).focus()
         else
           @div.siblings('.element_toggler').focus()
@@ -85,20 +100,18 @@ define [
     show: (event) =>
       event.preventDefault()
       @hidden = false
-      @load(setFocus = true)
+      @load()
 
     toggle: (e) =>
       # defer this until after the section toggles
       setTimeout =>
         @hidden = !@div.is(':visible')
-        @load(setFocus = true)
+        @load()
       , 0
 
     clickEvent: (jsEvent) =>
       jsEvent.preventDefault()
-      eventId = $(jsEvent.target).data('event-id')
-      # Support handling a contained element being clicked within an event
-      eventId ||= $(jsEvent.target).closest('.event').data('event-id')
+      eventId = $(jsEvent.target).closest('.event').data('event-id')
       event = @dataSource.eventWithId(eventId)
       if event
         new ShowEventDetailsDialog(event, @dataSource).show jsEvent
@@ -108,19 +121,17 @@ define [
       @load() unless @hidden
 
     eventSaving: (event) =>
-      @div.find(".#{event.id}").addClass('event_pending')
-      @previouslyFocusedElement = "." + event.id
+      @div.find(".event.#{event.id}").addClass('event_pending')
+      @previouslyFocusedElement = ".event.#{event.id} a"
 
     eventSaved: =>
       @load()
 
     eventDeleting: (event) =>
-      siblings = @div.find(".#{event.id}").addClass('event_pending').siblings()
-
-      if siblings.length == 0
-        @previouslyFocusedElement = null
-      else
-        @previouslyFocusedElement = "." + siblings.first().data('event-id')
+      $li = @div.find(".event.#{event.id}")
+      $li.addClass('event_pending')
+      $prev = $li.prev()
+      @previouslyFocusedElement = if $prev.length then ".event.#{$prev.data('event-id')} a" else null
 
     eventDeleted: =>
       @load()

@@ -1,9 +1,26 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'nokogiri'
 
 module Qti
 class AssociateInteraction < AssessmentItemConverter
   include Canvas::Migration::XMLHelper
-  
+
   def initialize(opts)
     super(opts)
     @question[:matches] = []
@@ -16,8 +33,12 @@ class AssociateInteraction < AssessmentItemConverter
     if @doc.at_css('associateInteraction')
       match_map = {}
       get_all_matches_with_interaction(match_map)
-      get_all_answers_with_interaction(match_map)
-      check_for_meta_matches
+      if pair_node = @doc.at_css('responseDeclaration[baseType=pair][cardinality=multiple]')
+        get_answers_from_matching_pairs(pair_node, match_map)
+      else
+        get_all_answers_with_interaction(match_map)
+        check_for_meta_matches
+      end
     elsif node = @doc.at_css('matchInteraction')
       get_all_match_interaction(node)
     elsif @custom_type == 'respondus_matching'
@@ -35,15 +56,15 @@ class AssociateInteraction < AssessmentItemConverter
       get_all_matches_from_body
       get_all_answers_from_body
     end
-    
+
     get_feedback()
     ensure_correct_format
-    
+
     @question
   end
-  
+
   private
-  
+
   def ensure_correct_format
     @question[:answers].each do |answer|
       answer[:left] = answer[:text] if answer[:text].present?
@@ -85,7 +106,7 @@ class AssociateInteraction < AssessmentItemConverter
       answer[:right] = ::CGI.unescapeHTML(answer[:right]) if answer[:right]
     end
   end
-  
+
   def get_canvas_matches(match_map)
     if ci = @doc.at_css('choiceInteraction')
       ci.css('simpleChoice').each do |sc|
@@ -101,7 +122,7 @@ class AssociateInteraction < AssessmentItemConverter
       end
     end
   end
-  
+
   def get_canvas_answers(match_map)
     answer_map = {}
     @doc.css('choiceInteraction').each do |ci|
@@ -111,7 +132,7 @@ class AssociateInteraction < AssessmentItemConverter
       extract_answer!(answer, ci.at_css('prompt'))
       answer[:id] = unique_local_id
     end
-    
+
     # connect to match
     @doc.css('responseIf, responseElseIf').each do |r_if|
       answer_mig_id = nil
@@ -176,13 +197,13 @@ class AssociateInteraction < AssessmentItemConverter
       end
     end
   end
-  
+
   def get_all_answers_from_body
     @doc.css('div.RESPONSE_BLOCK div').each_with_index do |a, i|
       answer = {}
       @question[:answers] << answer
       extract_answer!(answer, a)
-      answer[:id] = unique_local_id 
+      answer[:id] = unique_local_id
       answer[:comments] = ""
       answer[:match_id] = @question[:matches][i][:match_id]
     end
@@ -229,14 +250,14 @@ class AssociateInteraction < AssessmentItemConverter
       @question[:answers] << answer
     end
   end
-  
+
   def get_all_matches_with_interaction(match_map)
     @doc.css('associateInteraction').each do |matches|
       matches.css('simpleAssociableChoice').each do |m|
         match = {}
         extract_answer!(match, m)
 
-        if other_match = @question[:matches].detect{|om| match[:text].to_s.strip == om[:text].to_s.strip}
+        if other_match = @question[:matches].detect{|om| match[:text].to_s.strip == om[:text].to_s.strip && match[:html].to_s.strip == om[:html].to_s.strip}
           match_map[m['identifier']] = other_match[:match_id]
         else
           @question[:matches] << match
@@ -247,15 +268,16 @@ class AssociateInteraction < AssessmentItemConverter
       end
     end
   end
-  
+
   def get_all_answers_with_interaction(match_map)
     @doc.css('associateInteraction').each do |a|
       answer = {}
       @question[:answers] << answer
-      extract_answer!(answer, a.at_css('prompt'))
-      answer[:id] = unique_local_id 
+      prompt = a.at_css('prompt')
+      extract_answer!(answer, prompt) if prompt
+      answer[:id] = unique_local_id
       answer[:comments] = ""
-      
+
       if option = a.at_css('simpleAssociableChoice[identifier^=MATCH]')
         answer[:match_id] = match_map[option.text.strip]
       elsif resp_id = a['responseIdentifier']
@@ -273,7 +295,20 @@ class AssociateInteraction < AssessmentItemConverter
       end
     end
   end
-  
+
+  def get_answers_from_matching_pairs(node, match_map)
+    node.css('correctResponse > value').each do |pair|
+      match_id, answer_id = pair.text.split
+      match = @question[:matches].detect{|m| m[:match_id] == match_map[match_id.strip]}
+      answer = @question[:matches].detect{|m| m[:match_id] == match_map[answer_id.strip]}
+      if answer && match
+        @question[:matches].delete(answer)
+        answer[:match_id] = match[:match_id]
+        @question[:answers] << answer
+      end
+    end
+  end
+
   # Replaces the matches with their full-text instead of a,b,c/1,2,3/etc.
   def check_for_meta_matches
     if long_matches = @doc.search('instructureMetadata matchingMatch')

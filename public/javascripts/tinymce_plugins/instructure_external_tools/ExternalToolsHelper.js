@@ -1,13 +1,26 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
 
-define([
-  'compiled/editor/stocktiny',
-  'i18n!editor',
-  'jquery',
-  'str/htmlEscape',
-  'jquery.dropdownList',
-  'jquery.instructure_misc_helpers',
-  'underscore'
-], function(tinymce, I18n, $, htmlEscape) {
+import I18n from 'i18n!editor'
+import $ from 'jquery'
+import htmlEscape from '../../str/htmlEscape'
+import '../../jquery.dropdownList'
+import '../../jquery.instructure_misc_helpers'
 
   /**
    * A module for holding helper functions pulled out of the instructure_external_tools/plugin.
@@ -20,7 +33,7 @@ define([
    * @exports
    */
 
-  return {
+export default {
 
     /**
      * build the TinyMCE configuration hash for each
@@ -68,13 +81,13 @@ define([
      *   button configs, like the ones passed into "buttonConfig"
      *   above as parameters
      *
-     * @param {function(Hash)} onClickHandler the function that should get
+     * @param {function(Hash), editor} onClickHandler the function that should get
      *   called when this button gets clicked
      *
      * @returns {Hash<string,function(Hash)>} the hash we can use
      *   for generating a dropdown list in jquery
      */
-    clumpedButtonMapping: function(clumpedButtons, onClickHandler){
+    clumpedButtonMapping: function(clumpedButtons, ed, onClickHandler){
       return clumpedButtons.reduce(function(items, button){
         var key;
 
@@ -86,7 +99,7 @@ define([
           key = "<img src='"+ htmlEscape(button.icon_url) +"' data-tool-id='"+ button.id +"'/>";
         }
         key += "&nbsp;" + htmlEscape(button.name);
-        items[key] = function() { onClickHandler(button); };
+        items[key] = function() { onClickHandler(button, ed); };
         return items;
       }, {});
     },
@@ -113,4 +126,3 @@ define([
       });
     }
   };
-});

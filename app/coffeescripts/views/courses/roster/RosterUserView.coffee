@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!roster'
   'jquery'
@@ -47,7 +64,12 @@ define [
       json = super
       @permissionsJSON json
       @observerJSON json
+      @contextCardJSON json
       json
+
+    contextCardJSON: (json) ->
+      if enrollment = _.find(json.enrollments, (e) -> e.type == "StudentEnrollment")
+        json.course_id = enrollment.course_id
 
     permissionsJSON: (json) ->
       json.url = "#{ENV.COURSE_ROOT_URL}/users/#{@model.get('id')}"
@@ -70,6 +92,8 @@ define [
       json.canManage =
         if _.any(['TeacherEnrollment', 'DesignerEnrollment', 'TaEnrollment'], (et) => @model.hasEnrollmentType(et))
           ENV.permissions.manage_admin_users
+        else if @model.hasEnrollmentType('ObserverEnrollment')
+          ENV.permissions.manage_admin_users || ENV.permissions.manage_students
         else
           ENV.permissions.manage_students
       json.customLinks = @model.get('custom_links')
@@ -157,11 +181,24 @@ define [
       )
 
     removeFromCourse: (e) ->
-      return unless confirm I18n.t('delete_confirm', 'Are you sure you want to remove this user?')
+      return unless confirm I18n.t('Are you sure you want to remove this user?')
       @$el.hide()
       success = =>
         # TODO: change the count on the search roles drop down
-        $.flashMessage I18n.t('flash.removed', 'User successfully removed.')
+        $.flashMessage I18n.t('User successfully removed.')
+        $previousRow = @$el.prev(':visible')
+        $focusElement = if ($previousRow.length)
+          $previousRow.find('.al-trigger')
+        else
+          # For some reason, VO + Safari sends the virtual cursor to the window
+          # instead of to this element, this has the side effect of making the
+          # flash message not read either in this case :(
+          # Looking at the Tech Preview version of Safari, this isn't an issue
+          # so it should start working once new Safari is released.
+          $('#addUsers')
+        $focusElement.focus()
+
+
       failure = =>
         @$el.show()
         $.flashError I18n.t('flash.removeError', 'Unable to remove the user. Please try again later.')

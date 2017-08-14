@@ -1,10 +1,34 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module LoginAndSessionMethods
   def create_session(pseudonym)
+    if caller.grep(/onceler\/recorder.*record!/).present?
+      raise "don't stub sessions in a `before(:once)` block; do it in a `before(:each)` so the stubbing works for all examples and not just the first one"
+    end
     PseudonymSession.any_instance.stubs(:record).returns { pseudonym.reload }
   end
 
   def destroy_session
     PseudonymSession.any_instance.unstub :record
+  end
+
+  def user_session(user)
+    create_session(pseudonym(user))
   end
 
   def user_logged_in(opts={})
@@ -87,21 +111,15 @@ module LoginAndSessionMethods
   end
 
   def displayed_username
-    if ENV['CANVAS_FORCE_USE_NEW_STYLES'] || Account.default.feature_enabled?(:use_new_styles)
-      f('#global_nav_profile_link').click
-      f('#global_nav_profile_display_name').text
-    else
-      f('#identity .user_name').text
-    end
+    f('[aria-label="Main Navigation"] a[href="/profile"]').click
+    f('#global_nav_profile_display_name').text
   end
 
 
   def expect_logout_link_present
-    logout_element = if ENV['CANVAS_FORCE_USE_NEW_STYLES']
-      f('#global_nav_profile_link').click
-      fj('.ReactTray-profile-header-logout-form button:contains("Logout")')
-    else
-      f('#identity .logout')
+    logout_element = begin
+      f('[aria-label="Main Navigation"] a[href="/profile"]').click
+      fj('form[action="/logout"] button:contains("Logout")')
     end
     expect(logout_element).to be_present
     logout_element

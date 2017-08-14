@@ -1,22 +1,40 @@
-module GroupsCommon
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 
-  def setup_group_page_urls
-    let(:url) {"/groups/#{@testgroup.first.id}"}
-    let(:announcements_page) {url + '/announcements'}
-    let(:people_page) {url + '/users'}
-    let(:discussions_page) {url + '/discussion_topics'}
-    let(:pages_page) {url + '/pages'}
-    let(:files_page) {url + '/files'}
-    let(:conferences_page) {url + '/conferences'}
-    let(:collaborations_page) {url + '/collaborations'}
+module GroupsCommon
+  def self.included(mod)
+    mod.singleton_class.include(ClassMethods)
+  end
+
+  module ClassMethods
+    def setup_group_page_urls
+      let(:url) {"/groups/#{@testgroup.first.id}"}
+      let(:announcements_page) {url + '/announcements'}
+      let(:people_page) {url + '/users'}
+      let(:discussions_page) {url + '/discussion_topics'}
+      let(:pages_page) {url + '/pages'}
+      let(:files_page) {url + '/files'}
+      let(:conferences_page) {url + '/conferences'}
+      let(:collaborations_page) {url + '/collaborations'}
+    end
   end
 
   def seed_students(count, base_name = 'Test Student')
-    @students = []
-    count.times do |n|
-      @students << User.create!(:name => "#{base_name} #{n+1}")
-      @course.enroll_student(@students.last).accept!
-    end
+    @students = create_users_in_course(@course, count, return_type: :record, name_prefix: base_name)
   end
 
   # Creates group sets equal to groupset_count and groups within each group set equal to groups_per_set
@@ -169,13 +187,11 @@ module GroupsCommon
 
   def manually_fill_limited_group(member_limit ="2",student_count = 0)
     student_count.times do |n|
-      # Finds all student add buttons and updates the through each iteration
-      studs = ff('.assign-to-group')
-      studs.first.click
-
-      wait_for_ajaximations
+      f('.assign-to-group').click
       f('.set-group').click
       expect(f('.group-summary')).to include_text("#{n+1} / #{member_limit} students")
+      # make sure the popover is gone; it takes 100ms, and its on('close') -> focus can mess up the next click
+      expect(f('body')).not_to contain_css('.set-group')
     end
     expect(f('.show-group-full')).to be_displayed
   end
@@ -208,7 +224,7 @@ module GroupsCommon
   end
 
   def select_randomly_assign_students_option
-    f('.icon-settings').click
+    f('.group-category-summary .icon-settings').click
     wait_for_ajaximations
     f('.randomly-assign-members').click
     wait_for_ajaximations
@@ -305,7 +321,7 @@ module GroupsCommon
   def verify_member_sees_group_page(index = 0)
     get pages_page
     expect_new_page_load { ff('.wiki-page-link')[index].click }
-    expect expect(f('.page-title')).to include_text("#{@page.title}")
+    expect(f('.page-title')).to include_text(@page.title)
   end
 
   # context test. if true, allows you to test files both in and out of group context,
@@ -324,6 +340,7 @@ module GroupsCommon
   end
 
   def expand_files_on_content_pane
+    expect(f('#editor_tabs')).to be_displayed
     Selenium::WebDriver::Wait.new(timeout: 5).until do
       fj('.ui-state-default.ui-corner-top:contains("Files")').present?
     end
@@ -336,9 +353,9 @@ module GroupsCommon
   def move_file_to_folder(file_name,destination_name)
     move(file_name, 1, :toolbar_menu)
     wait_for_ajaximations
-    expect(f('#flash_message_holder').text).to eq "#{file_name} moved to #{destination_name}\nClose"
+    expect(f('#flash_message_holder').text).to eq "#{file_name} moved to #{destination_name}"
     # Click folder
-    ff('.media-body').first.click
+    ff('.ef-name-col__text').first.click
     wait_for_ajaximations
     expect(fln(file_name)).to be_displayed
   end
@@ -348,7 +365,7 @@ module GroupsCommon
     @top_folder = 'Top Folder'
     @inner_folder = 'Inner Folder'
     add_folder(@top_folder)
-    ff('.media-body')[0].click
+    ff('.ef-name-col__text')[0].click
     wait_for_ajaximations
     add_folder(@inner_folder)
     wait_for_ajaximations
@@ -358,7 +375,7 @@ module GroupsCommon
   def move_folder(folder_name)
     move(folder_name, 0, :toolbar_menu)
     wait_for_ajaximations
-    expect(f('#flash_message_holder').text).to eq "#{folder_name} moved to files\nClose"
+    expect(f('#flash_message_holder').text).to eq "#{folder_name} moved to files"
     expect(ff('.treeLabel span')[2].text).to eq folder_name
   end
 

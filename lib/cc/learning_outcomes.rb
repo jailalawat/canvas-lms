@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -43,7 +43,7 @@ module CC
 
         unless export_object?(LearningOutcome.new, 'learning_outcomes')
           # copy straggler outcomes that should be brought in implicitly
-          @course.learning_outcomes.where.not(:id => @exported_outcome_ids).each do |item|
+          @course.linked_learning_outcomes.where.not(:id => @exported_outcome_ids).each do |item|
             if export_object?(item, 'learning_outcomes')
               process_learning_outcome(outs_node, item)
             end
@@ -56,7 +56,7 @@ module CC
     end
 
     def process_outcome_group(node, group)
-      migration_id = CCHelper.create_key(group)
+      migration_id = create_key(group)
       node.learningOutcomeGroup(:identifier=>migration_id) do |group_node|
         group_node.title group.title unless group.title.blank?
         group_node.description @html_exporter.html_content(group.description) unless group.description.blank?
@@ -81,10 +81,15 @@ module CC
     def process_learning_outcome(node, item)
       @exported_outcome_ids << item.id
 
-      migration_id = CCHelper.create_key(item)
+      add_exported_asset(item)
+
+      migration_id = create_key(item)
       node.learningOutcome(:identifier=>migration_id) do |out_node|
-        out_node.title item.short_description unless item.short_description.blank?
-        out_node.description @html_exporter.html_content(item.description) unless item.description.blank?
+        out_node.title item.short_description if item.short_description.present?
+        out_node.description @html_exporter.html_content(item.description) if item.description.present?
+        out_node.calculation_method item.calculation_method if item.calculation_method.present?
+        out_node.calculation_int item.calculation_int if item.calculation_int.present?
+
         if item.context != @course
           out_node.is_global_outcome !item.context
           out_node.external_identifier item.id
@@ -95,7 +100,7 @@ module CC
             item.alignments.each do |alignment|
               alignments_node.alignment do |alignment_node|
                 alignment_node.content_type alignment.content_type
-                alignment_node.content_id CCHelper.create_key(alignment.content)
+                alignment_node.content_id create_key(alignment.content)
                 alignment_node.mastery_type alignment.tag
                 alignment_node.mastery_score alignment.mastery_score
                 alignment_node.position alignment.position
@@ -120,6 +125,5 @@ module CC
         end
       end
     end
-
   end
 end

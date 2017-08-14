@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -206,6 +206,29 @@ describe Group do
 
     expect(group.grants_right?(@teacher, :moderate_forum)).to be_truthy
     expect(group.grants_right?(@student, :moderate_forum)).to be_falsey
+  end
+
+  it "should grant messaging rights to students if messaging permissions are enabled" do
+    course_with_teacher(active_course: true)
+    student_in_course(:course => @course)
+    group = @course.groups.create
+    group.add_user(@student)
+
+    expect(group.grants_right?(@teacher, :send_messages)).to be_truthy
+    expect(group.grants_right?(@student, :send_messages)).to be_truthy # by default
+    expect(group.grants_right?(@student, :send_messages_all)).to be_truthy
+  end
+
+  it "should not grant messaging rights to students if messaging permissions are disabled" do
+    course_with_teacher(active_course: true)
+    student_in_course(:course => @course)
+    group = @course.groups.create
+    group.add_user(@student)
+    @course.account.role_overrides.create!(:permission => :send_messages, :role => student_role, :enabled => false)
+
+    expect(group.grants_right?(@teacher, :send_messages)).to be_truthy
+    expect(group.grants_right?(@student, :send_messages)).to be_falsey
+    expect(group.grants_right?(@student, :send_messages_all)).to be_falsey
   end
 
   it "should grant read_roster permissions to students that can freely join or request an invitation to the group" do
@@ -458,7 +481,7 @@ describe Group do
   end
 
   it "as_json should include group_category" do
-    course()
+    course_factory()
     gc = group_category(name: "Something")
     group = Group.create(:group_category => gc)
     hash = group.as_json
@@ -603,7 +626,7 @@ describe Group do
         account.default_group_storage_quota = 10.megabytes
         account.save!
 
-        course(:account => subaccount)
+        course_factory(:account => subaccount)
         @group = group(:group_context => @course)
 
         expect(@group.quota).to eq 10.megabytes
@@ -611,7 +634,7 @@ describe Group do
         # should reload
         account.default_group_storage_quota = 20.megabytes
         account.save!
-        @group = Group.find(@group)
+        @group = Group.find(@group.id)
 
         expect(@group.quota).to eq 20.megabytes
       end
@@ -652,7 +675,7 @@ describe Group do
 
       expect(@group.users).to eq [@student]
       @group.destroy
-      expect(@group.users(true)).to eq [@student]
+      expect(@group.users.reload).to eq [@student]
     end
   end
 

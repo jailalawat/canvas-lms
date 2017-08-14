@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,14 +19,13 @@
 class AssessmentRequest < ActiveRecord::Base
   include Workflow
   include SendToStream
-  attr_accessible :rubric_assessment, :user, :asset, :assessor_asset, :rubric_association, :assessor
 
   belongs_to :user
   belongs_to :asset, polymorphic: [:submission]
   belongs_to :assessor_asset, polymorphic: [:submission, :user], polymorphic_prefix: true
   belongs_to :assessor, :class_name => 'User'
   belongs_to :rubric_association
-  has_many :submission_comments
+  has_many :submission_comments, -> { published }
   has_many :ignores, as: :asset
   belongs_to :rubric_assessment
   validates_presence_of :user_id, :asset_id, :asset_type, :workflow_state

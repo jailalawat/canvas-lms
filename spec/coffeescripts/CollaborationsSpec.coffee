@@ -1,7 +1,24 @@
-define ['collaborations'], (collaborations) ->
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
+define ['collaborations', 'jquery', 'jquery.ajaxJSON'], (collaborations, $) ->
 
   oldAjaxJSON = null
-  module "Collaborations",
+  QUnit.module "Collaborations",
     setup: ->
       oldAjaxJSON = $.ajaxJSON
       link= $("<a></a>")
@@ -38,3 +55,20 @@ define ['collaborations'], (collaborations) ->
   test "returns a collaboration url", ->
     url = collaborations.Util.collaborationUrl(1)
     equal url, window.location.toString() + "/1"
+
+  test "it calls updateCollaboration when a service id is in the data parameter", ->
+    @stub(collaborations.Events, 'updateCollaboration')
+    collaborations.Events.onExternalContentReady({}, {service_id: 1, contentItems: {}})
+    equal collaborations.Events.updateCollaboration.callCount, 1
+
+  test "it calls createCollaboration", ->
+    @stub(collaborations.Events, 'createCollaboration')
+    collaborations.Events.onExternalContentReady({}, {contentItems: {}})
+    equal collaborations.Events.createCollaboration.callCount, 1
+
+  test "it makes an ajax request to the correct update endpoint", ->
+    dom = $('<div class="collaboration_1"><a class="title" href="http://url/"></a></div>')
+    $("#fixtures").append(dom)
+    $.ajaxJSON = (url, method, data, callback)->
+      equal url, 'http://url/'
+    collaborations.Events.onExternalContentReady({}, {service_id: 1, contentItems: {}})

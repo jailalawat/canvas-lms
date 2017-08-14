@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 
 module Calendar2Common
@@ -26,7 +43,7 @@ module Calendar2Common
   end
 
   def create_appointment_group(params={})
-    tomorrow = Date.today.to_s
+    tomorrow = (Date.today + 1.day).to_s
     default_params = {
         :title => "new appointment group",
         :contexts => [@course],
@@ -40,7 +57,7 @@ module Calendar2Common
   end
 
   def create_appointment_group_early(params={})
-    tomorrow = Date.today.to_s
+    tomorrow = (Date.today + 1.day).to_s
     default_params = {
         :title => "new appointment group",
         :contexts => [@course],
@@ -132,12 +149,12 @@ module Calendar2Common
     wait_for_ajaximations
   end
 
+  # updated this to type in a date instead of picking it from the calendar
   def add_date(middle_number)
-    fj('.ui-datepicker-trigger:visible').click
-    datepicker_current(middle_number)
+    replace_content(f("input[type=text][id=calendar_event_date]"), middle_number)
   end
 
-  def create_assignment_event(assignment_title, should_add_date = false, publish = false)
+  def create_assignment_event(assignment_title, should_add_date = false, publish = false, date = nil, use_current_course_calendar = false)
     middle_number = find_middle_day['data-date']
     find_middle_day.click
     edit_event_dialog = f('#edit_event_tabs')
@@ -147,7 +164,9 @@ module Calendar2Common
     title = edit_assignment_form.find('#assignment_title')
     keep_trying_until { title.displayed? }
     replace_content(title, assignment_title)
-    add_date(middle_number) if should_add_date
+    click_option('.context_id', @course.name) if use_current_course_calendar
+    date = middle_number if date.nil?
+    add_date(date) if should_add_date
     publish_toggle = edit_assignment_form.find('#assignment_published')
     move_to_click('label[for=assignment_published]') if publish
     submit_form(edit_assignment_form)
@@ -155,7 +174,7 @@ module Calendar2Common
   end
 
   # Creates event from clicking on the mini calendar
-  def create_calendar_event(event_title, should_add_date = false, should_add_location = false, should_duplicate = false)
+  def create_calendar_event(event_title, should_add_date = false, should_add_location = false, should_duplicate = false, date = nil, use_current_course_calendar = false)
     middle_number = find_middle_day['data-date']
     find_middle_day.click
     edit_event_dialog = f('#edit_event_tabs')
@@ -164,7 +183,9 @@ module Calendar2Common
     title = edit_event_form.find('#calendar_event_title')
     keep_trying_until { title.displayed? }
     replace_content(title, event_title)
-    add_date(middle_number) if should_add_date
+    click_option('.context_id', @course.name) if use_current_course_calendar
+    date = middle_number if date.nil?
+    add_date(date) if should_add_date
     replace_content(f('#calendar_event_location_name'), 'location title') if should_add_location
 
     if should_duplicate
@@ -209,9 +230,9 @@ module Calendar2Common
     header.text
   end
 
-  def create_middle_day_event(name = 'new event', with_date = false, with_location = false, with_duplicates = false)
+  def create_middle_day_event(name = 'new event', with_date = false, with_location = false, with_duplicates = false, date = nil, use_current_course_calendar = false)
     get "/calendar2"
-    create_calendar_event(name, with_date, with_location, with_duplicates)
+    create_calendar_event(name, with_date, with_location, with_duplicates, date, use_current_course_calendar)
   end
 
   def create_middle_day_assignment(name = 'new assignment')
@@ -252,7 +273,7 @@ module Calendar2Common
 
   def assert_title(title,agenda_view)
     if agenda_view
-      expect(f('.ig-title')).to include_text(title)
+      expect(f('.agenda-event__title')).to include_text(title)
     else
       expect(f('.fc-title')).to include_text(title)
     end

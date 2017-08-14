@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -44,9 +44,9 @@ describe DelayedMessageScrubber do
   describe '#scrub' do
 
     before(:each) do
-      @context      = course
+      @context      = course_factory
       @notification = Notification.create!(name: 'Test Notification', category: 'Test')
-      @recipient    = user
+      @recipient    = user_factory
 
       @recipient.communication_channels.create!(path_type: 'email', path: 'user@example.com')
     end

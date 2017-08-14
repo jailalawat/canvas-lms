@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,13 +18,11 @@
 
 module LiveAssessments
   class Assessment < ActiveRecord::Base
-    attr_accessible :context, :key, :title
-
     belongs_to :context, polymorphic: [:course]
     has_many :submissions, class_name: 'LiveAssessments::Submission'
     has_many :results, class_name: 'LiveAssessments::Result'
 
-    has_many :learning_outcome_alignments, -> { where("content_tags.tag_type='learning_outcome' AND content_tags.workflow_state<>'deleted'").preload(:learning_outcome) }, as: :content, class_name: 'ContentTag'
+    has_many :learning_outcome_alignments, -> { where("content_tags.tag_type='learning_outcome' AND content_tags.workflow_state<>'deleted'").preload(:learning_outcome) }, as: :content, inverse_of: :content, class_name: 'ContentTag'
 
     validates_presence_of :context_id, :context_type, :key, :title
     validates_length_of :title, maximum: maximum_string_length

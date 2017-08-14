@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,8 +18,6 @@
 
 module Polling
   class Poll < ActiveRecord::Base
-    attr_accessible :user, :question, :description
-
     belongs_to :user
     has_many :poll_choices, -> { order(:position) }, class_name: 'Polling::PollChoice', dependent: :destroy
     has_many :poll_submissions, class_name: 'Polling::PollSubmission', dependent: :destroy

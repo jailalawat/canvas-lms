@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,17 +17,30 @@
 #
 
 require File.expand_path(File.dirname(__FILE__) + '/../../../spec_helper')
+require_dependency "lti/membership_service/membership_collator_factory"
 
 module Lti::MembershipService
   describe MembershipCollatorFactory do
     before(:each) do
       course_with_teacher
+      group_model
     end
 
     describe '.collator_instance' do
-      it 'returns and LisPersonCollator instance by default' do
+      it 'returns a CourseLisPersonCollator instance by default when the context is a Course' do
         collator = MembershipCollatorFactory.collator_instance(@course, @teacher, {})
-        expect(collator.class).to eq Lti::MembershipService::LisPersonCollator
+        expect(collator.class).to eq Lti::MembershipService::CourseLisPersonCollator
+      end
+
+      it 'returns a CourseGroupCollator instance when group role is supplied and context is a Course' do
+        role = [IMS::LIS::ContextType::URNs::Group, IMS::LIS::Roles::Context::URNs::TeachingAssistant]
+        collator = MembershipCollatorFactory.collator_instance(@course, @teacher, { role: role })
+        expect(collator.class).to eq Lti::MembershipService::CourseGroupCollator
+      end
+
+      it 'returns a GroupLisPersonCollator instance by default when the context is a Group' do
+        collator = MembershipCollatorFactory.collator_instance(@group, @teacher, {})
+        expect(collator.class).to eq Lti::MembershipService::GroupLisPersonCollator
       end
     end
   end

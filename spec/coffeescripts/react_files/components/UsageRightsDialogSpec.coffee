@@ -1,15 +1,31 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 
 define [
   'react'
+  'react-dom'
+  'react-addons-test-utils'
   'jquery'
   'jsx/files/UsageRightsDialog'
   'compiled/models/File'
   'compiled/models/Folder'
-], (React, $, UsageRightsDialog, File, Folder) ->
+], (React, ReactDOM, TestUtils, $, UsageRightsDialog, File, Folder) ->
 
-  TestUtils = React.addons.TestUtils
-
-  module 'UsageRightsDialog',
+  QUnit.module 'UsageRightsDialog',
     setup: ->
     teardown: ->
       $("#ui-datepicker-div").empty()
@@ -32,7 +48,7 @@ define [
 
     ok modalClosed
 
-    React.unmountComponentAtNode(uRD.getDOMNode().parentNode)
+    ReactDOM.unmountComponentAtNode(uRD.getDOMNode().parentNode)
   test 'clicking canel closes the modal', ->
     usage_rights = {
       use_justification: 'choose'
@@ -49,7 +65,7 @@ define [
 
     ok modalClosed
 
-    React.unmountComponentAtNode(uRD.getDOMNode().parentNode)
+    ReactDOM.unmountComponentAtNode(uRD.getDOMNode().parentNode)
 
   test 'render the file name with multiple items', ->
     usage_rights = {
@@ -65,7 +81,7 @@ define [
 
     equal uRD.refs.fileName.getDOMNode().innerHTML, "2 items selected", "has correct message"
 
-    React.unmountComponentAtNode(uRD.getDOMNode().parentNode)
+    ReactDOM.unmountComponentAtNode(uRD.getDOMNode().parentNode)
 
   test 'render the file name with one item', ->
     usage_rights = {
@@ -84,7 +100,7 @@ define [
 
     equal uRD.refs.fileName.getDOMNode().innerHTML, "cats", "has correct message"
 
-    React.unmountComponentAtNode(uRD.getDOMNode().parentNode)
+    ReactDOM.unmountComponentAtNode(uRD.getDOMNode().parentNode)
 
   test 'render different right message', ->
     usage_rights = {
@@ -110,7 +126,7 @@ define [
 
     equal uRD.refs.differentRightsMessage.props.children[1], "Items selected have different usage rights.", "displays correct message"
 
-    React.unmountComponentAtNode(uRD.getDOMNode().parentNode)
+    ReactDOM.unmountComponentAtNode(uRD.getDOMNode().parentNode)
 
   test 'do not render different rights message when they are the same', ->
     usage_rights = {
@@ -132,7 +148,7 @@ define [
     uRD = TestUtils.renderIntoDocument(React.createElement(UsageRightsDialog, props))
     ok !uRD.refs.differentRightsMessage, "does not show the message"
 
-    React.unmountComponentAtNode(uRD.getDOMNode().parentNode)
+    ReactDOM.unmountComponentAtNode(uRD.getDOMNode().parentNode)
 
   test 'render folder message for one folder', ->
     usage_rights = {
@@ -151,7 +167,7 @@ define [
 
     equal uRD.refs.folderBulletList.props.children[0].props.children, "some folder", "shows display name"
 
-    React.unmountComponentAtNode(uRD.getDOMNode().parentNode)
+    ReactDOM.unmountComponentAtNode(uRD.getDOMNode().parentNode)
 
   test 'render folder tooltip for multiple folders', ->
     usage_rights = {
@@ -171,9 +187,9 @@ define [
     equal uRD.refs.folderTooltip.getDOMNode().getAttribute('data-html-tooltip-title'), "hello<br />hello", "sets title for multple folders"
     equal uRD.refs.folderTooltip.props.children[0], "and 2 more…", "sets count text"
 
-    React.unmountComponentAtNode(uRD.getDOMNode().parentNode)
+    ReactDOM.unmountComponentAtNode(uRD.getDOMNode().parentNode)
 
-  module 'UploadProgress: Submitting'
+  QUnit.module 'UploadProgress: Submitting'
 
   test 'validate they selected usage right', ->
     usage_rights = {
@@ -194,4 +210,4 @@ define [
 
     equal uRD.submit(), false, "returns false"
 
-    React.unmountComponentAtNode(uRD.getDOMNode().parentNode)
+    ReactDOM.unmountComponentAtNode(uRD.getDOMNode().parentNode)

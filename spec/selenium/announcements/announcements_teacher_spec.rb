@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 require_relative '../helpers/announcements_common'
 
@@ -43,6 +60,7 @@ describe "announcements" do
 
       it "should bulk lock topics", priority: "1", test_id: 220361 do
         5.times { |i| @checkboxes[i].click }
+        scroll_page_to_top # if we only scroll until it's in view, its tooltip can interfere with clicks
         move_to_click('label[for=lock]')
         wait_for_ajax_requests
         #TODO: check the UI to make sure the topics have a locked symbol
@@ -262,7 +280,8 @@ describe "announcements" do
       f('.discussion-reply-action').click
       entry_text = 'new entry text'
       type_in_tiny('textarea', entry_text)
-      fj("button[type=submit]").click
+      f('button[type=submit]').click
+      wait_for_ajax_requests
       expect(DiscussionEntry.last.message).to include(entry_text)
     end
 

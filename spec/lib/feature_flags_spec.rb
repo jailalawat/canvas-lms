@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -26,6 +26,7 @@ describe FeatureFlags do
   let(:t_course) { course_with_teacher(user: t_user, account: t_sub_account, active_all: true).course }
 
   before do
+    User.any_instance.stubs(:set_default_feature_flags)
     Feature.stubs(:definitions).returns({
       'root_account_feature' => Feature.new(feature: 'root_account_feature', applies_to: 'RootAccount', state: 'off'),
       'account_feature' => Feature.new(feature: 'account_feature', applies_to: 'Account', state: 'on'),
@@ -43,10 +44,18 @@ describe FeatureFlags do
     expect(t_sub_account.feature_enabled?(:account_feature)).to be_truthy
   end
 
-  it "should report feature_allowed? correctly" do
-    expect(t_sub_account.feature_allowed?(:account_feature)).to be_truthy
-    expect(t_root_account.feature_allowed?(:root_account_feature)).to be_falsey
-    expect(t_course.feature_allowed?(:course_feature)).to be_truthy
+  describe "#feature_allowed?" do
+    it "returns true if the feature is 'on' or 'allowed', and false otherwise" do
+      expect(t_sub_account.feature_allowed?(:account_feature)).to be_truthy
+      expect(t_root_account.feature_allowed?(:root_account_feature)).to be_falsey
+      expect(t_course.feature_allowed?(:course_feature)).to be_truthy
+    end
+
+    it "returns true if the feature is 'allowed', and false otherwise when passed exclude_enabled: true" do
+      expect(t_sub_account.feature_allowed?(:account_feature, exclude_enabled: true)).to be_falsey
+      expect(t_root_account.feature_allowed?(:root_account_feature, exclude_enabled: true)).to be_falsey
+      expect(t_course.feature_allowed?(:course_feature, exclude_enabled: true)).to be_truthy
+    end
   end
 
   describe "lookup_feature_flag" do

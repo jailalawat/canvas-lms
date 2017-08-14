@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -52,9 +52,9 @@ class ContentTag < ActiveRecord::Base
   include CustomValidations
   validates_as_url :url
 
-  acts_as_list :scope => :context_module
+  validate :check_for_restricted_content_changes
 
-  attr_accessible :learning_outcome, :context, :tag_type, :mastery_score, :content_asset_string, :content, :title, :indent, :position, :url, :new_tab, :content_type
+  acts_as_list :scope => :context_module
 
   set_policy do
     given {|user, session| self.context && self.context.grants_right?(user, session, :manage_content)}
@@ -138,7 +138,7 @@ class ContentTag < ActiveRecord::Base
     content_ids.each do |type, ids|
       klass = type.constantize
       next unless klass < ActiveRecord::Base
-      next if klass.respond_to?(:tableless?) && klass.tableless?
+      next if klass < Tableless
       if klass.new.respond_to?(:could_be_locked=)
         klass.where(:id => ids).update_all(:could_be_locked => true)
       end
@@ -155,6 +155,7 @@ class ContentTag < ActiveRecord::Base
 
   def graded?
     return true if self.content_type == 'Assignment'
+    return false if self.content_type == 'WikiPage'
     return false unless self.can_have_assignment?
 
     return content && !content.assignment_id.nil?
@@ -183,7 +184,7 @@ class ContentTag < ActiveRecord::Base
   end
 
   def can_have_assignment?
-    ['Assignment', 'DiscussionTopic', 'Quizzes::Quiz'].include?(self.content_type)
+    ['Assignment', 'DiscussionTopic', 'Quizzes::Quiz', 'WikiPage'].include?(self.content_type)
   end
 
   def assignment
@@ -244,7 +245,7 @@ class ContentTag < ActiveRecord::Base
     self.content && self.content.respond_to?(:context) && self.content.context == context
   end
 
-  def update_asset_name!
+  def update_asset_name!(user=nil)
     return unless self.sync_title_to_asset_title?
     return unless self.asset_context_matches?
 
@@ -256,7 +257,10 @@ class ContentTag < ActiveRecord::Base
     elsif content.respond_to?("display_name=")
       content.display_name = asset_safe_title('display_name')
     end
-    content.save if content.changed?
+    if content.changed?
+      content.user = user if user && content.is_a?(WikiPage)
+      content.save
+    end
   end
 
   def update_asset_workflow_state!
@@ -508,6 +512,17 @@ class ContentTag < ActiveRecord::Base
       self.content.visible_to_user?(user, opts)
     else
       true
+    end
+  end
+
+  def mark_as_importing!(migration)
+    @importing_migration = migration
+  end
+
+  def check_for_restricted_content_changes
+    if !self.new_record? && self.title_changed? && !@importing_migration && self.content && self.content.respond_to?(:is_child_content?) &&
+      self.content.is_child_content? && self.content.editing_restricted?(:content)
+        self.errors.add(:title, "cannot change title - associated content locked by Master Course")
     end
   end
 end

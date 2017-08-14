@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2012 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -52,10 +52,10 @@ class Quizzes::QuizSubmissionQuestionsController < ApplicationController
   include Api::V1::QuizSubmissionQuestion
   include ::Filters::QuizSubmissions
 
-  before_filter :require_user, :require_quiz_submission, :export_scopes
-  before_filter :require_question, only: [ :show, :flag, :unflag ]
-  before_filter :prepare_service, only: [ :answer, :flag, :unflag ]
-  before_filter :validate_ldb_status!, only: [ :answer, :flag, :unflag ]
+  before_action :require_user, :require_quiz_submission, :export_scopes
+  before_action :require_question, only: [ :show, :flag, :unflag ]
+  before_action :prepare_service, only: [ :answer, :flag, :unflag ]
+  before_action :validate_ldb_status!, only: [ :answer, :flag, :unflag ]
 
   # @API Get all quiz submission questions.
   # @beta
@@ -76,7 +76,7 @@ class Quizzes::QuizSubmissionQuestionsController < ApplicationController
 
     reject! 'Cannot receive one question at a time questions in the API', 401 if @quiz.one_question_at_a_time && censored?
 
-    if @quiz_submission.completed? && !@quiz_submission.results_visible_for_user?(@current_user)
+    if @quiz_submission.completed? && !@quiz_submission.results_visible?(user: @current_user)
       reject! "Cannot view questions due to quiz settings", 401
     end
 

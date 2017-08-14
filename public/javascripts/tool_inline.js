@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,10 +12,13 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-define(['jquery', 'jquery.google-analytics', 'compiled/jquery/ModuleSequenceFooter'], function($) {
+
+import $ from 'jquery'
+import './jquery.google-analytics'
+import 'compiled/jquery/ModuleSequenceFooter'
 
 var $toolForm = $("#tool_form")
 
@@ -61,9 +64,6 @@ switch($toolForm.data('tool-launch-type')){
     } catch(e){}
 
     $("#tool_content").bind("load", function(){
-      if (!ENV.use_new_styles) {
-        $("#content").addClass('padless');
-      }
       if(document.location.protocol !== "https:" || $("#tool_form")[0].action.indexOf("https:") > -1) {
         $('#insecure_content_msg').hide();
         $toolForm.hide();
@@ -97,37 +97,20 @@ var resize_tool_content_wrapper = function(height) {
   tool_content_wrapper().height(tool_height > height ? tool_height : height);
 }
 
-//moduleSequenceFooter visibility handler
-function module_sequence_footer(){
-  if (ENV.use_new_styles) {
-    return $('.module-sequence-footer');
-  }
-  else {
-    return $('#sequence_footer');
-  }
-}
-
 $(function() {
   var $window = $(window);
   $tool_content_wrapper = $('.tool_content_wrapper');
 
-  // for new UI, full-screen LTI iframe will always be 100%,
-  // so no need to calculate it
-  if (ENV.use_new_styles) {
-    if ( !$('body').hasClass('ic-full-screen-lti-tool') ) {
-      canvas_chrome_height = $tool_content_wrapper.offset().top + $('#footer').outerHeight(true);
-    }
+  if ( !$('body').hasClass('ic-full-screen-lti-tool') ) {
+    canvas_chrome_height = $tool_content_wrapper.offset().top + $('#footer').outerHeight(true);
   }
-  else {
-    min_tool_height = $('#main').height();
-    canvas_chrome_height = $tool_content_wrapper.offset().top + $('#wrapper').height() - $('#main').height();
-  }
+
   // Only calculate height on resize if body does not have
   // .ic-full-screen-lti-tool class
   if ( $tool_content_wrapper.length && !$('body').hasClass('ic-full-screen-lti-tool') ) {
     $window.resize(function () {
       if (!$tool_content_wrapper.data('height_overridden')) {
-        resize_tool_content_wrapper($window.height() - canvas_chrome_height);
+        resize_tool_content_wrapper($window.height() - canvas_chrome_height - $('#sequence_footer').outerHeight(true));
       }
     }).triggerHandler('resize');
   }
@@ -156,7 +139,7 @@ window.addEventListener('message', function(e) {
 
       case 'lti.showModuleNavigation':
         if(message.show === true || message.show === false){
-          module_sequence_footer().toggle(message.show);
+          $('.module-sequence-footer').toggle(message.show);
         }
         break;
 
@@ -179,7 +162,7 @@ window.addEventListener('message', function(e) {
         break;
     }
   } catch(err) {
-    (console.error || console.log)('invalid message received from ', e.origin);
+    (console.error || console.log).call(console, 'invalid message received from');
   }
 });
 
@@ -199,5 +182,3 @@ function removeUnloadMessage() {
     beforeUnloadHandler = null;
   }
 }
-
-});

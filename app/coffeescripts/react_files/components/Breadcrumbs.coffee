@@ -1,15 +1,33 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!react_files'
   'jquery'
   'underscore'
   'react'
+  'react-dom'
+  'prop-types'
   'jsx/files/BreadcrumbCollapsedContainer'
-  'compiled/react/shared/utils/withReactElement'
   '../modules/customPropTypes'
-], (I18n, $, _, React, BreadcrumbCollapsedContainerComponent, withReactElement, customPropTypes) ->
+], (I18n, $, _, React, ReactDOM, PropTypes, BreadcrumbCollapsedContainerComponent, customPropTypes) ->
 
   MAX_CRUMB_WIDTH = 500
-  MIN_CRUMB_WIDTH = if window.ENV.use_new_styles then 80 else 40
+  MIN_CRUMB_WIDTH = 80
 
   BreadcrumbCollapsedContainer =   BreadcrumbCollapsedContainerComponent
 
@@ -17,8 +35,8 @@ define [
     displayName: 'Breadcrumbs'
 
     propTypes:
-      rootTillCurrentFolder: React.PropTypes.arrayOf(customPropTypes.folder)
-      contextAssetString: React.PropTypes.string.isRequired
+      rootTillCurrentFolder: PropTypes.arrayOf(customPropTypes.folder)
+      contextAssetString: PropTypes.string.isRequired
 
     getInitialState: ->
       {
@@ -47,10 +65,8 @@ define [
       $a = $oldCrumbs.find('li').eq(1).find('a')
       contextUrl = $a.attr('href')
       contextName = $a.text()
-      if (ENV.use_new_styles)
-        $('.ic-app-nav-toggle-and-crumbs').remove()
-      else
-        $oldCrumbs.remove()
+      $('.ic-app-nav-toggle-and-crumbs').remove()
+
       @setState({homeName, contextUrl, contextName, heightOfOneBreadcrumb})
 
     handleResize: ->
@@ -66,7 +82,7 @@ define [
 
     checkIfCrumbsFit: ->
       return unless @state.heightOfOneBreadcrumb
-      breadcrumbHeight = $(@refs.breadcrumbs.getDOMNode()).height()
+      breadcrumbHeight = $(ReactDOM.findDOMNode(@refs.breadcrumbs)).height()
       if (breadcrumbHeight > @state.heightOfOneBreadcrumb) and (@state.maxCrumbWidth > MIN_CRUMB_WIDTH)
         maxCrumbWidth = Math.max(MIN_CRUMB_WIDTH, @state.maxCrumbWidth - 20)
         @setState({maxCrumbWidth}, @checkIfCrumbsFit)

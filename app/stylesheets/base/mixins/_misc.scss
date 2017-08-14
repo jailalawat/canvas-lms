@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 // use on a UL or a OL to reset
 @mixin reset-list {
   margin: 0;
@@ -13,23 +31,13 @@
   background-image: linear-gradient(to bottom, $topColor, $bottomColor);
 }
 
-@mixin accessible_text_replacement {
-  display: inline-block;
-  text-indent: -999px;
-  overflow: hidden;
-  background-repeat: no-repeat;
-}
-
-@mixin unselectable { user-select: none; }
-
-
 // Firefox has a bug with white-space that breaks our ellipses CSS. This mixin
 // replaces the ellipses with a gradient fade-out. The mixin should be applied to
 // the parent of the ellipses or ellipsis class. There is an optional parameter
 // for hover states where the background color of the parent changes
 
 @mixin firefox-white-space-bug-fix-gradient($fade-out-color) {
-  background: linear-gradient(to right, rgba(255,255,255,0) 0%,$fade-out-color 75%);  
+  background: linear-gradient(to right, rgba(255,255,255,0) 0%,$fade-out-color 75%);
 }
 
 @mixin firefox-white-space-bug-fix($gradient-color: $ic-color-light, $gradient-color-hover: null) {
@@ -71,4 +79,19 @@
       top: 0;
     }
   }
+}
+
+// make <input readonly> look like plain text
+@mixin readonly-input {
+  input[readonly] {
+     background-color: transparent;
+     border-color: transparent;
+     box-shadow: none;
+     font-weight: bold;
+     cursor: default;
+     &:focus {
+       border-color: transparent;
+       outline-style: none;
+     }
+   }
 }

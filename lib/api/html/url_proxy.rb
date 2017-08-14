@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -102,6 +102,10 @@ module Api
         proxy.polymorphic_url([media_context, :media_download], entryId: media_id, media_type: media_type, redirect: '1', host: host, protocol: protocol)
       end
 
+      def show_media_tracks_url(media_object_id, media_id)
+        proxy.show_media_tracks_url(media_object_id, media_id, format: :json, host: host, protocol: protocol)
+      end
+
       # rewrite any html attributes that are urls but just absolute paths, to
       # have the canvas domain prepended to make them a full url
       #
@@ -134,6 +138,7 @@ module Api
           helper = api_route[1]
           args = { :protocol => protocol, :host => host }
           args.merge! Hash[api_route.slice(2, match.captures.size).zip match.captures]
+          args[:url] = URI.unescape(args[:url]) if args[:url] && return_type == 'SessionlessLaunchUrl'
           api_route.slice(match.captures.size + 2, 1).each { |opts| args.merge!(opts) }
           return { 'data-api-endpoint' => proxy.send(helper, args), 'data-api-returntype' => return_type }
         end

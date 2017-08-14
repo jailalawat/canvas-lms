@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Lti
   class LtiOutboundAdapter
     cattr_writer :consumer_instance_class
@@ -32,7 +49,7 @@ module Lti
       launch_url = opts[:launch_url] || default_launch_url(resource_type)
       link_code = opts[:link_code] || default_link_code
       @overrides = opts[:overrides] || {}
-
+      link_params = opts[:link_params] || {}
 
       lti_context = Lti::LtiContextCreator.new(@context, @tool).convert
       lti_user = Lti::LtiUserCreator.new(@user, @root_account, @tool, @context).convert if @user
@@ -52,22 +69,29 @@ module Lti
               tool: lti_tool,
               account: lti_account,
               variable_expander: variable_expander,
-              disable_lti_post_only: @root_account.feature_enabled?(:disable_lti_post_only)
+              link_params: link_params
           }
       )
       self
     end
 
-    def generate_post_payload
+    def generate_post_payload(assignment: nil)
       raise('Called generate_post_payload before calling prepare_tool_launch') unless @tool_launch
-      @tool_launch.generate(@overrides)
+      hash = @tool_launch.generate(@overrides)
+      hash[:ext_lti_assignment_id] = assignment&.lti_context_id if assignment&.lti_context_id.present?
+      Lti::Security.signed_post_params(
+        hash,
+        @tool_launch.url,
+        @tool.consumer_key,
+        @tool.shared_secret,
+        @root_account.feature_enabled?(:disable_lti_post_only) || @tool.extension_setting(:oauth_compliant))
     end
 
     def generate_post_payload_for_assignment(assignment, outcome_service_url, legacy_outcome_service_url, lti_turnitin_outcomes_placement_url)
       raise('Called generate_post_payload_for_assignment before calling prepare_tool_launch') unless @tool_launch
       lti_assignment = Lti::LtiAssignmentCreator.new(assignment, encode_source_id(assignment)).convert
       @tool_launch.for_assignment!(lti_assignment, outcome_service_url, legacy_outcome_service_url, lti_turnitin_outcomes_placement_url)
-      generate_post_payload
+      generate_post_payload(assignment: assignment)
     end
 
     def generate_post_payload_for_homework_submission(assignment)

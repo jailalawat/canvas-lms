@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -170,18 +170,21 @@ module Importers
         if item.deleted?
           item.workflow_state = (hash[:available] || !item.can_unpublish?) ? 'available' : 'unpublished'
           item.saved_by = :migration
+          item.quiz_groups.destroy_all
           item.quiz_questions.destroy_all
           item.save
         end
       end
       item ||= context.quizzes.temp_record
+      item.mark_as_importing!(migration)
       new_record = item.new_record? || item.deleted?
 
-      hash[:due_at] ||= hash[:due_date]
+      hash[:due_at] ||= hash[:due_date] if hash.has_key?(:due_date)
       hash[:due_at] ||= hash[:grading][:due_date] if hash[:grading]
-      item.lock_at = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(hash[:lock_at]) if hash[:lock_at]
-      item.unlock_at = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(hash[:unlock_at]) if hash[:unlock_at]
-      item.due_at = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(hash[:due_at]) if hash[:due_at]
+      master_migration = migration&.for_master_course_import? # propagate null dates only for blueprint syncs
+      item.lock_at = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(hash[:lock_at]) if hash.has_key?(:lock_at) && (master_migration || hash[:lock_at].present?)
+      item.unlock_at = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(hash[:unlock_at]) if hash.has_key?(:unlock_at) && (master_migration || hash[:unlock_at].present?)
+      item.due_at = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(hash[:due_at]) if hash.has_key?(:due_at) && (master_migration || hash[:due_at].present?)
       item.show_correct_answers_at = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(hash[:show_correct_answers_at]) if hash[:show_correct_answers_at]
       item.hide_correct_answers_at = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(hash[:hide_correct_answers_at]) if hash[:hide_correct_answers_at]
       item.scoring_policy = hash[:which_attempt_to_keep] if hash[:which_attempt_to_keep]
@@ -212,6 +215,7 @@ module Importers
         lockdown_browser_monitor_data
         one_time_results
         show_correct_answers_last_attempt
+        only_visible_to_overrides
       ].each do |attr|
         attr = attr.to_sym
         item.send("#{attr}=", hash[attr]) if hash.key?(attr)
@@ -219,16 +223,18 @@ module Importers
 
       item.saved_by = :migration
       item.save!
+      build_assignment = false
 
-      if question_data
+      skip_questions = migration.for_master_course_import? && item.edit_types_locked_for_overwrite_on_import.include?(:content)
+      if question_data && !skip_questions
         question_data[:qq_ids] ||= {}
         hash[:questions] ||= []
 
         unless question_data[:qq_ids][item.migration_id]
           question_data[:qq_ids][item.migration_id] = {}
-          existing_questions = item.quiz_questions.active.where("migration_id IS NOT NULL").select([:id, :migration_id])
-          existing_questions.each do |eq|
-            question_data[:qq_ids][item.migration_id][eq.migration_id] = eq.id
+          existing_questions = item.quiz_questions.active.where("migration_id IS NOT NULL").pluck(:id, :migration_id)
+          existing_questions.each do |id, mig_id|
+            question_data[:qq_ids][item.migration_id][mig_id] = id
           end
         end
 
@@ -250,7 +256,7 @@ module Importers
       item.reload # reload to catch question additions
 
       if hash[:assignment]
-        if hash[:assignment][:migration_id]
+        if hash[:assignment][:migration_id] && !hash[:assignment][:migration_id].start_with?(MasterCourses::MIGRATION_ID_PREFIX)
           item.assignment ||= Quizzes::Quiz.where(context_type: context.class.to_s, context_id: context, migration_id: hash[:assignment][:migration_id]).first
         end
         item.assignment = nil if item.assignment && item.assignment.quiz && item.assignment.quiz.id != item.id
@@ -263,9 +269,31 @@ module Importers
           item.assignment.workflow_state = 'unpublished'
         end
       elsif !item.assignment && grading = hash[:grading]
-        # The actual assignment will be created when the quiz is published
         item.quiz_type = 'assignment'
         hash[:assignment_group_migration_id] ||= grading[:assignment_group_migration_id]
+      end
+
+      if hash[:assignment_overrides]
+        hash[:assignment_overrides].each do |o|
+          override = item.assignment_overrides.where(o.slice(:set_type, :set_id)).first
+          override ||= item.assignment_overrides.build
+          override.set_type = o[:set_type]
+          override.title = o[:title]
+          override.set_id = o[:set_id]
+          AssignmentOverride.overridden_dates.each do |field|
+            next unless o.key?(field)
+            override.send "override_#{field}", Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(o[field])
+          end
+          override.save!
+          migration.add_imported_item(override,
+            key: [item.migration_id, override.set_type, override.set_id].join('/'))
+        end
+      end
+
+      if item.graded? && !item.assignment
+        unless migration.canvas_import? || hash['assignment_migration_id']
+          build_assignment = true
+        end
       end
 
       if hash[:available]
@@ -284,11 +312,17 @@ module Importers
         item.workflow_state = 'unpublished'
       end
 
+      if build_assignment
+        item.build_assignment(force: true)
+        item.assignment.points_possible = item.points_possible
+      end
+
       item.save
       item.assignment.save if item.assignment && item.assignment.changed?
 
       migration.add_imported_item(item)
       item.saved_by = nil
+
       item
     end
 

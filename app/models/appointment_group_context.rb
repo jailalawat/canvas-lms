@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,8 +19,6 @@
 class AppointmentGroupContext < ActiveRecord::Base
   belongs_to :appointment_group
   belongs_to :context, polymorphic: [:course, :course_section]
-
-  attr_accessible :appointment_group, :context
 
   before_validation :default_values
 

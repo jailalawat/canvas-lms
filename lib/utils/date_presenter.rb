@@ -1,6 +1,6 @@
 # encoding: UTF-8
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -14,6 +14,7 @@
 # details.
 #
 # You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 
 module Utils
   class DatePresenter
@@ -27,7 +28,9 @@ module Utils
     end
 
     def as_string(style=:normal)
-      if style != :long
+      if style == :full
+        return i18n_date(:full)
+      elsif style != :long
         if style != :no_words && special_value_type != :none
           string = special_string(special_value_type)
           return string if string && string.strip.present?

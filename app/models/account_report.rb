@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,7 +18,7 @@
 
 class AccountReport < ActiveRecord::Base
   include Workflow
-  attr_accessible :user, :account, :report_type, :parameters
+
   belongs_to :account
   belongs_to :user
   belongs_to :attachment
@@ -32,11 +32,19 @@ class AccountReport < ActiveRecord::Base
     state :running
     state :complete
     state :error
+    state :aborted
     state :deleted
   end
 
-  scope :last_complete_of_type, lambda { |type, limit = 1| last_of_type(type, limit).where(:progress => '100') }
-  scope :last_of_type, lambda { |type, limit = 1| where(:report_type => type).order("updated_at DESC").limit(limit) }
+  scope :complete, -> { where(progress: 100) }
+  scope :most_recent, -> { order(updated_at: :desc).limit(1) }
+  scope :active, -> { where.not(workflow_state: 'deleted') }
+
+  alias_method :destroy_permanently!, :destroy
+  def destroy
+    self.workflow_state = 'deleted'
+    save!
+  end
 
   def context
     self.account

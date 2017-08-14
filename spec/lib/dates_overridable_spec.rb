@@ -1,6 +1,5 @@
-
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -91,7 +90,7 @@ shared_examples_for "an object whose dates are overridable" do
 
         expect(overridable.overrides_for(@student, ensure_set_not_empty: true).size).to eq 1
 
-        override_student.user.enrollments.delete_all
+        override_student.user.enrollments.each(&:destroy_permanently!)
 
         expect(overridable.overrides_for(@student, ensure_set_not_empty: true)).to be_empty
       end
@@ -106,8 +105,8 @@ shared_examples_for "an object whose dates are overridable" do
         @section_visible = course.active_course_sections.second
 
         @student_invisible = student_in_section(@section_invisible)
-        @student_visible = student_in_section(@section_visible, user: user)
-        @teacher = teacher_in_section(@section_visible, user: user)
+        @student_visible = student_in_section(@section_visible, user: user_factory)
+        @teacher = teacher_in_section(@section_visible, user: user_factory)
 
         enrollment = @teacher.enrollments.first
         enrollment.limit_privileges_to_course_section = true
@@ -157,8 +156,8 @@ shared_examples_for "an object whose dates are overridable" do
         @section_visible = course.active_course_sections.second
 
         @student_invisible = student_in_section(@section_invisible)
-        @student_visible = student_in_section(@section_visible, user: user)
-        @teacher = teacher_in_section(@section_visible, user: user)
+        @student_visible = student_in_section(@section_visible, user: user_factory)
+        @teacher = teacher_in_section(@section_visible, user: user_factory)
       end
 
       it "returns not empty for overrides of student in other section" do
@@ -179,17 +178,21 @@ shared_examples_for "an object whose dates are overridable" do
         expect(overridable.overrides_for(@teacher)).to_not be_empty
       end
 
-      it "returns two for override of student in same section and different section" do
+      it "returns single override for students in different sections" do
         override.set_type = "ADHOC"
         @override_student = override.assignment_override_students.build
         @override_student.user = @student_visible
         @override_student.save!
 
         @override_student = override.assignment_override_students.build
+        @override_student.user = student_in_section(@section_visible)
+        @override_student.save!
+
+        @override_student = override.assignment_override_students.build
         @override_student.user = @student_invisible
         @override_student.save!
 
-        expect(overridable.overrides_for(@teacher).size).to eq 2
+        expect(overridable.overrides_for(@teacher).size).to eq 1
       end
     end
   end
@@ -212,13 +215,13 @@ shared_examples_for "an object whose dates are overridable" do
     context "has active overrides" do
       before { override }
       it "returns true" do
-        expect(overridable.has_active_overrides?).to eq true
+        expect(overridable.reload.has_active_overrides?).to eq true
       end
     end
     context "when it has deleted overrides" do
       it "returns false" do
         override.destroy
-        expect(overridable.has_active_overrides?).to eq false
+        expect(overridable.reload.has_active_overrides?).to eq false
       end
     end
 
@@ -239,6 +242,17 @@ shared_examples_for "an object whose dates are overridable" do
         override.delete
         overridable.reload
         expect(overridable.all_dates_visible_to(@teacher).size).to eq 2
+      end
+
+      it "doesn't duplicate adhoc overrides in list" do
+        override.set_type = "ADHOC"
+        2.times { override.assignment_override_students.create(user: student_in_section(course.active_course_sections.first)) }
+        override.title = nil
+        override.save!
+
+        dates_hash = overridable.dates_hash_visible_to(@teacher)
+        expect(dates_hash.size).to eq 3
+        expect(dates_hash.map{ |d| d[:title] }).to eq [nil, "Summer session", "2 students"]
       end
     end
 
@@ -407,7 +421,7 @@ shared_examples_for "an object whose dates are overridable" do
 
     context "when the object hasn't been overridden" do
       it "raises an exception because it doesn't have any context" do
-        expect { overridden.multiple_due_dates? }.to raise_exception
+        expect { overridable.multiple_due_dates? }.to raise_exception(DatesOverridable::NotOverriddenError)
       end
     end
 

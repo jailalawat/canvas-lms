@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -44,6 +44,6 @@ class AccountAuthorizationConfig::CAS < AccountAuthorizationConfig::Delegated
   end
 
   def user_logout_redirect(controller, _current_user)
-    client.logout_url(controller.cas_login_url(id: self), nil, controller.cas_login_url(id: self))
+    client.logout_url(nil, controller.cas_login_url(id: self), controller.cas_login_url(id: self))
   end
 end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,6 +17,7 @@
 #
 
 require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper.rb')
+require_dependency "enrollment/recent_activity"
 
 class Enrollment
   describe RecentActivity do
@@ -38,7 +39,6 @@ class Enrollment
       before(:once) { course_with_student(:active_all => 1) }
       let(:recent_activity) { Enrollment::RecentActivity.new(@enrollment) }
       let(:now){ Time.zone.now }
-      before(:each){ expect(@enrollment.last_activity_at).to be_nil }
 
       describe "#record!" do
         it "should record on the first call (last_activity_at is nil)" do

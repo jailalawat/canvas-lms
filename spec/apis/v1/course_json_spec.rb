@@ -1,9 +1,10 @@
 require_relative '../../spec_helper'
+require_dependency "api/v1/course_json"
 
 module Api
   module V1
 
-    describe Api::V1::CourseJson do
+    describe CourseJson do
       let(:includes) { [] }
       let(:course) { stub(:course) }
       let(:user) { stub(:user) }
@@ -83,6 +84,10 @@ module Api
 
         it 'includes the public_syllabus field' do
           expect(course_json.methods_to_send).to include('public_syllabus')
+        end
+
+        it 'includes the public_syllabus_to_auth field' do
+          expect(course_json.methods_to_send).to include('public_syllabus_to_auth')
         end
 
         it 'includes the storage_quota_mb field' do

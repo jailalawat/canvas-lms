@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,11 +19,11 @@
 require_relative '../spec_helper'
 
 describe GradingStandardsController do
-  before(:once) do
-    course_with_teacher(active_all: true)
-  end
-
   describe "POST 'create'" do
+    before(:once) do
+      course_with_teacher(active_all: true)
+    end
+
     let(:default_grading_standard) do
       [ ["A", 0.94], ["A-", 0.9], ["B+", 0.87], ["B", 0.84],
         ["B-", 0.8], ["C+", 0.77], ["C", 0.74], ["C-", 0.7],
@@ -48,6 +48,8 @@ describe GradingStandardsController do
         title: 'New Grading Standard!',
         data: [['A', 0.61], ['F', 0.00]]
       }
+      # send the request as JSON, so that the nested arrays are preserved
+      request.content_type = 'application/json' unless CANVAS_RAILS4_2
       post 'create', course_id: @course.id, grading_standard: standard, format: 'json'
       expect(json_response).to eq(standard[:data])
     end
@@ -63,6 +65,45 @@ describe GradingStandardsController do
       post 'create', course_id: @course.id, grading_standard: standard, format: 'json'
       expected_response_data = [['A', 0.61], ['F', 0.00]]
       expect(json_response).to eq(expected_response_data)
+    end
+  end
+
+  describe "GET 'index'" do
+    context "context is an account" do
+      before(:once) do
+        @account = Account.default
+        @admin = account_admin_user(account: @account)
+      end
+
+      subject { get :index, account_id: @account.id }
+
+      it "returns a 200 for a valid request" do
+        user_session(@admin)
+        expect(subject).to be_ok
+      end
+
+      it "renders the 'account_index' template" do
+        user_session(@admin)
+        expect(subject).to render_template(:account_index)
+      end
+    end
+
+    context "context is a course" do
+      before(:once) do
+        course_with_teacher(active_all: true)
+      end
+
+      subject { get :index, course_id: @course.id }
+
+      it "returns a 200 for a valid request" do
+        user_session(@teacher)
+        expect(subject).to be_ok
+      end
+
+      it "renders the 'course_index' template" do
+        user_session(@teacher)
+        expect(subject).to render_template(:course_index)
+      end
     end
   end
 end

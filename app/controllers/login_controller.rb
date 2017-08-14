@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,11 +21,11 @@ require 'securerandom'
 class LoginController < ApplicationController
   include Login::Shared
 
-  before_filter :forbid_on_files_domain, except: :clear_file_session
-  before_filter :run_login_hooks, only: :new
-  before_filter :check_sa_delegated_cookie, only: :new
-  before_filter :fix_ms_office_redirects, only: :new
-  skip_before_filter :require_reacceptance_of_terms
+  before_action :forbid_on_files_domain, except: :clear_file_session
+  before_action :run_login_hooks, only: :new
+  before_action :fix_ms_office_redirects, only: :new
+  skip_before_action :require_reacceptance_of_terms
+  before_action :require_user, only: :session_token
 
   def new
     if @current_user &&
@@ -118,11 +118,33 @@ class LoginController < ApplicationController
     redirect_to login_url unless @current_user
   end
 
+  # POST /login/session_token
+  def session_token
+    # must be used from API
+    return render_unauthorized_action unless @access_token
+
+    # verify that we're sending them back to a host from the same instance
+    return_to = URI.parse(params[:return_to] || request.referer || root_url)
+    return render_unauthorized_action unless return_to.absolute?
+    host = return_to.host
+    return render_unauthorized_action unless host == request.host
+
+    login_pseudonym = @real_current_pseudonym || @current_pseudonym
+    token = SessionToken.new(login_pseudonym.global_id,
+                             current_user_id: @real_current_user ? @current_user.global_id : nil,
+                             used_remember_me_token: true).to_s
+    return_to.query.concat('&') if return_to.query
+    return_to.query = '' unless return_to.query
+    return_to.query.concat("session_token=#{token}")
+
+    render json: { session_url: return_to.to_s }
+  end
+
   def clear_file_session
     session.delete('file_access_user_id')
     session.delete('file_access_expiration')
     session[:permissions_key] = SecureRandom.uuid
 
-    render :text => "ok"
+    render :plain => "ok"
   end
 end

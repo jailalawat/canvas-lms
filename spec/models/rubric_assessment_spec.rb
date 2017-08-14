@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,10 +22,12 @@ require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
 describe RubricAssessment do
   before :once do
     assignment_model
-    @teacher = user(:active_all => true)
+    @teacher = user_factory(active_all: true)
     @course.enroll_teacher(@teacher).accept
-    @student = user(:active_all => true)
+    @student = user_factory(active_all: true)
     @course.enroll_student(@student).accept
+    @observer = user_factory(active_all: true)
+    @course.enroll_user(@observer, 'ObserverEnrollment', {:associated_user_id => @student.id})
     rubric_model
     @association = @rubric.associate_with(@assignment, @course, :purpose => 'grading', :use_for_grading => true)
   end
@@ -73,6 +75,43 @@ describe RubricAssessment do
       expect(@assessment.artifact.grader).to eql(@teacher)
       expect(@assessment.artifact.score).to eql(5.0)
       expect(@assessment.data.first[:comments_html]).to be_nil
+    end
+
+    it "should allow observers the ability to view rubric assessments with course association" do
+      submission = @assignment.find_or_create_submission(@student)
+      @assessment = @association.assess(
+          {
+              :user => @student,
+              :assessor => @teacher,
+              :artifact => submission,
+              :assessment => {
+                  :assessment_type => 'grading',
+                  :criterion_crit1 => {
+                      :points => 5
+                  }
+              }
+          })
+      visible_rubric_assessments = submission.visible_rubric_assessments_for(@observer)
+      expect(visible_rubric_assessments.length).to eql(1)
+    end
+
+    it "should allow observers the ability to view rubric assessments with account association" do
+      submission = @assignment.find_or_create_submission(@student)
+      account_association = @rubric.associate_with(@assignment, @account, :purpose => 'grading', :use_for_grading => true)
+      @assessment = account_association.assess(
+          {
+              :user => @student,
+              :assessor => @teacher,
+              :artifact => submission,
+              :assessment => {
+                  :assessment_type => 'grading',
+                  :criterion_crit1 => {
+                      :points => 5
+                  }
+              }
+          })
+      visible_rubric_assessments = submission.visible_rubric_assessments_for(@observer)
+      expect(visible_rubric_assessments.length).to eql(1)
     end
 
     it "should update scores anonymously if graded anonymously" do
@@ -130,7 +169,7 @@ describe RubricAssessment do
     end
 
     it "should not update scores if not a valid grader" do
-      @student2 = user(:active_all => true)
+      @student2 = user_factory(active_all: true)
       @course.enroll_student(@student2).accept
       @assessment = @association.assess({
         :user => @student,
@@ -247,14 +286,14 @@ describe RubricAssessment do
     end
 
     it "does not grant :read to an account user without :manage_courses or :view_all_grades" do
-      user
+      user_factory
       role = custom_account_role('custom', :account => @account)
       @account.account_users.create!(user: @user, role: role)
       expect(@assessment.grants_right?(@user, :read)).to eq false
     end
 
     it "grants :read to an account user with :view_all_grades but not :manage_courses" do
-      user
+      user_factory
       role = custom_account_role('custom', :account => @account)
       RoleOverride.create!(:context => @account, :permission => 'view_all_grades', :role => role, :enabled => true)
       RoleOverride.create!(:context => @account, :permission => 'manage_courses', :role => role, :enabled => false)

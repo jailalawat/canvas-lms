@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,14 +22,13 @@ module Lti
     BASIC_LTI_LAUNCH_REQUEST = 'basic-lti-launch-request'.freeze
     TOOL_PROXY_REREGISTRATION_REQUEST = 'ToolProxyRegistrationRequest'.freeze
 
-    attr_accessible :message_type, :placements, :launch_path, :capabilities, :parameters, :resource_handler, :links
     attr_readonly :created_at
 
     belongs_to :resource_handler, class_name: "Lti::ResourceHandler", :foreign_key => :resource_handler_id
+    belongs_to :tool_proxy, class_name: 'Lti::ToolProxy', foreign_key: :tool_proxy_id
 
     has_many :placements, class_name: 'Lti::ResourcePlacement', dependent: :destroy
-
-    has_many :context_module_tags, -> { where("content_tags.tag_type='context_module' AND content_tags.workflow_state<>'deleted'").preload(context_module: :content_tags) }, as: :content, class_name: 'ContentTag'
+    has_many :context_module_tags, -> { where("content_tags.tag_type='context_module' AND content_tags.workflow_state<>'deleted'").preload(context_module: :content_tags) }, as: :content, inverse_of: :content, class_name: 'ContentTag'
 
     serialize :capabilities
     serialize :parameters
@@ -62,7 +61,7 @@ module Lti
                            end
       apps.sort_by(&:id).map do |app|
         args = {message_handler_id: app.id, resource_link_fragment: "nav"}
-        args["#{context.class.name.downcase}_id"] = context.id
+        args["#{context.class.name.downcase}_id".to_sym] = context.id
         {
           :id => app.asset_string,
           :label => app.resource_handler.name,
@@ -74,6 +73,30 @@ module Lti
           :args => args
         }
       end
+    end
+
+    def self.by_resource_codes(vendor_code:, product_code:, resource_type_code:, context:, message_type: BASIC_LTI_LAUNCH_REQUEST)
+      possible_handlers = ResourceHandler.by_resource_codes(vendor_code: vendor_code,
+                                                            product_code: product_code,
+                                                            resource_type_code: resource_type_code,
+                                                            context: context)
+      resource_handler = nil
+      search_contexts = context.account_chain.unshift(context)
+      search_contexts.each do |search_context|
+        break if resource_handler.present?
+        resource_handler = possible_handlers.find { |rh| rh.tool_proxy.context == search_context }
+      end
+      resource_handler&.find_message_by_type(message_type)
+    end
+
+    def valid_resource_url?(resource_url)
+      URI.parse(resource_url).host == URI.parse(launch_path).host
+    end
+
+    def build_resource_link_id(context:, link_fragment: nil)
+      resource_link_id = "#{context.class}_#{context.global_id},MessageHandler_#{global_id}"
+      resource_link_id += ",#{link_fragment}" if link_fragment
+      Canvas::Security.hmac_sha1(resource_link_id)
     end
 
   end

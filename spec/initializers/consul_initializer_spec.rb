@@ -1,8 +1,26 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../spec_helper'
 require_relative '../../config/initializers/consul'
 
 describe ConsulInitializer do
   after(:each) do
+    Canvas::DynamicSettings.config = nil
     Canvas::DynamicSettings.reset_cache!
     Canvas::DynamicSettings.fallback_data = nil
   end
@@ -19,6 +37,8 @@ describe ConsulInitializer do
   end
 
   describe ".configure_with" do
+    include WebMock::API
+
     it "passes provided config info to DynamicSettings" do
       config_hash = {hi: "ho", host: "localhost", port: 80}
       ConsulInitializer.configure_with(config_hash.with_indifferent_access)
@@ -36,6 +56,8 @@ describe ConsulInitializer do
           }
         }
       }
+      stub_request(:put, "https://somewhere-without-consul.gov:123456/v1/kv/config/canvas/rich-content-service/app-host").
+        to_return(:status => 500)
       logger = FakeLogger.new
       ConsulInitializer.configure_with(config_hash.with_indifferent_access, logger)
       message = "INITIALIZATION: can't reach consul, attempts to load DynamicSettings will fail"

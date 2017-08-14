@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module GradingSchemesCommon
   def save_and_reload_changes(grading_standard)
     f('.save_button').click
@@ -32,6 +49,7 @@ module GradingSchemesCommon
     simple_grading_standard(context)
     grading_standard = GradingStandard.last
     get url
+    f('#react_grading_tabs a[href="#grading-standards-tab"]').click if context.is_a?(Account)
     f('.edit_grading_standard_button').click
     replace_content(f('.scheme_name'), edit_name)
     save_and_reload_changes(grading_standard)
@@ -42,6 +60,7 @@ module GradingSchemesCommon
   def should_delete_a_grading_scheme(context, url)
     simple_grading_standard(context)
     get url
+    f('#react_grading_tabs a[href="#grading-standards-tab"]').click if context.is_a?(Account)
     f('.delete_grading_standard_button').click
     driver.switch_to.alert.accept
     wait_for_ajaximations
@@ -52,6 +71,7 @@ module GradingSchemesCommon
     simple_grading_standard(context)
     @grading_standard = GradingStandard.last
     get url
+    f('#react_grading_tabs a[href="#grading-standards-tab"]').click if context.is_a?(Account)
     f('.edit_grading_standard_button').click
   end
 
@@ -95,18 +115,5 @@ module GradingSchemesCommon
     expect(@grading_standard.data.count).to eq data_count - 1
     expect(@grading_standard.data[0][0]).to eq 'B'
     # TODO: check that changing upped limit of next row item changes to lower limit of line above
-  end
-
-  def should_contain_a_tab_for_grading_schemes_and_periods(url)
-    @course.root_account.allow_feature!(:multiple_grading_periods)
-    @course.account.enable_feature!(:multiple_grading_periods)
-    get url
-    expect(f(".grading_periods_tab")).to be_displayed
-    f(".grading_periods_tab").click
-    expect(f(".new-grading-period")).to be_displayed
-
-    expect(f(".grading_standards_tab")).to be_displayed
-    f(".grading_standards_tab").click
-    expect(f(".add_standard_button")).to be_displayed
   end
 end

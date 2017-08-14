@@ -98,7 +98,9 @@ describe "Files API", type: :request do
         'created_at' => @attachment.created_at.as_json,
         'updated_at' => @attachment.updated_at.as_json,
         'thumbnail_url' => nil,
-        'modified_at' => @attachment.modified_at.as_json
+        'modified_at' => @attachment.modified_at.as_json,
+        'mime_class' => @attachment.mime_class,
+        'media_entry_id' => @attachment.media_entry_id
       })
       expect(@attachment.file_state).to eq 'available'
     end
@@ -106,7 +108,7 @@ describe "Files API", type: :request do
     it "should set the attachment to available (s3 storage)" do
       s3_storage!
 
-      AWS::S3::S3Object.any_instance.expects(:head).returns({
+      Aws::S3::Object.any_instance.expects(:data).returns({
                                           :content_type => 'text/plain',
                                           :content_length => 1234,
                                       })
@@ -131,9 +133,23 @@ describe "Files API", type: :request do
         'created_at' => @attachment.created_at.as_json,
         'updated_at' => @attachment.updated_at.as_json,
         'thumbnail_url' => nil,
-        'modified_at' => @attachment.modified_at.as_json
+        'modified_at' => @attachment.modified_at.as_json,
+        'mime_class' => @attachment.mime_class,
+        'media_entry_id' => @attachment.media_entry_id
       })
       expect(@attachment.reload.file_state).to eq 'available'
+    end
+
+    it "includes usage rights if overwriting a file that has them already" do
+      usage_rights = @course.usage_rights.create! use_justification: 'creative_commons', legal_copyright: '(C) 2014 XYZ Corp', license: 'cc_by_nd'
+      @attachment.usage_rights = usage_rights
+      @attachment.save!
+      upload_data
+      json = call_create_success
+      expect(json['usage_rights']).to eq({"use_justification"=>"creative_commons",
+                                          "license"=>"cc_by_nd",
+                                          "legal_copyright"=>"(C) 2014 XYZ Corp",
+                                          "license_name"=>"CC Attribution No Derivatives"})
     end
 
     it "should store long-ish non-ASCII filenames (local storage)" do
@@ -149,7 +165,7 @@ describe "Files API", type: :request do
       FilesController.any_instance.stubs(:in_app?).returns(true)
       FilesController.any_instance.stubs(:verified_request?).returns(true)
 
-      AWS::S3::S3Object.any_instance.expects(:head).returns({
+      Aws::S3::Object.any_instance.expects(:data).returns({
                                           :content_type => 'text/plain',
                                           :content_length => 1234,
                                       })
@@ -183,7 +199,7 @@ describe "Files API", type: :request do
 
       it "should call back for s3" do
         s3_storage!
-         AWS::S3::S3Object.any_instance.expects(:head).returns({
+         Aws::S3::Object.any_instance.expects(:data).returns({
                                           :content_type => 'text/plain',
                                           :content_length => 1234,
                                       })
@@ -608,7 +624,9 @@ describe "Files API", type: :request do
               'created_at' => @att.created_at.as_json,
               'updated_at' => @att.updated_at.as_json,
               'thumbnail_url' => @att.thumbnail_url,
-              'modified_at' => @att.updated_at.as_json
+              'modified_at' => @att.modified_at.as_json,
+              'mime_class' => @att.mime_class,
+              'media_entry_id' => @att.media_entry_id
       })
     end
 
@@ -620,7 +638,7 @@ describe "Files API", type: :request do
     end
 
     it "should 404 with wrong context" do
-      course
+      course_factory
       user_session(@user)
       opts = @file_path_options.merge(:course_id => @course.id.to_param)
       api_call(:get, "/api/v1/courses/#{@course.id}/files/#{@att.id}", opts, {}, {}, :expected_status => 404)
@@ -759,6 +777,19 @@ describe "Files API", type: :request do
       api_call(:delete, @file_path, @file_path_options)
       @att.reload
       expect(@att.file_state).to eq 'deleted'
+    end
+
+    it "should delete/replace a file" do
+      account_admin_user
+      Attachment.any_instance.expects(:destroy_content_and_replace).once
+      @file_path_options[:replace] = true
+      api_call(:delete, @file_path, @file_path_options)
+    end
+
+    it "should not be authorized to delete/replace a file" do
+      course_with_teacher(active_all: true, user: user_with_pseudonym)
+      @file_path_options[:replace] = true
+      api_call(:delete, @file_path, @file_path_options, {}, {}, expected_status: 401)
     end
 
     it "should return 404" do
@@ -926,7 +957,7 @@ describe "Files API", type: :request do
 
   describe "quota" do
     let_once(:t_course) do
-      course_with_teacher_logged_in active_all: true
+      course_with_teacher active_all: true
       @course.storage_quota = 111.megabytes
       @course.save
       attachment_model context: @course, size: 33.megabytes
@@ -935,6 +966,10 @@ describe "Files API", type: :request do
 
     let_once(:t_teacher) do
       t_course.teachers.first
+    end
+
+    before(:each) do
+      user_session(@teacher)
     end
 
     it "should return total and used quota" do

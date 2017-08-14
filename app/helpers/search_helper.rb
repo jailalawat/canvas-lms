@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -130,8 +130,8 @@ module SearchHelper
       else
         add_courses.call @current_user.concluded_courses.shard(@current_user).to_a, :concluded
         add_courses.call @current_user.courses.shard(@current_user).to_a, :current
-        add_sections.call @current_user.messageable_sections
-        add_groups.call @current_user.messageable_groups
+        add_sections.call @current_user.address_book.sections
+        add_groups.call @current_user.address_book.groups
       end
       contexts
     end

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 ####
 # TODO: consolidate this into DiscussionTopic
 #
@@ -29,7 +46,7 @@ define [
       entry_ratings: {}
 
     url: ->
-      "#{@get 'root_url'}?include_new_entries=1&include_enrollment_state=1"
+      "#{@get 'root_url'}?include_new_entries=1&include_enrollment_state=1&include_context_card_info=1"
 
     fetch: (options = {}) ->
       loader = new BackoffPoller @url(), (data, xhr) =>

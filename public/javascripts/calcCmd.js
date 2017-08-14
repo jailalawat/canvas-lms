@@ -1,7 +1,24 @@
-define([
-  'i18n!calculator.command',
-  'jquery' /* $ */
-], function(I18n, $) {
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+import I18n from 'i18n!calculator.command'
+
+
 
   var calcCmd = {};
 
@@ -303,7 +320,7 @@ define([
       var result = {};
       command = command.toString();
       result.command = command;
-      tree = cached_trees[command];
+      var tree = cached_trees[command];
       if(tree) {
         result.syntax = tree.syntax;
         result.tree = tree.tree;
@@ -391,6 +408,11 @@ define([
     f('sin', function(x) { return Math.sin(x); }, I18n.t('sin.description', "Returns the sine of the given value"), "sin(radians)");
     f('cos', function(x) { return Math.cos(x); }, I18n.t('cos.description', "Returns the cosine of the given value"), "cos(radians)" );
     f('tan', function(x) { return Math.tan(x); }, I18n.t('tan.description', "Returns the tangent of the given value"), "tan(radians)");
+
+    f('sec', function(x) { return 1 / Math.cos(x); }, I18n.t('sec.description', "Returns the secant of the given value"), "sec(radians)");
+    f('cosec', function(x) { return 1 / Math.sin(x); }, I18n.t('cosec.description', "Returns the cosecant of the given value"), "cosec(radians)" );
+    f('cotan', function(x) { return 1 / Math.tan(x); }, I18n.t('cotan.description', "Returns the cotangent of the given value"), "cotan(radians)");
+
     f('pi', function(x) { return Math.PI; }, I18n.t('pi.description', "Returns the computed value of pi"), "pi()");
     f('if', function(bool, pass, fail) { return bool ? pass : fail; }, I18n.t('if.description', "Evaluates the first argument, returns the second argument if it evaluates to a non-zero value, otherwise returns the third value"), "if(bool,success,fail)");
     var make_list = function(args) {
@@ -502,5 +524,4 @@ define([
     f('e', function(x) { return Math.exp(x || 1); }, I18n.t('e.description', "Returns the value for e"), "e()");
   })();
 
-  return calcCmd;
-});
+export default calcCmd;

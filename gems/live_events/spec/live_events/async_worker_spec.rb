@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,7 +21,7 @@ require 'spec_helper'
 describe LiveEvents::AsyncWorker do
   before(:each) do
     LiveEvents.max_queue_size = -> { 100 }
-    LiveEvents.logger = mock()
+    LiveEvents.logger = double()
     @worker = LiveEvents::AsyncWorker.new(false)
   end
 

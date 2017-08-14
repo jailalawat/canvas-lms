@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -94,17 +94,14 @@ module CCHelper
   CANVAS_EXPORT_FLAG = 'canvas_export.txt'
   MEDIA_TRACKS = 'media_tracks.xml'
   ASSIGNMENT_XML = 'assignment.xml'
+  EXTERNAL_CONTENT_FOLDER = 'external_content'
 
-  def create_key(object, prepend="")
-    CCHelper.create_key(object, prepend)
+  def ims_date(date=nil,default=Time.now)
+    CCHelper.ims_date(date, default)
   end
 
-  def ims_date(date=nil)
-    CCHelper.ims_date(date)
-  end
-
-  def ims_datetime(date=nil)
-    CCHelper.ims_datetime(date)
+  def ims_datetime(date=nil,default=Time.now)
+    CCHelper.ims_datetime(date, default)
   end
 
   def self.create_key(object, prepend="")
@@ -116,13 +113,15 @@ module CCHelper
     "i" + Digest::MD5.hexdigest(prepend + key)
   end
 
-  def self.ims_date(date=nil)
-    date ||= Time.now
+  def self.ims_date(date=nil,default=Time.now)
+    date ||= default
+    return nil unless date
     date.respond_to?(:utc) ? date.utc.strftime(IMS_DATE) : date.strftime(IMS_DATE)
   end
 
-  def self.ims_datetime(date=nil)
-    date ||= Time.now
+  def self.ims_datetime(date=nil,default=Time.now)
+    date ||= default
+    return nil unless date
     date.respond_to?(:utc) ? date.utc.strftime(IMS_DATETIME) : date.strftime(IMS_DATETIME)
   end
 
@@ -147,6 +146,29 @@ module CCHelper
     [title, body]
   end
 
+  def self.map_linked_objects(content)
+    linked_objects = []
+    html = Nokogiri::HTML.fragment(content)
+    html.css('a, img').each do |atag|
+      source = atag['href'] || atag['src']
+      next unless source =~ /%24[^%]*%24/
+      if source.include?(CGI.escape(CC::CCHelper::WEB_CONTENT_TOKEN))
+        attachment_key = source.sub(CGI.escape(CC::CCHelper::WEB_CONTENT_TOKEN), '')
+        attachment_key = attachment_key.split('?').first
+        attachment_key = attachment_key.split('/').map {|ak| CGI.unescape(ak)}.join('/')
+        linked_objects.push({local_path: attachment_key, type: 'Attachment'})
+      else
+        type, object_key = source.split('/').last 2
+        if type =~ /%24[^%]*%24/
+          type = object_key
+          object_key = nil
+        end
+        linked_objects.push({identifier: object_key, type: type})
+      end
+    end
+    linked_objects
+  end
+
   require 'set'
   class HtmlContentExporter
     attr_reader :used_media_objects, :media_object_flavor, :media_object_infos
@@ -162,6 +184,7 @@ module CCHelper
       @track_referenced_files = opts[:track_referenced_files]
       @for_course_copy = opts[:for_course_copy]
       @for_epub_export = opts[:for_epub_export]
+      @key_generator = opts[:key_generator] || CC::CCHelper
       @referenced_files = {}
 
       @rewriter.set_handler('file_contents') do |match|
@@ -173,22 +196,27 @@ module CCHelper
         end
       end
       @rewriter.set_handler('files') do |match|
-        # If match.obj_id is nil, it's because we're actually linking to a page
-        # (the /courses/:id/files page) and not to a specific file. In this case,
-        # just pass it straight through.
         if match.obj_id.nil?
-          "#{COURSE_TOKEN}/files"
+          if match_data = match.url.match(%r{/files/folder/(.*)})
+            # this might not be the best idea but let's keep going and see what happens
+            "#{COURSE_TOKEN}/files/folder/#{match_data[1]}"
+          else
+            # If match.obj_id is nil, it's because we're actually linking to a page
+            # (the /courses/:id/files page) and not to a specific file. In this case,
+            # just pass it straight through.
+            "#{COURSE_TOKEN}/files"
+          end
         else
           if @course && match.obj_class == Attachment
             obj = @course.attachments.find_by_id(match.obj_id)
           else
             obj = match.obj_class.where(id: match.obj_id).first
           end
-          next(match.url) unless obj && @rewriter.user_can_view_content?(obj)
+          next(match.url) unless obj && (@rewriter.user_can_view_content?(obj) || @for_epub_export)
           folder = obj.folder.full_name.sub(/course( |%20)files/, WEB_CONTENT_TOKEN)
           folder = folder.split("/").map{|part| URI.escape(part)}.join("/")
 
-          @referenced_files[obj.id] = CCHelper.create_key(obj) if @track_referenced_files && !@referenced_files[obj.id]
+          @referenced_files[obj.id] = @key_generator.create_key(obj) if @track_referenced_files && !@referenced_files[obj.id]
           # for files, turn it into a relative link by path, rather than by file id
           # we retain the file query string parameters
           path = "#{folder}/#{URI.escape(obj.display_name)}"

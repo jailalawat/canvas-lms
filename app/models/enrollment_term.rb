@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011-2016 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,7 +21,6 @@ class EnrollmentTerm < ActiveRecord::Base
 
   include Workflow
 
-  attr_accessible :name, :start_at, :end_at
   belongs_to :root_account, :class_name => 'Account'
   belongs_to :grading_period_group, inverse_of: :enrollment_terms
   has_many :grading_periods, through: :grading_period_group
@@ -32,10 +31,11 @@ class EnrollmentTerm < ActiveRecord::Base
 
   validates_presence_of :root_account_id, :workflow_state
   validate :check_if_deletable
+  validate :consistent_account_associations
 
   before_validation :verify_unique_sis_source_id
-  before_save :update_courses_later_if_necessary
-  before_update :destroy_orphaned_grading_period_group
+  after_save :update_courses_later_if_necessary
+  after_save :recompute_course_scores_later, if: :grading_period_group_id_has_changed?
 
   include StickySisFields
   are_sis_sticky :name, :start_at, :end_at
@@ -51,7 +51,9 @@ class EnrollmentTerm < ActiveRecord::Base
   end
 
   def update_courses_later_if_necessary
-    self.update_courses_later if !self.new_record? && (self.start_at_changed? || self.end_at_changed?)
+    if !self.new_record? && (self.start_at_changed? || self.end_at_changed?)
+      self.update_courses_and_states_later
+    end
   end
 
   # specifically for use in specs
@@ -60,13 +62,38 @@ class EnrollmentTerm < ActiveRecord::Base
   end
 
   def touch_all_courses
-    return if new_record?
     self.courses.touch_all
   end
 
-  def update_courses_later
+  def recompute_course_scores_later(update_all_grading_period_scores: true)
+    inst_job_opts = {}
+    if update_all_grading_period_scores
+      # queue in a singleton to avoid duplicates, if updating all grading periods
+      inst_job_opts[:singleton] = "enrollment_term:recompute:EnrollmentTerm:#{global_id}"
+    end
+
+    send_later_if_production_enqueue_args(
+      :recompute_course_scores,
+      inst_job_opts,
+      update_all_grading_period_scores: update_all_grading_period_scores
+    )
+  end
+
+  def recompute_course_scores(opts = {})
+    update_scores = opts.fetch(:update_all_grading_period_scores, true)
+    courses.active.each do |course|
+      course.recompute_student_scores(update_all_grading_period_scores: update_scores)
+      DueDateCacher.recompute_course(course)
+    end
+  end
+
+  def update_courses_and_states_later(enrollment_type=nil)
+    return if new_record?
+
     self.send_later_if_production(:touch_all_courses) unless @touched_courses
     @touched_courses = true
+
+    EnrollmentState.send_later_if_production(:invalidate_states_for_term, self, enrollment_type)
   end
 
   def self.i18n_default_term_name
@@ -119,6 +146,7 @@ class EnrollmentTerm < ActiveRecord::Base
     return true unless scope.exists?
 
     self.errors.add(:sis_source_id, t('errors.not_unique', "SIS ID \"%{sis_source_id}\" is already in use", :sis_source_id => self.sis_source_id))
+    throw :abort unless CANVAS_RAILS4_2
     false
   end
 
@@ -147,7 +175,7 @@ class EnrollmentTerm < ActiveRecord::Base
     # detect will cause the whole collection to load; that's fine, it's a small collection, and
     # we'll probably call enrollment_dates_for multiple times in a single request, so we want
     # it cached, rather than using .scoped which would force a re-query every time
-    override = enrollment_dates_overrides.detect { |override| override.enrollment_type == enrollment.type.to_s}
+    override = enrollment_dates_overrides.detect { |ov| ov.enrollment_type == enrollment.type.to_s}
 
     # ignore the start dates as admin
     [ override.try(:start_at) || (enrollment.admin? ? nil : start_at), override.try(:end_at) || end_at ]
@@ -155,7 +183,7 @@ class EnrollmentTerm < ActiveRecord::Base
 
   # return the term dates applicable to the given enrollment(s)
   def overridden_term_dates(enrollments)
-    dates = enrollments.uniq { |enrollment| enrollment.type }.map { |enrollment| enrollment_dates_for(enrollment) }
+    dates = enrollments.uniq(&:type).map { |enrollment| enrollment_dates_for(enrollment) }
     start_dates = dates.map(&:first)
     end_dates = dates.map(&:last)
     [start_dates.include?(nil) ? nil : start_dates.min, end_dates.include?(nil) ? nil : end_dates.max]
@@ -167,18 +195,27 @@ class EnrollmentTerm < ActiveRecord::Base
     save!
   end
 
-  def destroy_orphaned_grading_period_group
-    is_being_destroyed = workflow_state_changed? && deleted?
-    had_previous_group = grading_period_group_id_changed? && grading_period_group_id_was
-
-    if is_being_destroyed || had_previous_group
-      grading_period_group_criteria = { grading_period_group_id: grading_period_group_id_was }
-      remaining_terms = EnrollmentTerm.active.where(grading_period_group_criteria).where.not(id: self)
-      unless remaining_terms.exists?
-        GradingPeriodGroup.destroy(grading_period_group_id_was)
+  def consistent_account_associations
+    if read_attribute(:grading_period_group_id).present?
+      if root_account_id != grading_period_group.account_id
+        errors.add(:grading_period_group, t("cannot be associated with a different account"))
       end
     end
   end
 
   scope :active, -> { where("enrollment_terms.workflow_state<>'deleted'") }
+  scope :ended, -> { where('enrollment_terms.end_at < ?', Time.now.utc) }
+  scope :started, -> { where('enrollment_terms.start_at IS NULL OR enrollment_terms.start_at < ?', Time.now.utc) }
+  scope :not_ended, -> { where('enrollment_terms.end_at IS NULL OR enrollment_terms.end_at >= ?', Time.now.utc) }
+  scope :not_started, -> { where('enrollment_terms.start_at IS NOT NULL AND enrollment_terms.start_at > ?', Time.now.utc) }
+  scope :not_default, -> { where.not(name: EnrollmentTerm::DEFAULT_TERM_NAME)}
+  scope :by_name, -> { order(best_unicode_collation_key('name')) }
+
+  private
+
+  def grading_period_group_id_has_changed?
+    # migration 20111111214313_add_trust_link_for_default_account
+    # will throw an error without this check
+    respond_to?(:grading_period_group_id_changed?) && grading_period_group_id_changed?
+  end
 end

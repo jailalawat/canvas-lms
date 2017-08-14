@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,7 +19,6 @@
 class WebConference < ActiveRecord::Base
   include SendToStream
   include TextHelper
-  attr_accessible :title, :duration, :description, :conference_type, :user, :user_settings, :context
   attr_readonly :context_id, :context_type
   belongs_to :context, polymorphic: [:course, :group, :account]
   has_many :web_conference_participants
@@ -30,6 +29,9 @@ class WebConference < ActiveRecord::Base
 
   validates_length_of :description, :maximum => maximum_text_length, :allow_nil => true, :allow_blank => true
   validates_presence_of :conference_type, :title, :context_id, :context_type, :user_id
+
+  MAX_DURATION = 99999999
+  validates_numericality_of :duration, :less_than_or_equal_to => MAX_DURATION, :allow_nil => true
 
   before_validation :infer_conference_details
 
@@ -163,7 +165,7 @@ class WebConference < ActiveRecord::Base
         context.membership_for_user(participant).try(:active?)
       end
     end
-    p.whenever { @new_participants && !@new_participants.empty? }
+    p.whenever { context_is_available? && @new_participants && !@new_participants.empty? }
 
     p.dispatch :web_conference_recording_ready
     p.to { user }
@@ -174,6 +176,17 @@ class WebConference < ActiveRecord::Base
 
   on_create_send_to_streams do
     [self.user_id] + self.web_conference_participants.map(&:user_id)
+  end
+
+  def context_is_available?
+    case context
+    when Course
+      context.available?
+    when Group
+      context.context_available?
+    when Account
+      true
+    end
   end
 
   def add_user(user, type)
@@ -260,10 +273,6 @@ class WebConference < ActiveRecord::Base
     self.started_at && !self.active?
   end
 
-  def restartable?
-    end_at && Time.now <= end_at && !long_running?
-  end
-
   def long_running?
     duration.nil?
   end
@@ -287,7 +296,7 @@ class WebConference < ActiveRecord::Base
 
   def restart
     self.start_at ||= Time.now
-    self.end_at ||= self.start_at + self.duration_in_seconds if self.duration
+    self.end_at = self.duration && self.start_at + self.duration_in_seconds
     self.started_at ||= self.start_at
     self.ended_at = nil
     self.save
@@ -303,12 +312,17 @@ class WebConference < ActiveRecord::Base
     nil
   end
 
-  def active?(force_check=false)
+  def active?(force_check=false, allow_check=true)
     if !force_check
       return false if self.ended_at && Time.now > self.ended_at
       return true if self.start_at && (self.end_at.nil? || self.end_at && Time.now > self.start_at && Time.now < self.end_at)
       return true if self.ended_at && Time.now < self.ended_at
-      return @conference_active if @conference_active
+      return @conference_active unless @conference_active.nil?
+    end
+    unless allow_check
+      # we don't know if the conference is active and we can't afford an api call to check.
+      # assume it's inactive
+      return false
     end
     @conference_active = (conference_status == :active)
     # If somehow the end_at didn't get set, set the end date
@@ -417,7 +431,7 @@ class WebConference < ActiveRecord::Base
     end
   end
 
-  scope :active, -> { all }
+  scope :active, -> { where(:conference_type => WebConference.plugins.map{|p| p.id.classify}) }
 
   def as_json(options={})
     url = options.delete(:url)

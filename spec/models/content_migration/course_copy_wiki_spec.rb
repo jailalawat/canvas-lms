@@ -1,8 +1,37 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/course_copy_helper.rb')
 
 describe ContentMigration do
   context "course copy wiki" do
     include_examples "course copy"
+
+    it "should copy wiki page attributes" do
+      page = @copy_from.wiki.wiki_pages.create!(:title => "title", :body => "<p>butter</p>",
+                                                :editing_roles => "teachers", :todo_date => Time.zone.now)
+
+      run_course_copy
+
+      page_to = @copy_to.wiki.wiki_pages.where(migration_id: mig_id(page)).first
+
+      attrs = [:title, :body, :editing_roles, :todo_date]
+      expect(page.attributes.slice(*attrs)).to eq page_to.attributes.slice(*attrs)
+    end
 
     it "should reset user on re-import" do
       page = @copy_from.wiki.wiki_pages.create!(:title => "reset me", :body => "<p>blah</p>")
@@ -11,7 +40,7 @@ describe ContentMigration do
 
       page_to = @copy_to.wiki.wiki_pages.where(migration_id: mig_id(page)).first
       page_to.body = "something else"
-      page_to.user = user
+      page_to.user = user_factory
       page_to.save!
 
       run_course_copy
@@ -48,6 +77,38 @@ describe ContentMigration do
       expect(@copy_to.wiki.wiki_pages.where(url: "online-unit-pages").first!.body).to eq %{<a href="/courses/#{@copy_to.id}/#{@copy_to.wiki.path}/#{main_page.url}">whoa</a>}
     end
 
+    it "should keep assignment relationship" do
+      vanilla_page_from = @copy_from.wiki.wiki_pages.create!(title: "Everyone Sees This Page")
+      wiki_page_assignment_model(course: @copy_from, title: "conditional page")
+
+      run_course_copy
+
+      page_to = @copy_to.wiki.wiki_pages.where(migration_id: mig_id(@page)).take!
+      asg_to = @copy_to.assignments.where(migration_id: mig_id(@assignment)).take!
+      expect(asg_to.wiki_page).to eq page_to
+
+      vanilla_page_to = @copy_to.wiki.wiki_pages.where(migration_id: mig_id(vanilla_page_from)).take!
+      expect(vanilla_page_to.assignment).to be_nil
+    end
+
+    it "re-imports updated/deleted page" do
+      page = @copy_from.wiki.wiki_pages.create!(:title => "blah", :body => "<p>orig</p>")
+
+      run_course_copy
+
+      page_to = @copy_to.wiki.wiki_pages.where(migration_id: mig_id(page)).first
+      page_to.destroy
+
+      page.body = '<p>updated</p>'
+      page.save!
+
+      run_course_copy
+
+      page_to.reload
+      expect(page_to.workflow_state).to eq 'active'
+      expect(page_to.body).to eq page.body
+    end
+
     context "wiki front page" do
       it "should copy wiki front page setting if there is no front page" do
         fake_front_page = @copy_from.wiki.wiki_pages.create!(:title => "Front Page")
@@ -79,6 +140,24 @@ describe ContentMigration do
         run_course_copy
 
         expect(@copy_to.wiki.front_page).to eq copy_to_front_page
+      end
+
+      it "should overwrite current front page if default_view setting is also changed to wiki" do
+        copy_from_front_page = @copy_from.wiki.wiki_pages.create!(:title => "stuff and stuff")
+        @copy_from.wiki.set_front_page_url!(copy_from_front_page.url)
+
+        copy_to_front_page = @copy_to.wiki.wiki_pages.create!(:title => "stuff and stuff and even more stuf")
+        @copy_to.wiki.set_front_page_url!(copy_to_front_page.url)
+
+        @copy_from.update_attribute(:default_view, 'wiki')
+        @copy_to.update_attribute(:default_view, 'feed')
+
+        run_course_copy
+
+        @copy_to.reload
+        expect(@copy_to.default_view).to eq 'wiki'
+        new_front_page = @copy_to.wiki.wiki_pages.where(:migration_id => mig_id(copy_from_front_page)).first
+        expect(@copy_to.wiki.front_page).to eq new_front_page
       end
 
       it "should remain with no front page if other front page is not selected for copy" do

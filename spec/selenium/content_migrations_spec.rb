@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 def visit_page
@@ -26,10 +43,12 @@ end
 
 def submit
   @course.reload
-  count = @course.content_migrations.count
+  # depending on the type of migration, we need to wait for it to have one of these states
+  scope = { workflow_state: %w[queued exporting exported] }
+  count = @course.content_migrations.where(scope).count
   driver.execute_script("$('#migrationConverterContainer').submit()")
   keep_trying_until do
-    expect(@course.content_migrations.count).to eq count + 1
+    expect(@course.content_migrations.where(scope).count).to eq count + 1
   end
 end
 
@@ -197,7 +216,7 @@ describe "content migrations", :non_parallel do
       #  because of a cached default account
       #  that no longer exists in the db
       Account.clear_special_account_cache!(true)
-      @copy_from = course
+      @copy_from = course_factory
       @copy_from.update_attribute(:name, 'copy from me')
       data = File.read(File.dirname(__FILE__) + '/../fixtures/migration/cc_full_test.zip')
 
@@ -224,7 +243,7 @@ describe "content migrations", :non_parallel do
       @copy_from.enroll_teacher(@user).accept
     end
 
-    it "should show warning before self-copy" do
+    it "should show warning before self-copy", priority: "1", test_id: 2889675 do
       visit_page
       select_migration_type
       wait_for_ajaximations
@@ -241,7 +260,7 @@ describe "content migrations", :non_parallel do
       expect(f('#courseSelectWarning')).to_not be_displayed
     end
 
-    it "should select by drop-down or by search box" do
+    it "should select by drop-down or by search box", priority: "2", test_id: 2889684 do
       visit_page
       select_migration_type
       wait_for_ajaximations
@@ -273,7 +292,7 @@ describe "content migrations", :non_parallel do
       expect(source_link['href']).to include("/courses/#{@copy_from.id}")
     end
 
-    it "should only show courses the user is authorized to see" do
+    it "should only show courses the user is authorized to see", priority: "1", test_id: 2889686 do
       new_course = Course.create!(:name => "please don't see me")
       visit_page
       select_migration_type
@@ -291,7 +310,7 @@ describe "content migrations", :non_parallel do
       expect(f("option[value=\"#{new_course.id}\"]")).not_to be_nil
     end
 
-    it "should include completed courses when checked" do
+    it "should include completed courses when checked", priority: "1", test_id: 2889687 do
       new_course = Course.create!(:name => "completed course")
       new_course.enroll_teacher(@user).accept
       new_course.complete!
@@ -306,7 +325,7 @@ describe "content migrations", :non_parallel do
       expect(f("option[value=\"#{new_course.id}\"]")).not_to be_nil
     end
 
-    it "should find courses in other accounts" do
+    it "should find courses in other accounts", priority: "1", test_id: 2890402 do
       new_account1 = account_model
       enrolled_course = Course.create!(:name => "faraway course", :account => new_account1)
       enrolled_course.enroll_teacher(@user).accept
@@ -359,7 +378,7 @@ describe "content migrations", :non_parallel do
       test_selective_content(@copy_from)
     end
 
-    it "should set day substitution and date adjustment settings" do
+    it "should set day substitution and date adjustment settings", priority: "1", test_id: 2891737 do
       new_course = Course.create!(:name => "day sub")
       new_course.enroll_teacher(@user).accept
 
@@ -434,7 +453,7 @@ describe "content migrations", :non_parallel do
       end
     end
 
-    it "should remove dates" do
+    it "should remove dates", priority: "1", test_id: 2891742 do
       new_course = Course.create!(:name => "date remove", :start_at => 'Jul 1, 2014', :conclude_at => 'Jul 11, 2014')
       new_course.enroll_teacher(@user).accept
 
@@ -469,6 +488,25 @@ describe "content migrations", :non_parallel do
       @course.reload
       expect(@course.announcements.last.locked).to be_truthy
       expect(@course.lock_all_announcements).to be_truthy
+    end
+
+    it "should persist topic 'allow liking' settings across course copy", priority: "2", test_id: 1041950 do
+      @copy_from.discussion_topics.create!(
+        title: 'Liking Allowed Here',
+        message: 'Like I said, liking is allowed',
+        allow_rating: true
+      )
+
+      visit_page
+      select_migration_type
+      wait_for_ajaximations
+      click_option('#courseSelect', @copy_from.id.to_s, :value)
+      ff('[name=selective_import]')[0].click
+      submit
+      run_jobs
+      expect(f('.migrationProgressItem .progressStatus')).to include_text("Completed")
+      @course.reload
+      expect(@course.discussion_topics.last.allow_rating).to be_truthy
     end
   end
 

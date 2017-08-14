@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,8 +17,6 @@
 #
 
 class Quizzes::QuizSubmissionEvent < ActiveRecord::Base
-  strong_params
-
   include CanvasPartman::Concerns::Partitioned
 
   # An event describing the student choosing an answer to a question.

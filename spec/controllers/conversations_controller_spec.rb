@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -26,7 +26,15 @@ describe ConversationsController do
     users = create_users_in_course(course, user_data, account_associations: true, return_type: :record)
     @conversation = @user.initiate_conversation(users)
     @conversation.add_message(opts[:message] || 'test')
+    @conversation.conversation.update_attribute(:context, course)
     @conversation
+  end
+
+  # in Rails 5, `get`, `post`, etc. are changing to kwargs. we don't have to do that right away,
+  # but having a param named `body` triggers Rails 5 to treat it as a kwarg request, ignoring all
+  # of the params we want to send to the controller
+  def wrap_params(params)
+    CANVAS_RAILS4_2 ? params : { params: params }
   end
 
   describe "GET 'index'" do
@@ -86,7 +94,7 @@ describe ConversationsController do
     it "should return conversations matching the specified filter" do
       user_session(@student)
       @c1 = conversation
-      @other_course = course(:active_all => true)
+      @other_course = course_factory(active_all: true)
       enrollment = @other_course.enroll_student(@user)
       enrollment.workflow_state = 'active'
       enrollment.save!
@@ -103,7 +111,7 @@ describe ConversationsController do
       user_session(@student)
       @course1 = @course
       @c1 = conversation(:course => @course1)
-      @course2 = course(:active_all => true)
+      @course2 = course_factory(active_all: true)
       enrollment = @course2.enroll_student(@user)
       enrollment.workflow_state = 'active'
       enrollment.save!
@@ -130,7 +138,7 @@ describe ConversationsController do
     it "should return conversations matching a user filter" do
       user_session(@student)
       @c1 = conversation
-      @other_course = course(:active_all => true)
+      @other_course = course_factory(active_all: true)
       enrollment = @other_course.enroll_student(@user)
       enrollment.workflow_state = 'active'
       enrollment.save!
@@ -156,8 +164,8 @@ describe ConversationsController do
         a = Account.default
         @student = user_with_pseudonym(:active_all => true)
         course_with_student(:active_all => true, :account => a, :user => @student)
-        @student.initiate_conversation([user]).add_message('test1', :root_account_id => a.id)
-        @student.initiate_conversation([user]).add_message('test2') # no root account, so teacher can't see it
+        @student.initiate_conversation([user_factory]).add_message('test1', :root_account_id => a.id)
+        @student.initiate_conversation([user_factory]).add_message('test2') # no root account, so teacher can't see it
 
         course_with_teacher(:active_all => true, :account => a)
         a.account_users.create!(user: @user)
@@ -231,7 +239,29 @@ describe ConversationsController do
       enrollment = @course.enroll_student(new_user)
       enrollment.workflow_state = 'active'
       enrollment.save
-      post 'create', :recipients => [new_user.id.to_s], :body => "yo"
+      post 'create', wrap_params(recipients: [new_user.id.to_s], body: "yo")
+      expect(response).to be_success
+      expect(assigns[:conversation]).not_to be_nil
+    end
+
+    it "should require permissions for sending to other students" do
+      user_session(@student)
+
+      new_user = User.create
+      enrollment = @course.enroll_student(new_user)
+      enrollment.workflow_state = 'active'
+      enrollment.save
+      @course.account.role_overrides.create!(:permission => :send_messages, :role => student_role, :enabled => false)
+
+      post 'create', wrap_params(recipients: [new_user.id.to_s], body: "yo", context_code: @course.asset_string)
+      expect(response).to_not be_success
+    end
+
+    it "should allow sending to instructors even if permissions are disabled" do
+      user_session(@student)
+      @course.account.role_overrides.create!(:permission => :send_messages, :role => student_role, :enabled => false)
+
+      post 'create', wrap_params(recipients: [@teacher.id.to_s], body: "yo", context_code: @course.asset_string)
       expect(response).to be_success
       expect(assigns[:conversation]).not_to be_nil
     end
@@ -241,28 +271,33 @@ describe ConversationsController do
       # can cause us to grab stale conversation_context_codes
       # which screws everything up
       enable_cache do
-        course1 = course(:active_all => true)
+        course1 = course_factory(active_all: true)
 
-        student1 = user(:active_user => true)
-        student2 = user(:active_user => true)
+        student1 = user_factory(active_user: true)
+        student2 = user_factory(active_user: true)
 
         Timecop.freeze(5.seconds.ago) do
           course1.enroll_user(student1, "StudentEnrollment").accept!
           course1.enroll_user(student2, "StudentEnrollment").accept!
 
           user_session(student1)
-          post 'create', :recipients => [student2.id.to_s], :body => "yo", :message => "you suck", :group_conversation => true,
-               :course => course1.asset_string, :context_code => course1.asset_string
+          post 'create', wrap_params(recipients: [student2.id.to_s], body: "yo", message: "you suck", group_conversation: true,
+               course: course1.asset_string, context_code: course1.asset_string)
           expect(response).to be_success
         end
 
-        course2 = course(:active_all => true)
+        course2 = course_factory(active_all: true)
         course2.enroll_user(student2, "StudentEnrollment").accept!
         course2.enroll_user(student1, "StudentEnrollment").accept!
         user_session(User.find(student1.id)) # clear process local enrollment cache
 
-        post 'create', :recipients => [student2.id.to_s], :body => "yo again", :message => "you still suck", :group_conversation => true,
-             :course => course2.asset_string, :context_code => course2.asset_string
+        # with the address book, there's another level of caching to bust. in
+        # non-test usage, this cache only lasts for the duration of the
+        # request, so it's not an issue
+        RequestStore.clear!
+
+        post 'create', wrap_params(recipients: [student2.id.to_s], body: "yo again", message: "you still suck", group_conversation: true,
+             course: course2.asset_string, context_code: course2.asset_string)
         expect(response).to be_success
 
         c = Conversation.where(:context_type => "Course", :context_id => course2).first
@@ -280,7 +315,7 @@ describe ConversationsController do
       enrollment = @course.enroll_student(new_user)
       enrollment.workflow_state = 'active'
       enrollment.save
-      post 'create', :recipients => [new_user.id.to_s], :body => "here's the info", :forwarded_message_ids => @conversation.messages.map(&:id)
+      post 'create', wrap_params(recipients: [new_user.id.to_s], body: "here's the info", forwarded_message_ids: @conversation.messages.map(&:id))
       expect(response).to be_success
       expect(assigns[:conversation]).not_to be_nil
       expect(assigns[:conversation].messages.first.forwarded_message_ids).to eql(@conversation.messages.first.id.to_s)
@@ -305,7 +340,7 @@ describe ConversationsController do
 
       ["1", "true", "yes", "on"].each do |truish|
         it "should create a conversation shared by all recipients if group_conversation=#{truish.inspect}" do
-          post 'create', :recipients => [@new_user1.id.to_s, @new_user2.id.to_s], :body => "yo", :group_conversation => truish
+          post 'create', wrap_params(recipients: [@new_user1.id.to_s, @new_user2.id.to_s], body: "yo", group_conversation: truish)
           expect(response).to be_success
 
           expect(Conversation.count).to eql(@old_count + 1)
@@ -314,7 +349,7 @@ describe ConversationsController do
 
       [nil, "", "0", "false", "no", "off", "wat"].each do |falsish|
         it "should create one conversation per recipient if group_conversation=#{falsish.inspect}" do
-          post 'create', :recipients => [@new_user1.id.to_s, @new_user2.id.to_s], :body => "yo", :group_conversation => falsish
+          post 'create', wrap_params(recipients: [@new_user1.id.to_s, @new_user2.id.to_s], body: "yo", group_conversation: falsish)
           expect(response).to be_success
 
           expect(Conversation.count).to eql(@old_count + 2)
@@ -322,7 +357,7 @@ describe ConversationsController do
       end
 
       it "should set the root account id to the participants for group conversations" do
-        post 'create', :recipients => [@new_user1.id.to_s, @new_user2.id.to_s], :body => "yo", :group_conversation => "true"
+        post 'create', wrap_params(recipients: [@new_user1.id.to_s, @new_user2.id.to_s], body: "yo", group_conversation: "true")
         expect(response).to be_success
 
         json = json_parse(response.body)
@@ -335,7 +370,7 @@ describe ConversationsController do
       end
 
       it "should set the root account id to the participants for bulk private messages" do
-        post 'create', :recipients => [@new_user1.id.to_s, @new_user2.id.to_s], :body => "yo", :mode => "sync"
+        post 'create', wrap_params(recipients: [@new_user1.id.to_s, @new_user2.id.to_s], body: "yo", mode: "sync")
         expect(response).to be_success
 
         json = json_parse(response.body)
@@ -351,9 +386,10 @@ describe ConversationsController do
     it "should correctly infer context tags" do
       course_with_teacher_logged_in(:active_all => true)
       @course1 = @course
-      @course2 = course(:active_all => true)
+      @course2 = course_factory(active_all: true)
       @course2.enroll_teacher(@user).accept
-      @course3 = course(:active_all => true)
+      @course3 = course_factory(active_all: true)
+      @course3.enroll_student(@user)
       @group1 = @course1.groups.create!
       @group2 = @course1.groups.create!
       @group3 = @course3.groups.create!
@@ -380,7 +416,8 @@ describe ConversationsController do
       enrollment3.workflow_state = 'active'
       enrollment3.save
 
-      post 'create', :recipients => [@course2.asset_string + "_students", @group1.asset_string], :body => "yo", :group_conversation => true, :context_code => @group3.asset_string
+      post 'create', wrap_params(recipients: [@course2.asset_string + "_students", @group1.asset_string],
+                                 body: "yo", group_conversation: true, context_code: @group3.asset_string)
       expect(response).to be_success
 
       c = Conversation.first
@@ -397,7 +434,7 @@ describe ConversationsController do
       enrollment = @course.enroll_student(new_user)
       enrollment.workflow_state = 'active'
       enrollment.save
-      post 'create', :recipients => [new_user.id.to_s], :body => "yo", :subject => "greetings"
+      post 'create', wrap_params(recipients: [new_user.id.to_s], body: "yo", subject: "greetings")
       expect(response).to be_success
       expect(assigns[:conversation].conversation.subject).not_to be_nil
     end
@@ -413,7 +450,7 @@ describe ConversationsController do
       enrollment2 = @course.enroll_student(new_user2)
       enrollment2.workflow_state = 'active'
       enrollment2.save
-      post 'create', :recipients => [new_user1.id.to_s, new_user2.id.to_s], :body => "later", :subject => "farewell"
+      post 'create', wrap_params(recipients: [new_user1.id.to_s, new_user2.id.to_s], body: "later", subject: "farewell")
       expect(response).to be_success
       json = json_parse(response.body)
       expect(json.size).to eql 2
@@ -431,7 +468,7 @@ describe ConversationsController do
       end
 
       it "should create user notes" do
-        post 'create', :recipients => @students.map(&:id), :body => "yo", :subject => "greetings", :user_note => '1'
+        post 'create', wrap_params(recipients: @students.map(&:id), body: "yo", subject: "greetings", user_note: '1')
         @students.each{|x| expect(x.user_notes.size).to be(1)}
       end
     end
@@ -459,10 +496,19 @@ describe ConversationsController do
       @conversation.last_message_at = expected_lma
       @conversation.save!
 
-      post 'add_message', :conversation_id => @conversation.conversation_id, :body => "hello world"
+      post 'add_message', wrap_params(conversation_id: @conversation.conversation_id, body: "hello world")
       expect(response).to be_success
       expect(@conversation.messages.size).to eq 2
       expect(@conversation.reload.last_message_at).to eql expected_lma
+    end
+
+    it "should require permissions" do
+      course_with_student_logged_in(:active_all => true)
+      conversation
+      @course.account.role_overrides.create!(:permission => :send_messages, :role => student_role, :enabled => false)
+
+      post 'add_message', wrap_params(conversation_id: @conversation.conversation_id, body: "hello world")
+      assert_unauthorized
     end
 
     it "should queue a job if needed" do
@@ -474,7 +520,7 @@ describe ConversationsController do
 
       ConversationParticipant.any_instance.stubs(:should_process_immediately?).returns(false)
 
-      post 'add_message', :conversation_id => @conversation.conversation_id, :body => "hello world"
+      post 'add_message', wrap_params(conversation_id: @conversation.conversation_id, body: "hello world")
       expect(response).to be_success
       expect(@conversation.reload.messages.count(:all)).to eq 1
       run_jobs
@@ -487,13 +533,13 @@ describe ConversationsController do
       course_with_teacher_logged_in(:active_all => true)
       conversation
 
-      post 'add_message', :conversation_id => @conversation.conversation_id, :body => "hello world"
+      post 'add_message', wrap_params(conversation_id: @conversation.conversation_id, body: "hello world")
       expect(response).to be_success
       message = @conversation.messages.first # newest message is first
       student = message.recipients.first
       expect(student.user_notes.size).to eq 0
 
-      post 'add_message', :conversation_id => @conversation.conversation_id, :body => "make a note", :user_note => 1
+      post 'add_message', wrap_params(conversation_id: @conversation.conversation_id, body: "make a note", user_note: 1)
       expect(response).to be_success
       message = @conversation.messages.first
       student = message.recipients.first
@@ -659,9 +705,9 @@ describe ConversationsController do
       it "should list conversation_ids across shards" do
         users = []
         # Create three users on different shards
-        users << user(:name => 'a')
-        @shard1.activate { users << user(:name => 'b') }
-        @shard2.activate { users << user(:name => 'c') }
+        users << user_factory(:name => 'a')
+        @shard1.activate { users << user_factory(:name => 'b') }
+        @shard2.activate { users << user_factory(:name => 'c') }
 
         Shard.default.activate do
           # Default shard conversation
@@ -702,8 +748,8 @@ describe ConversationsController do
     describe "show" do
       it "should find conversations across shards" do
         users = []
-        users << user(:name => 'a')
-        @shard1.activate { users << user(:name => 'b') }
+        users << user_factory(:name => 'a')
+        @shard1.activate { users << user_factory(:name => 'b') }
 
         @shard1.activate do
           @conversation = Conversation.initiate(users, false)

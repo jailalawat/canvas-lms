@@ -1,4 +1,20 @@
 # encoding: utf-8
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require File.expand_path(File.dirname(__FILE__) + '/spec_helper')
 
@@ -13,6 +29,8 @@ describe AcademicBenchmark::Converter do
     @cm.migration_settings[:migration_type] = 'academic_benchmark_importer'
     @cm.migration_settings[:import_immediately] = true
     @cm.migration_settings[:base_url] = "http://example.com/"
+    @cm.migration_settings[:migration_options] = {points_possible: 10, mastery_points: 6,
+      ratings: [{description: 'Bad', points: 0}, {description: 'Awesome', points: 10}]}
     @cm.user = @user
     @cm.save!
 
@@ -32,6 +50,13 @@ describe AcademicBenchmark::Converter do
     end
     @cm.attachment = @att
     @cm.save!
+  end
+
+  def verify_rubric_criterion(outcome)
+    expect(outcome.data[:rubric_criterion][:mastery_points]).to eq 6
+    expect(outcome.data[:rubric_criterion][:points_possible]).to eq 10
+    expect(outcome.data[:rubric_criterion][:ratings]).to eq [{description: 'Bad', points: 0},
+                                                             {description: 'Awesome', points: 10}]
   end
 
   def verify_full_import
@@ -66,12 +91,15 @@ describe AcademicBenchmark::Converter do
     expect(f.child_outcome_links.count).to eq 3
 
     g = LearningOutcome.global.where(migration_id: "ggggggggggggggggg").first
+    verify_rubric_criterion(g)
     expect(g.short_description).to eq "K.CC.1"
     expect(g.description).to eq "Count to 100 by ones and by tens."
     g = LearningOutcome.global.where(migration_id: "hhhhhhhhhhhhhhhh").first
+    verify_rubric_criterion(g)
     expect(g.short_description).to eq "K.CC.2"
     expect(g.description).to eq "Count forward beginning from a given number within the known sequence (instead of having to begin at 1)."
     g = LearningOutcome.global.where(migration_id: "iiiiiiiiiiiiiiiii").first
+    verify_rubric_criterion(g)
     expect(g.short_description).to eq "K.CC.3"
     expect(g.description).to eq "Write numbers from 0 to 20. Represent a number of objects with a written numeral 0-20 (with 0 representing a count of no objects)."
 
@@ -95,6 +123,7 @@ describe AcademicBenchmark::Converter do
     expect(l.child_outcome_links.count).to eq 1
 
     m = LearningOutcome.global.where(migration_id: "mmmmmmmmmmm").first
+    verify_rubric_criterion(g)
     expect(m.short_description).to eq "1.DD.1"
     expect(m.description).to eq "And something else"
     expect(m.title).to eq "1.DD.1"

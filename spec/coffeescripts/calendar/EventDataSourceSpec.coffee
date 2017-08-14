@@ -1,11 +1,28 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'compiled/calendar/EventDataSource'
   'compiled/util/fcUtil',
   'timezone'
-  'vendor/timezone/America/Denver'
+  'timezone/America/Denver'
 ], (EventDataSource, fcUtil, tz, denver) ->
 
-  module "EventDataSource: getEvents",
+  QUnit.module "EventDataSource: getEvents",
     setup: ->
       @snapshot = tz.snapshot()
       tz.changeZone(denver, 'America/Denver')
@@ -54,6 +71,30 @@ define [
 
     teardown: ->
       tz.restore(@snapshot)
+
+  test 'addEventToCache handles cases where the contextCode returns a list', ->
+    fakeEvent = {
+      contextCode: -> "course_1,course_2",
+      id: 42
+    }
+    @source.addEventToCache(fakeEvent)
+    ok(this.source.cache.contexts.course_1.events[42])
+
+  test 'addEventToCache handles the case where contextCode contains context not in the cache', ->
+    fakeEvent = {
+      contextCode: -> "course_3,course_2",
+      id: 42
+    }
+    @source.addEventToCache(fakeEvent)
+    ok(this.source.cache.contexts.course_2.events[42])
+
+  test 'addEventToCache handles cases where the contextCode is a single item', ->
+    fakeEvent = {
+      contextCode: -> "course_1",
+      id: 42
+    }
+    @source.addEventToCache(fakeEvent)
+    ok(this.source.cache.contexts.course_1.events[42])
 
   test 'overlapping ranges: overlap at start shifts start to end of overlap', ->
     @source.getEvents(@date1, @date2, @contexts, ->)

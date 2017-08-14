@@ -27,21 +27,31 @@ es:
   bigeasy_locale: es_ES
 fa:
   locales:
-    fa: فارسی (crowd-sourced)
+    fa: فارسی
   bigeasy_locale: fa_IR
   crowdsourced: true
 fr:
   locales:
     fr: Français
   bigeasy_locale: fr_FR
+fr-CA:
+  locales:
+    fr-CA: Français (Canada)
+  fullcalendar_locale: fr
 he:
   locales:
-    he: עברית (crowd-sourced)
+    he: עברית
   bigeasy_locale: he_IL
   crowdsourced: true
+ht:
+  locales:
+    ht: Kreyòl Ayisyen
+  bigeasy_locale: ht_HT
+  fullcalendar_locale: ht_HT
+  moment_locale: ht-ht
 hy:
   locales:
-    hy: Հայերեն (crowd-sourced)
+    hy: Հայերեն
   bigeasy_locale: hy_AM
   fullcalendar_locale: en
   moment_locale: hy-am
@@ -52,14 +62,14 @@ ja:
   bigeasy_locale: ja_JP
 ko:
   locales:
-    ko: 한국말 (crowd-sourced)
+    ko: 한국말
   bigeasy_locale: ko_KR
   crowdsourced: true
 mi:
   locales:
     mi: Reo Māori (Aotearoa)
   bigeasy_locale: mi_NZ
-  fullcalendar_locale: en
+  fullcalendar_locale: mi_NZ
   moment_locale: mi-nz
 nl:
   locales:
@@ -68,11 +78,11 @@ nl:
   crowdsourced: false
 nb:
   locales:
-    nb: Norwegian (Bokmål)
+    nb: Norsk (Bokmål)
   bigeasy_locale: nb_NO
 nn:
   locales:
-    nn: Norsk (Nynorsk) (crowd-sourced)
+    nn: Norsk (Nynorsk)
   bigeasy_locale: nn_NO
   fullcalendar_locale: nb
   crowdsourced: true
@@ -97,7 +107,7 @@ sv:
   bigeasy_locale: sv_SE
 tr:
   locales:
-    tr: Türkçe (crowd-sourced)
+    tr: Türkçe
   bigeasy_locale: tr_TR
   crowdsourced: true
 zh-Hans:

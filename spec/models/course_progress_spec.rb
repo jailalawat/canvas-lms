@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -110,6 +110,25 @@ describe CourseProgress do
       })
     end
 
+    it "should return correct progress for student in read-only mode" do
+      # turn in first two assignments (module 1)
+      submit_homework(@assignment)
+      submit_homework(@assignment2)
+
+      [@module, @module2, @module3].each do |m|
+        m.evaluate_for(@user)
+        m.any_instantiation.expects(:evaluate_for).never # shouldn't re-evaluate
+      end
+
+      progress = CourseProgress.new(@course, @user, read_only: true).to_json
+      expect(progress).to eq({
+        requirement_count: 5,
+        requirement_completed_count: 2,
+        next_requirement_url: "course_context_modules_item_redirect_url(:course_id => #{@course.id}, :id => #{@tag3.id}, :host => HostUrl.context_host(Course.find(#{@course.id}))",
+        completed_at: nil
+      })
+    end
+
     it "should return correct progress for student who has completed all requirements" do
       # turn in all assignments
       submit_homework(@assignment)
@@ -206,8 +225,6 @@ describe CourseProgress do
       specs_require_sharding
 
       it "can return correct progress" do
-        pend_with_bullet
-
         @shard1.activate { @shard_user = User.create!(name: 'outofshard') }
         @course.enroll_student(@shard_user).accept!
 

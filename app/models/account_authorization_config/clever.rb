@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -34,31 +34,38 @@ class AccountAuthorizationConfig::Clever < AccountAuthorizationConfig::Oauth2
   end
   validates :login_attribute, inclusion: login_attributes
 
-  # Rename db field
-  def district_id=(val)
-    self.auth_filter = val.presence
+  def self.recognized_federated_attributes
+    login_attributes
   end
 
-  def district_id
-    auth_filter
-  end
+  # Rename db field
+  alias_attribute :district_id, :auth_filter
 
   def login_attribute
     super || 'id'.freeze
   end
 
   def unique_id(token)
-    data = token.get("/me")
-    if district_id.present? && data.parsed['data']['district'] != district_id
+    data = me(token)
+
+    if district_id.present? && data['district'] != district_id
       # didn't make a "nice" exception for this, cause it should never happen.
       # either we got MITM'ed (on the server side), or Clever's docs lied;
       # this check is just an extra precaution
-      raise "Non-matching district: #{data.parsed['data']['district'].inspect}"
+      raise "Non-matching district: #{data['district'].inspect}"
     end
-    data.parsed['data'][login_attribute]
+    data[login_attribute]
+  end
+
+  def provider_attributes(token)
+    me(token)
   end
 
   protected
+
+  def me(token)
+    token.options[:me] ||= token.get("/me").parsed['data']
+  end
 
   def client_options
     {

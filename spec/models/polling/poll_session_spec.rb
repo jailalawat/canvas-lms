@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,7 +20,7 @@ require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper.rb')
 
 describe Polling::PollSession do
   before :once do
-    course
+    course_factory
     @section = @course.course_sections.create!(name: 'Section 2')
     teacher_in_course(course: @course, active_all: true)
 
@@ -41,7 +41,7 @@ describe Polling::PollSession do
 
     it "insures that the given course section belongs to the given course" do
       old_course = @course
-      new_course = course
+      new_course = course_factory
 
       section = new_course.course_sections.create!(name: "Alien Section")
       expect { Polling::PollSession.create!(poll: @poll, course: old_course, course_section: section) }.to raise_error(ActiveRecord::RecordInvalid,
@@ -90,7 +90,7 @@ describe Polling::PollSession do
 
         expect(Polling::PollSession.available_for(@student1).size).to eq 3
         expect(Polling::PollSession.available_for(@student2).size).to eq 0
-        expect(Polling::PollSession.available_for(@student1)).to eq student1_sessions
+        expect(Polling::PollSession.available_for(@student1)).to match_array student1_sessions
 
         2.times do |n|
           student2_sessions << Polling::PollSession.create(poll: @poll2, course: @course2)
@@ -98,7 +98,7 @@ describe Polling::PollSession do
 
         expect(Polling::PollSession.available_for(@student1).size).to eq 3
         expect(Polling::PollSession.available_for(@student2).size).to eq 2
-        expect(Polling::PollSession.available_for(@student2)).to eq student2_sessions
+        expect(Polling::PollSession.available_for(@student2)).to match_array student2_sessions
     end
   end
 

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -109,7 +109,7 @@
 #           "example": "crit1",
 #           "type": "string"
 #         },
-#         "outcome_id": {
+#         "learning_outcome_id": {
 #           "description": "(Optional) The id of the learning outcome this criteria uses, if any.",
 #           "example": "1234",
 #           "type": "string"
@@ -301,14 +301,29 @@
 #           "example": 2,
 #           "type": "integer"
 #         },
+#         "due_date_required": {
+#           "description": "Boolean flag indicating whether the assignment requires a due date based on the account level setting",
+#           "example": true,
+#           "type": "boolean"
+#         },
 #         "allowed_extensions": {
 #           "description": "Allowed file extensions, which take effect if submission_types includes 'online_upload'.",
 #           "example": ["docx", "ppt"],
 #           "type": "array",
 #           "items": {"type": "string"}
 #         },
+#         "max_name_length": {
+#           "description": "An integer indicating the maximum length an assignment's name may be",
+#           "example": 15,
+#           "type": "integer"
+#         },
 #         "turnitin_enabled": {
 #           "description": "Boolean flag indicating whether or not Turnitin has been enabled for the assignment. NOTE: This flag will not appear unless your account has the Turnitin plugin available",
+#           "example": true,
+#           "type": "boolean"
+#         },
+#         "vericite_enabled": {
+#           "description": "Boolean flag indicating whether or not VeriCite has been enabled for the assignment. NOTE: This flag will not appear unless your account has the VeriCite plugin available",
 #           "example": true,
 #           "type": "boolean"
 #         },
@@ -345,6 +360,11 @@
 #           "example": "2012-07-01T23:59:00-06:00",
 #           "type": "datetime"
 #         },
+#         "intra_group_peer_reviews": {
+#           "description": "Boolean representing whether or not members from within the same group on a group assignment can be assigned to peer review their own group's work",
+#           "example": "false",
+#           "type": "boolean"
+#         },
 #         "group_category_id": {
 #           "description": "The ID of the assignment’s group set, if this is a group assignment. For group discussions, set group_category_id on the discussion topic, not the linked assignment.",
 #           "example": 1,
@@ -372,7 +392,7 @@
 #         "post_to_sis": {
 #           "example": true,
 #           "type" : "boolean",
-#           "description" : "(optional, present if Post Grades to SIS feature is enabled)"
+#           "description" : "(optional, present if Sync Grades to SIS feature is enabled)"
 #         },
 #         "integration_id": {
 #           "example": "12341234",
@@ -403,6 +423,7 @@
 #               "discussion_topic",
 #               "online_quiz",
 #               "on_paper",
+#               "not_graded",
 #               "none",
 #               "external_tool",
 #               "online_text_entry",
@@ -518,12 +539,17 @@
 #           "description": "(Optional) If 'overrides' is included in the 'include' parameter, includes an array of assignment override objects.",
 #           "type": "array",
 #           "items": { "$ref": "AssignmentOverride" }
+#         },
+#         "omit_from_final_grade": {
+#           "description": "(Optional) If true, the assignment will be ommitted from the student's final grade",
+#           "example": true,
+#           "type": "boolean"
 #         }
 #       }
 #     }
 class AssignmentsApiController < ApplicationController
-  before_filter :require_context
-  before_filter :require_user_or_observer, :only=>[:user_index]
+  before_action :require_context
+  before_action :require_user_visibility, :only=>[:user_index]
   include Api::V1::Assignment
   include Api::V1::Submission
   include Api::V1::AssignmentOverride
@@ -540,8 +566,9 @@ class AssignmentsApiController < ApplicationController
   #   Apply assignment overrides for each assignment, defaults to true.
   # @argument needs_grading_count_by_section [Boolean]
   #   Split up "needs_grading_count" by sections into the "needs_grading_count_by_section" key, defaults to false
-  # @argument bucket [String, "past"|"overdue"|"undated"|"ungraded"|"upcoming"|"future"]
+  # @argument bucket [String, "past"|"overdue"|"undated"|"ungraded"|"unsubmitted"|"upcoming"|"future"]
   #   If included, only return certain assignments depending on due date and submission status.
+  # @argument assignment_ids[] if set, return only assignments specified
   # @returns [Assignment]
   def index
     error_or_array= get_assignments(@current_user)
@@ -558,6 +585,34 @@ class AssignmentsApiController < ApplicationController
     end
   end
 
+  def duplicate
+    assignment_id = params[:assignment_id]
+    old_assignment = @context.active_assignments.find_by({ id: assignment_id })
+
+    if !old_assignment || old_assignment.workflow_state == "deleted"
+      return render json: { error: 'assignment does not exist' }, status: 400
+    end
+
+    # Duplicating is basically creating, so the same authorization conditions
+    # appear on both
+    return unless authorized_action(old_assignment, @current_user, :create)
+    if old_assignment.quiz
+      return render json: { error: 'quiz duplication not implemented' }, status: 400
+    end
+
+    if old_assignment.discussion_topic
+      return render json: { error: 'discussion topic duplication not implemented' }, status: 400
+    end
+
+    if old_assignment.wiki_page
+      return render json: { error: 'wiki page duplication not implemented' }, status: 400
+    end
+
+    new_assignment = old_assignment.duplicate
+    new_assignment.save!
+    render :json => assignment_json(new_assignment, @current_user, session)
+  end
+
   def get_assignments(user)
     if authorized_action(@context, user, :read)
       scope = Assignments::ScopedToUser.new(@context, user).scope.
@@ -565,7 +620,6 @@ class AssignmentsApiController < ApplicationController
           preload(:rubric_association, :rubric).
           reorder("assignment_groups.position, assignments.position")
       scope = Assignment.search_by_attribute(scope, :title, params[:search_term])
-
       include_params = Array(params[:include])
 
       if params[:bucket]
@@ -574,11 +628,22 @@ class AssignmentsApiController < ApplicationController
         users = current_user_and_observed(
                     include_observed: include_params.include?("observed_users"))
         submissions_for_user = scope.with_submissions_for_user(users).flat_map(&:submissions)
-        scope = SortsAssignments.bucket_filter(scope, params[:bucket], session, user, @context, submissions_for_user)
+        scope = SortsAssignments.bucket_filter(scope, params[:bucket], session, user, @current_user, @context, submissions_for_user)
+      end
+
+      if params[:assignment_ids]
+        if params[:assignment_ids].length > Api.max_per_page
+          return render json: { message: "Request contains too many assignment_ids.  Limit #{Api.max_per_page}" }, status: 400
+        end
+        scope = scope.where(id: params[:assignment_ids])
       end
 
       assignments = Api.paginate(scope, self, api_v1_course_assignments_url(@context))
 
+      if params[:assignment_ids] && assignments.length != params[:assignment_ids].length
+        invalid_ids = params[:assignment_ids] - assignments.map(&:id).map(&:to_s)
+        return render json: { message: "Invalid assignment_ids: #{invalid_ids.join(',')}" }, status: 400
+      end
 
       submissions = submissions_hash(include_params, assignments, submissions_for_user)
 
@@ -621,7 +686,6 @@ class AssignmentsApiController < ApplicationController
 
         visibility_array = assignment_visibilities[assignment.id] if assignment_visibilities
         submission = submissions[assignment.id]
-        active_overrides = include_override_objects ? assignment.assignment_overrides.active : nil
         needs_grading_course_proxy = @context.grants_right?(user, session, :manage_grades) ?
           Assignments::NeedsGradingCountQuery::CourseProxy.new(@context, user) : nil
 
@@ -633,7 +697,7 @@ class AssignmentsApiController < ApplicationController
                         needs_grading_course_proxy: needs_grading_course_proxy,
                         include_all_dates: include_all_dates,
                         bucket: params[:bucket],
-                        overrides: active_overrides,
+                        include_overrides: include_override_objects,
                         preloaded_user_content_attachments: preloaded_attachments
                         )
       end
@@ -655,7 +719,8 @@ class AssignmentsApiController < ApplicationController
   #   All dates associated with the assignment, if applicable
   # @returns Assignment
   def show
-    @assignment = @context.active_assignments.preload(:assignment_group, :rubric_association, :rubric).find(params[:id])
+    @assignment = @context.active_assignments.preload(:assignment_group, :rubric_association, :rubric)
+                    .api_id(params[:id])
     if authorized_action(@assignment, @current_user, :read)
       return render_unauthorized_action unless @assignment.visible_to_user?(@current_user)
 
@@ -669,7 +734,6 @@ class AssignmentsApiController < ApplicationController
       include_all_dates = value_to_boolean(params[:all_dates] || false)
 
       include_override_objects = included_params.include?('overrides') && @context.grants_any_right?(@current_user, :manage_assignments)
-      active_overrides = include_override_objects ? @assignment.assignment_overrides.active : nil
 
       override_param = params[:override_assignment_dates] || true
       override_dates = value_to_boolean(override_param)
@@ -686,7 +750,7 @@ class AssignmentsApiController < ApplicationController
                   include_visibility: include_visibility,
                   needs_grading_count_by_section: needs_grading_count_by_section,
                   include_all_dates: include_all_dates,
-                  overrides: active_overrides)
+                  include_overrides: include_override_objects)
     end
   end
 
@@ -733,6 +797,12 @@ class AssignmentsApiController < ApplicationController
   #   Toggles Turnitin submissions for the assignment.
   #   Will be ignored if Turnitin is not available for the course.
   #
+  # @argument assignment[vericite_enabled] [Boolean]
+  #   Only applies when the VeriCite plugin is enabled for a course and
+  #   the submission_types array includes "online_upload".
+  #   Toggles VeriCite submissions for the assignment.
+  #   Will be ignored if VeriCite is not available for the course.
+  #
   # @argument assignment[turnitin_settings]
   #   Settings to send along to turnitin. See Assignment object definition for
   #   format.
@@ -776,7 +846,7 @@ class AssignmentsApiController < ApplicationController
   #
   # @argument assignment[grading_type] ["pass_fail"|"percent"|"letter_grade"|"gpa_scale"|"points"]
   #  The strategy used for grading the assignment.
-  #  The assignment is ungraded if this field is omitted.
+  #  The assignment defaults to "points" if this field is omitted.
   #
   # @argument assignment[due_at] [DateTime]
   #   The day/time the assignment is due.
@@ -820,12 +890,23 @@ class AssignmentsApiController < ApplicationController
   #   The grading standard id to set for the course.  If no value is provided for this argument the current grading_standard will be un-set from this course.
   #   This will update the grading_type for the course to 'letter_grade' unless it is already 'gpa_scale'.
   #
+  # @argument assignment[omit_from_final_grade] [Boolean]
+  #   Whether this assignment is counted towards a student's final grade.
+  #
+  # @argument assignment[quiz_lti] [Boolean]
+  #   Whether this assignment should use the Quizzes 2 LTI tool. Sets the
+  #   submission type to 'external_tool' and configures the external tool
+  #   attributes to use the Quizzes 2 LTI tool configured for this course.
+  #   Has no effect if no Quizzes 2 LTI tool is configured.
+  #
   # @returns Assignment
   def create
     @assignment = @context.assignments.build
     @assignment.workflow_state = 'unpublished'
     if authorized_action(@assignment, @current_user, :create)
-      save_and_render_response
+      @assignment.content_being_saved_by(@current_user)
+      result = create_api_assignment(@assignment, params.require(:assignment), @current_user, @context)
+      render_create_or_update_result(result)
     end
   end
 
@@ -871,6 +952,12 @@ class AssignmentsApiController < ApplicationController
   #   Toggles Turnitin submissions for the assignment.
   #   Will be ignored if Turnitin is not available for the course.
   #
+  # @argument assignment[vericite_enabled] [Boolean]
+  #   Only applies when the VeriCite plugin is enabled for a course and
+  #   the submission_types array includes "online_upload".
+  #   Toggles VeriCite submissions for the assignment.
+  #   Will be ignored if VeriCite is not available for the course.
+  #
   # @argument assignment[turnitin_settings]
   #   Settings to send along to turnitin. See Assignment object definition for
   #   format.
@@ -914,7 +1001,7 @@ class AssignmentsApiController < ApplicationController
   #
   # @argument assignment[grading_type] ["pass_fail"|"percent"|"letter_grade"|"gpa_scale"|"points"]
   #  The strategy used for grading the assignment.
-  #  The assignment is ungraded if this field is omitted.
+  #  The assignment defaults to "points" if this field is omitted.
   #
   # @argument assignment[due_at] [DateTime]
   #   The day/time the assignment is due.
@@ -965,24 +1052,38 @@ class AssignmentsApiController < ApplicationController
   #
   # NOTE: The assignment overrides feature is in beta.
   #
+  # @argument assignment[omit_from_final_grade] [Boolean]
+  #   Whether this assignment is counted towards a student's final grade.
+  #
   # @returns Assignment
   def update
-    @assignment = @context.active_assignments.find(params[:id])
+    @assignment = @context.active_assignments.api_id(params[:id])
     if authorized_action(@assignment, @current_user, :update)
-      save_and_render_response
+      @assignment.content_being_saved_by(@current_user)
+      # update_api_assignment mutates params so this has to be done here
+      opts = assignment_json_opts
+      result = update_api_assignment(@assignment, params.require(:assignment), @current_user, @context)
+      render_create_or_update_result(result, opts)
     end
   end
 
   private
 
-  def save_and_render_response
-    @assignment.content_being_saved_by(@current_user)
-    if update_api_assignment(@assignment, params[:assignment], @current_user)
-      render :json => assignment_json(@assignment, @current_user, session), :status => 201
+  def assignment_json_opts
+    return {} unless params[:assignment]&.key?(:override_dates)
+    {
+      override_dates: value_to_boolean(params[:assignment][:override_dates])
+    }
+  end
+
+  def render_create_or_update_result(result, opts = {})
+    if [:created, :ok].include?(result)
+      render json: assignment_json(@assignment, @current_user, session, opts), status: result
     else
+      status = result == :forbidden ? :forbidden : :bad_request
       errors = @assignment.errors.as_json[:errors]
-      errors['published'] = errors.delete(:workflow_state) if errors.has_key?(:workflow_state)
-      render :json => {errors: errors}, status: :bad_request
+      errors['published'] = errors.delete(:workflow_state) if errors.key?(:workflow_state)
+      render json: {errors: errors}, status: status
     end
   end
 
@@ -992,9 +1093,14 @@ class AssignmentsApiController < ApplicationController
     return render :json => @context.errors, :status => :bad_request
   end
 
-  def require_user_or_observer
+  def require_user_visibility
     return render_unauthorized_action unless @current_user.present?
     @user = params[:user_id]=="self" ? @current_user : api_find(User, params[:user_id])
-    authorized_action(@user,@current_user, :read_as_parent)
+    if @context.grants_right?(@current_user, :view_all_grades)
+      # teacher, ta
+      return if @context.students_visible_to(@current_user).include?(@user)
+    end
+    # self, observer
+    authorized_action(@user, @current_user, [:read_as_parent, :read])
   end
 end

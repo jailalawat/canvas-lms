@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,7 +23,6 @@ class Quizzes::QuizSubmission < ActiveRecord::Base
 
   include Workflow
 
-  attr_accessible :quiz, :user, :temporary_user_code, :submission_data, :score_before_regrade, :has_seen_results
   attr_readonly :quiz_id, :user_id
   attr_accessor :grader_id
 
@@ -51,7 +50,7 @@ class Quizzes::QuizSubmission < ActiveRecord::Base
   after_save :context_module_action
   before_create :assign_validation_token
 
-  has_many :attachments, :as => :context, :dependent => :destroy
+  has_many :attachments, :as => :context, :inverse_of => :context, :dependent => :destroy
   has_many :events, class_name: 'Quizzes::QuizSubmissionEvent'
 
   # update the QuizSubmission's Submission to 'graded' when the QuizSubmission is marked as 'complete.' this
@@ -165,31 +164,32 @@ class Quizzes::QuizSubmission < ActiveRecord::Base
     self.submission_data
   end
 
-  def results_visible?
-    return true unless quiz
-    return false if quiz.restrict_answers_for_concluded_course?
-    return false if quiz.one_time_results && self.has_seen_results?
+  def results_visible?(user: nil)
+    return true unless quiz.present?
+    return true if quiz.grants_right?(user, :review_grades)
+    return false if quiz.restrict_answers_for_concluded_course?(user: user)
+    return false if quiz.one_time_results && has_seen_results?
+    return false if quiz.hide_results == 'always'
 
-    if quiz.hide_results == 'always'
-      false
-    elsif quiz.hide_results == 'until_after_last_attempt'
-      # Visible if quiz has unlimited attempts (no way to get to last
-      # attempts), if this attempt is higher than the allowed attempts
-      # (once you get into extra attempts), or if this attempt is
-      # the last attempt and has been taken (checking for completion
-      # prevents the student from starting to take the quiz for the last
-      # time, then opening a new tab and looking at the results from
-      # a prior attempt)
-      !quiz.allowed_attempts || quiz.allowed_attempts < 1 || attempt > quiz.allowed_attempts || last_attempt_completed?
-    else
-      true
-    end
+    results_visible_for_attempt?
   end
 
-  def results_visible_for_user?(user)
-    return true if user && self.quiz.grants_right?(user, :review_grades)
-    results_visible?
+  def results_visible_for_attempt?
+    return true unless quiz.hide_results == 'until_after_last_attempt'
+
+    # Visible if quiz has unlimited attempts (no way to get to last
+    # attempts), if this attempt is higher than the allowed attempts
+    # (once you get into extra attempts), or if this attempt is
+    # the last attempt and has been taken (checking for completion
+    # prevents the student from starting to take the quiz for the last
+    # time, then opening a new tab and looking at the results from
+    # a prior attempt)
+    !quiz.allowed_attempts ||
+      quiz.allowed_attempts < 1 ||
+      attempt > quiz.allowed_attempts ||
+      last_attempt_completed?
   end
+  private :results_visible_for_attempt?
 
   def last_attempt_completed?
     completed? && quiz.allowed_attempts && attempt >= quiz.allowed_attempts
@@ -241,7 +241,7 @@ class Quizzes::QuizSubmission < ActiveRecord::Base
   end
 
   def backup_submission_data(params)
-    raise "Only a hash value is accepted for backup_submission_data calls" unless params.is_a?(Hash)
+    raise "Only a hash value is accepted for backup_submission_data calls" unless params.is_a?(Hash) || params.is_a?(ActionController::Parameters)
 
     params = sanitize_params(params)
 
@@ -260,7 +260,7 @@ class Quizzes::QuizSubmission < ActiveRecord::Base
 
     self.class.where(id: self).
         where("workflow_state NOT IN ('complete', 'pending_review')").
-        update_all(user_id: user_id, submission_data: CANVAS_RAILS4_0 ? new_params.to_yaml : new_params)
+        update_all(user_id: user_id, submission_data: new_params)
 
     record_answer(new_params)
 
@@ -283,15 +283,22 @@ class Quizzes::QuizSubmission < ActiveRecord::Base
   end
 
   def sanitize_params(params)
+    params = params.to_hash.with_indifferent_access if params.is_a?(ActionController::Parameters) # clear the strong params
+
     # if the submission has already been graded
     if graded?
       return params.merge({:_already_graded => true})
     end
 
     if quiz.cant_go_back?
-      params.reject! { |p, _|
-        p =~ /\Aquestion_(\d)+/ && submission_data[:"_question_#{$1}_read"]
-      }
+      params.reject! do |param, _|
+        question_being_answered = /\Aquestion_(?<question_id>\d+)/.match(param)
+        next unless question_being_answered
+
+        previously_read_marker = :"_question_#{question_being_answered[:question_id]}_read"
+
+        submission_data[previously_read_marker]
+      end
     end
     params
   end
@@ -776,7 +783,7 @@ class Quizzes::QuizSubmission < ActiveRecord::Base
   end
 
   def teachers
-    quiz.context.teacher_enrollments.active_or_pending.map(&:user)
+    quiz.context.instructors_in_charge_of(user)
   end
 
   def assign_validation_token
@@ -840,15 +847,23 @@ class Quizzes::QuizSubmission < ActiveRecord::Base
   def due_at
     return quiz.due_at if submission.blank?
 
-    quiz.overridden_for(submission.user).due_at
+    quiz.overridden_for(submission.user, skip_clone: true).due_at
   end
 
-  # TODO: Extract? conceptually similar to Submission::Tardiness#late?
-  def late?
-    return false if finished_at.blank?
+  # same as the instance method, but with a hash of attributes, instead
+  # of an instance, so that you can avoid instantiating
+  def self.late_from_attributes?(attributes, quiz, submission)
+    return submission.late_policy_status == 'late' if submission&.late_policy_status.present?
+    return false if attributes['finished_at'].blank?
+
+    due_at = if submission.blank?
+      quiz.due_at
+    else
+      quiz.overridden_for(submission.user, skip_clone: true).due_at
+    end
     return false if due_at.blank?
 
-    check_time = finished_at - 60.seconds
+    check_time = attributes['finished_at'] - 60.seconds
     check_time > due_at
   end
 end

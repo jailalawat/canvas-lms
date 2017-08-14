@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,7 +19,7 @@
 require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper.rb')
 
 describe LiveAssessments::Assessment do
-  let_once(:assessment_context) { course(active_all: true) }
+  let_once(:assessment_context) { course_factory(active_all: true) }
   let_once(:assessment_user) { course_with_student(course: assessment_context, active_all: true).user }
   let_once(:assessor) { assessment_context.teachers.first }
   let_once(:another_assessment_user) { course_with_student(course: assessment_context, active_all: true).user }

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Selinimum
   def self.minimize!(spec_files, options = {})
     sha = options.delete(:sha)
@@ -49,9 +66,15 @@ module Selinimum
 
     spec_files
   end
+
+  def self.whitelist
+    @whitelist ||= begin
+      path = `git rev-parse --show-toplevel`.strip + "/.selinimumignore"
+      File.read(path).split(/\r?\n|\r/)
+    end
+  end
 end
 
-require_relative "selinimum/capture"
 require_relative "selinimum/errors"
 require_relative "selinimum/git"
 require_relative "selinimum/minimizer"

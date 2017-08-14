@@ -1,53 +1,56 @@
+/*
+ * Copyright (C) 2012 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 @import "pages/shared/move_dialog";
 
-$announcements_disscussion-summary-color: $ic-color-dark;
-
-// min width to ensure toolbar doesn't stagger
-@if $use_new_styles == false {
-  #main { min-width: 700px; }
-}
+$announcements_disscussion-summary-color: $ic-font-color-dark;
 
 .discussionTopicIndexList {
   .discussion-actions {
-    float: right;
-    @if $use_new_styles { padding: $ic-sp 0 0; }
-    @else { padding: 11px 10px 0px 0px; }
+    display: inline-block;
+    padding: $ic-sp 0 0;
   }
   .discussion-topic {
     cursor: pointer;
-    @if $use_new_styles {
-      transition: background-color 0.2s;
-      padding: $ic-sp/2 $ic-sp;
-      border-top: 1px solid $ic-border-light;
-      background-color: $ic-color-light;
-      display: flex;
-      align-items: center;
-      // Handle Firefox white space bug that affects .ellipsis class
-      @include firefox-white-space-bug-fix;
-    }
-    @else {
-      background-color: white;
-      display: table;
-      min-height: 52px;
-      padding: 8px;
-      border-top: 1px solid $tableBorder;
-    }
+    transition: background-color 0.2s;
+    padding: $ic-sp/2 $ic-sp;
+    border-top: 1px solid $ic-border-light;
+    background-color: $ic-color-light;
+    display: flex;
+    align-items: center;
+    // Handle Firefox white space bug that affects .ellipsis class
+    @include firefox-white-space-bug-fix;
     @if $use_high_contrast == false {
       &:nth-child(odd) {
-        @if $use_new_styles {
-          background-color: $lightBackground;
-          body.ff & {
-            .ellipsis::after { @include firefox-white-space-bug-fix-gradient($lightBackground); }
-          }
+        background-color: $lightBackground;
+        body.ff & {
+          .ellipsis::after { @include firefox-white-space-bug-fix-gradient($lightBackground); }
         }
-        @else { background-color: $tableBackgroundAccent; }
       }
     }
     &.unread .discussion-title{ font-weight: bold; }
     &.selected {
-      @if $use_new_styles { background-color: $ic-bg-light-primary; }
-      @else { background-color: #d6ecfc; }
+      background-color: $ic-bg-light-primary;
+    }
+
+    .image-block-image {
+      float: left;
     }
   }
   .discussion-summary {
@@ -55,13 +58,24 @@ $announcements_disscussion-summary-color: $ic-color-dark;
     @media screen and (max-width: 1100px) { max-width: 520px; }
   }
 
-  .discussion-info-icons { float: right; }
-  .discussion-unread-container, .discussion-last-reply, .discussion-info-icons {
+  .discussion-actions-container {
     float: right;
-    padding: 11px 10px 0;
+    margin-top: -50px;
+  }
+  .discussion-unread-container, .discussion-last-reply {
+    display: inline-block;
+    padding: $ic-sp 10px 0;
     // 'not-important' styles
     color: $announcements_disscussion-summary-color;
-    @include fontSize(11px); }
+    @include fontSize(11px);
+  }
+  .discussion-info-icons {
+    display: inline-block;
+    padding: $ic-sp 0 0;
+    i {
+      padding: 0 $ic-sp/2;
+    }
+  }
   .discussion-unread-container { width: 56px; }
   .discussion-author { @include fontSize(12px); }
   .discussion-summary { @include fontSize(12px); color: $announcements_disscussion-summary-color; }
@@ -69,29 +83,15 @@ $announcements_disscussion-summary-color: $ic-color-dark;
     @include fontSize(14px);
     line-height: 1;
     display: block;
-    @if $use_new_styles { font-weight: 500; }
+    font-weight: bold;
   }
   .discussion-column {
-    @if $use_new_styles {
-      &.image-block {
-        flex: 1;
-        align-items: center;
-      }
-    }
-    @else {
-      display: table-cell;
-      vertical-align: middle;
+    &.image-block {
+      flex: 1;
+      align-items: center;
     }
   }
   .toggleSelected { margin: 0 8px 0 0; }
-}
-
-@if $use_new_styles == false {
-  .announcements .discussionTopicIndexList .discussion-summary {
-    @media screen and (max-width: 1100px) { max-width: 520px; }
-    @media screen and (max-width: 1345px) and (min-width: 1101px) { max-width: 550px; }
-    @media screen and (max-width: 1345px) and (min-width: 1176px) { max-width: 580px; }
-  }
 }
 
 .discussion-drag-handle {
@@ -114,8 +114,7 @@ $announcements_disscussion-summary-color: $ic-color-dark;
 
 .discussion-title-block {
   margin: 0;
-  @if $use_new_styles { line-height: 1.1; }
-  @else { line-height: 1.5em; }
+  line-height: 1.1;
 }
 
 .item-box {
@@ -143,13 +142,9 @@ $announcements_disscussion-summary-color: $ic-color-dark;
 }
 
 .discussion-collections {
-  @if $use_new_styles {
-    box-sizing: border-box;
-    border: 1px solid $ic-border-light;
-    background: $lightBackground;
-  }
-  @else { background: #e8ecef; }
-
+  box-sizing: border-box;
+  border: 1px solid $ic-border-light;
+  background: $lightBackground;
 }
 
 .discussion-list {
@@ -157,15 +152,9 @@ $announcements_disscussion-summary-color: $ic-color-dark;
   margin-bottom: 12px;
   border: none;
 
-  @if $use_new_styles {
-    border-bottom: 1px solid $ic-border-light;
-    padding: $ic-sp;
-    border-radius: 0;
-  }
-  @else {
-    border-bottom: 2px dashed #c6cacd;
-    padding: 9px 9px 16px 9px;
-  }
+  border-bottom: 1px solid $ic-border-light;
+  padding: $ic-sp;
+  border-radius: 0;
 
   &:last-child {
     border-bottom: none;
@@ -192,7 +181,6 @@ $announcements_disscussion-summary-color: $ic-color-dark;
     color: #686868;
     @include fontSize(11px);
     font-style: italic;
-    font-weight: 300;
   }
 
   .collectionViewItems {
@@ -202,26 +190,26 @@ $announcements_disscussion-summary-color: $ic-color-dark;
   .loader {
     height: 40px;
   }
+
+  .element_toggler {
+    background: none;
+    border: none;
+
+    .icon-mini-arrow-down {
+      vertical-align: initial;
+    }
+  }
 }
 
 .discussion {
   position: relative;
   display: block;
   height: auto;
-  @if $use_new_styles {
-    background: $ic-color-light;
-    border: 1px solid $ic-border-light;
-    border-radius: $baseBorderRadius;
-    padding: ($ic-sp - 4) 0 ($ic-sp - 4) $ic-sp;
-    color: $ic-font-color--subdued;
-  }
-  @else {
-    background: #fff;
-    border: 1px solid #c1c7cf;
-    border-radius: 3px;
-    color: #696969;
-    padding: 5px 0 5px 10px;
-  }
+  background: $ic-color-light;
+  border: 1px solid $ic-border-light;
+  border-radius: $baseBorderRadius;
+  padding: ($ic-sp - 4) 0 ($ic-sp - 4) $ic-sp;
+  color: $ic-font-color--subdued;
 
   &:after {
     clear: both;
@@ -252,12 +240,20 @@ $announcements_disscussion-summary-color: $ic-color-dark;
   .discussion-row {
     display: table-row;
 
+    .mastery-path-icon {
+      margin-right: 10px;
+      padding: 2px 7px;
+      font-size: 0.8em;
+
+      i {
+        margin-right: 5px;
+      }
+    }
+
     > div {
       display: table-cell;
       vertical-align: middle;
-      @if $use_new_styles {
-        &.discussion-title small { white-space: nowrap; }
-      }
+      &.discussion-title small { white-space: nowrap; }
     }
     &.discussion-unpublished {
       .discussion-type, .discussion-title a {
@@ -265,9 +261,11 @@ $announcements_disscussion-summary-color: $ic-color-dark;
       }
     }
     &.discussion-published {
-      .discussion-type, .discussion-title a {
-        @if $use_new_styles { color: $ic-color-success; }
-        @else { color: #33802a; }
+      .discussion-type {
+        color: $ic-color-success;
+      }
+      .discussion-title a {
+        color: $ic-font-color-dark;
       }
     }
   }
@@ -281,12 +279,10 @@ $announcements_disscussion-summary-color: $ic-color-dark;
   .discussion-type {
     text-align: center;
     width: 36px;
-    @if $use_new_styles { padding-right: $ic-sp; }
+    padding-right: $ic-sp;
   }
 
-  @if $use_new_styles {
-    .discussion-date-available, .discussion-due-date { @include fontSize(12px); }
-  }
+  .discussion-date-available, .discussion-due-date { @include fontSize(12px); }
 
   .discussion-date-available {
     width: 200px;
@@ -304,9 +300,9 @@ $announcements_disscussion-summary-color: $ic-color-dark;
 
   .discussion-status {
     color: $ic-color-icon-disabled;
-    width: 60px;
+    width: 84px;
 
-    .publish-icon {
+    .publish-icon, .lock-icon {
       margin-right: 10px;
     }
 
@@ -336,14 +332,13 @@ $announcements_disscussion-summary-color: $ic-color-dark;
   }
 
   .discussion-actions {
-    width: 45px;
+    width: 48px;
   }
 
   .title {
     display: block;
     @include fontSize(14px);
-    @if $use_new_styles and $use_high_contrast == false { font-weight: 500; }
-    @else { font-weight: bold; }
+    font-weight: bold;
     &:focus {
       outline: 0;
       text-decoration: underline;
@@ -354,17 +349,10 @@ $announcements_disscussion-summary-color: $ic-color-dark;
     border-style: dashed;
     display: none;
     text-align: center;
-    @if $use_new_styles {
-      margin: $ic-sp/2;
-      padding: $ic-sp;
-      color: $ic-hint-text;
-      border-color: $ic-border-dark;
-    }
-    @else {
-      color: ensure-contrast(#878d92, #fff);
-      margin: 5px;
-      padding: 8px;
-    }
+    margin: $ic-sp/2;
+    padding: $ic-sp;
+    color: $ic-hint-text;
+    border-color: $ic-border-dark;
 
     &:hover {
       background: #fff;
@@ -384,4 +372,3 @@ $announcements_disscussion-summary-color: $ic-color-dark;
   @include accessibility-prompt;
   @include fontSize(14px);
 }
-

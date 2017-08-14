@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,27 +18,51 @@
 
 class ContextModulesController < ApplicationController
   include Api::V1::ContextModule
+  include WebZipExportHelper
 
-  before_filter :require_context
+  before_action :require_context
   add_crumb(proc { t('#crumbs.modules', "Modules") }) { |c| c.send :named_context_url, c.instance_variable_get("@context"), :context_context_modules_url }
-  before_filter { |c| c.active_tab = "modules" }
+  before_action { |c| c.active_tab = "modules" }
 
   module ModuleIndexHelper
+    include ContextModulesHelper
+
     def load_module_file_details
       attachment_tags = @context.module_items_visible_to(@current_user).where(content_type: 'Attachment').preload(:content => :folder)
       attachment_tags.inject({}) do |items, file_tag|
         items[file_tag.id] = {
-            id: file_tag.id,
-            content_id: file_tag.content_id,
-            content_details: content_details(file_tag, @current_user, :for_admin => true)
+          id: file_tag.id,
+          content_id: file_tag.content_id,
+          content_details: content_details(file_tag, @current_user, :for_admin => true)
         }
         items
       end
     end
 
+    def modules_cache_key
+      @modules_cache_key ||= begin
+        visible_assignments = @current_user.try(:assignment_and_quiz_visibilities, @context)
+        cache_key_items = [@context.cache_key, @can_edit, 'all_context_modules_draft_9', collection_cache_key(@modules), Time.zone, Digest::MD5.hexdigest(visible_assignments.to_s)]
+        cache_key = cache_key_items.join('/')
+        cache_key = add_menu_tools_to_cache_key(cache_key)
+        cache_key = add_mastery_paths_to_cache_key(cache_key, @context, @modules, @current_user)
+      end
+    end
+
     def load_modules
       @modules = @context.modules_visible_to(@current_user)
-      @collapsed_modules = ContextModuleProgression.for_user(@current_user).for_modules(@modules).select([:context_module_id, :collapsed]).select{|p| p.collapsed? }.map(&:context_module_id)
+      @collapsed_modules = ContextModuleProgression.for_user(@current_user).for_modules(@modules).pluck(:context_module_id, :collapsed).select{|cm_id, collapsed| !!collapsed }.map(&:first)
+
+      @can_edit = can_do(@context, @current_user, :manage_content)
+
+      modules_cache_key
+
+      @is_student = @context.grants_right?(@current_user, session, :participate_as_student)
+      @is_cyoe_on = ConditionalRelease::Service.enabled_in_context?(@context)
+      if allow_web_export_download?
+        @allow_web_export_download = true
+        @last_web_export = @context.web_zip_exports.visible_to(@current_user).order('epub_exports.created_at').last
+      end
 
       @menu_tools = {}
       placements = [:assignment_menu, :discussion_topic_menu, :file_menu, :module_menu, :quiz_menu, :wiki_page_menu]
@@ -48,12 +72,27 @@ class ContextModulesController < ApplicationController
 
       module_file_details = load_module_file_details if @context.grants_right?(@current_user, session, :manage_content)
       js_env :course_id => @context.id,
+        :CONTEXT_URL_ROOT => polymorphic_path([@context]),
         :FILES_CONTEXTS => [{asset_string: @context.asset_string}],
         :MODULE_FILE_DETAILS => module_file_details,
         :MODULE_FILE_PERMISSIONS => {
            usage_rights_required: @context.feature_enabled?(:usage_rights_required),
            manage_files: @context.grants_right?(@current_user, session, :manage_files)
         }
+
+      if master_courses?
+        is_master_course = MasterCourses::MasterTemplate.is_master_course?(@context)
+        is_child_course = MasterCourses::ChildSubscription.is_child_course?(@context)
+        if is_master_course || is_child_course
+          js_env(:MASTER_COURSE_SETTINGS => {
+            :IS_MASTER_COURSE => is_master_course,
+            :IS_CHILD_COURSE => is_child_course,
+            :MASTER_COURSE_DATA_URL => context_url(@context, :context_context_modules_master_course_info_url)
+          })
+        end
+      end
+
+      conditional_release_js_env(includes: :active_rules)
     end
   end
   include ModuleIndexHelper
@@ -63,12 +102,65 @@ class ContextModulesController < ApplicationController
       log_asset_access([ "modules", @context ], "modules", "other")
       load_modules
 
-      if @context.grants_right?(@current_user, session, :participate_as_student)
-        return unless tab_enabled?(@context.class::TAB_MODULES)
-        ActiveRecord::Associations::Preloader.new.preload(@modules, :content_tags)
+      set_tutorial_js_env
+
+      if @is_student && tab_enabled?(@context.class::TAB_MODULES)
         @modules.each{|m| m.evaluate_for(@current_user) }
         session[:module_progressions_initialized] = true
       end
+    end
+  end
+
+  def choose_mastery_path
+    if authorized_action(@context, @current_user, :participate_as_student)
+      id = params[:id]
+      item = @context.context_module_tags.not_deleted.find(params[:id])
+
+      if item.present? && item.published? && item.context_module.published?
+        rules = ConditionalRelease::Service.rules_for(@context, @current_user, item, session)
+        rule = conditional_release(item, conditional_release_rules: rules)
+
+        # locked assignments always have 0 sets, so this check makes it not return 404 if locked
+        # but instead progress forward and return a warning message if is locked later on
+        if rule.present? && (rule[:locked] || !rule[:selected_set_id] || rule[:assignment_sets].length > 1)
+          if !rule[:locked]
+            options = rule[:assignment_sets].map { |set|
+              option = {
+                setId: set[:id]
+              }
+
+              option[:assignments] = set[:assignments].map { |a|
+                assg = assignment_json(a[:model], @current_user, session)
+                assg[:assignmentId] = a[:assignment_id]
+                assg
+              }
+
+              option
+            }
+
+            js_env({
+              CHOOSE_MASTERY_PATH_DATA: {
+                options: options,
+                selectedOption: rule[:selected_set_id],
+                courseId: @context.id,
+                moduleId: item.context_module.id,
+                itemId: id
+              }
+            })
+
+            css_bundle :choose_mastery_path
+            js_bundle :choose_mastery_path
+
+            @page_title = join_title(t('Choose Assignment Set'), @context.name)
+
+            return render :html => '', :layout => true
+          else
+            flash[:warning] = t('Module Item is locked.')
+            return redirect_to named_context_url(@context, :context_context_modules_url)
+          end
+        end
+      end
+      return render status: 404, template: 'shared/errors/404_message'
     end
   end
 
@@ -82,6 +174,36 @@ class ContextModulesController < ApplicationController
         @progression.uncollapse! if @progression && @progression.collapsed?
         content_tag_redirect(@context, @tag, :context_context_modules_url, :modules)
       end
+    end
+  end
+
+  def item_redirect_mastery_paths
+    @tag = @context.context_module_tags.not_deleted.find(params[:id])
+
+    type_controllers = {
+      assignment: 'assignments',
+      quiz: 'quizzes/quizzes',
+      discussion_topic: 'discussion_topics'
+    }
+
+    if @tag
+      if authorized_action(@tag.content, @current_user, :update)
+        controller = type_controllers[@tag.content_type_class.to_sym]
+
+        if controller.present?
+          redirect_to url_for(
+            controller: controller,
+            action: 'edit',
+            id: @tag.content_id,
+            anchor: 'mastery-paths-editor',
+            return_to: params[:return_to]
+          )
+        else
+          render status: 404, template: 'shared/errors/404_message'
+        end
+      end
+    else
+      render status: 404, template: 'shared/errors/404_message'
     end
   end
 
@@ -125,7 +247,7 @@ class ContextModulesController < ApplicationController
     if authorized_action(@context.context_modules.temp_record, @current_user, :create)
       @module = @context.context_modules.build
       @module.workflow_state = 'unpublished'
-      @module.attributes = params[:context_module]
+      @module.attributes = context_module_params
       respond_to do |format|
         if @module.save
           format.html { redirect_to named_context_url(@context, :context_context_modules_url) }
@@ -163,14 +285,43 @@ class ContextModulesController < ApplicationController
     if authorized_action(@context, @current_user, :read)
       info = {}
       now = Time.now.utc.iso8601
-      @context.module_items_visible_to(@current_user).each do |tag|
+
+      all_tags = @context.module_items_visible_to(@current_user)
+      user_is_admin = @context.grants_right?(@current_user, session, :read_as_admin)
+
+      preload_assignments_and_quizzes(all_tags, user_is_admin)
+
+      all_tags.each do |tag|
         info[tag.id] = if tag.can_have_assignment? && tag.assignment
-          tag.assignment.context_module_tag_info(@current_user, @context)
+          tag.assignment.context_module_tag_info(@current_user, @context, user_is_admin: user_is_admin)
         elsif tag.content_type_quiz?
-          tag.content.context_module_tag_info(@current_user, @context)
+          tag.content.context_module_tag_info(@current_user, @context, user_is_admin: user_is_admin)
         else
           {:points_possible => nil, :due_date => nil}
         end
+      end
+      render :json => info
+    end
+  end
+
+  def content_tag_master_course_data
+    return not_found unless master_courses?
+    if authorized_action(@context, @current_user, :read_as_admin)
+      info = {}
+      is_child_course = MasterCourses::ChildSubscription.is_child_course?(@context)
+      is_master_course = MasterCourses::MasterTemplate.is_master_course?(@context)
+
+      if is_child_course || is_master_course
+        tag_scope = @context.module_items_visible_to(@current_user)
+        tag_scope = tag_scope.where(:id => params[:tag_id]) if params[:tag_id]
+        tag_ids = tag_scope.pluck(:id)
+        restriction_info = {}
+        if tag_ids.any?
+          restriction_info = is_child_course ?
+            MasterCourses::MasterContentTag.fetch_module_item_restrictions_for_child(tag_ids) :
+            MasterCourses::MasterContentTag.fetch_module_item_restrictions_for_master(tag_ids)
+        end
+        info[:tag_restrictions] = restriction_info
       end
       render :json => info
     end
@@ -265,7 +416,7 @@ class ContextModulesController < ApplicationController
       else
         @progression.collapsed = !@progression.collapsed
       end
-      @progression.save
+      @progression.save unless @progression.new_record?
       respond_to do |format|
         format.html { redirect_to named_context_url(@context, :context_context_modules_url) }
         format.json { render :json => (@progression.collapsed ? @progression : @module.content_tags_visible_to(@current_user) )}
@@ -292,7 +443,7 @@ class ContextModulesController < ApplicationController
       affected_items = []
       items = order.map{|id| tags.detect{|t| t.id == id.to_i } }.compact.uniq
       items.each_with_index do |item, idx|
-        item.position = idx
+        item.position = idx + 1
         item.context_module_id = @module.id
         if item.changed?
           item.skip_touch = true
@@ -363,13 +514,15 @@ class ContextModulesController < ApplicationController
       end
       json = @tag.as_json
       json['content_tag'].merge!(
-          publishable: module_item_publishable?(@tag),
-          published: @tag.published?,
-          publishable_id: module_item_publishable_id(@tag),
-          unpublishable:  module_item_unpublishable?(@tag),
-          graded: @tag.graded?,
-          content_details: content_details(@tag, @current_user)
-        )
+        publishable: module_item_publishable?(@tag),
+        published: @tag.published?,
+        publishable_id: module_item_publishable_id(@tag),
+        unpublishable:  module_item_unpublishable?(@tag),
+        graded: @tag.graded?,
+        content_details: content_details(@tag, @current_user),
+        assignment_id: @tag.assignment.try(:id),
+        is_cyoe_able: cyoe_able?(@tag)
+      )
       render json: json
     end
   end
@@ -395,7 +548,7 @@ class ContextModulesController < ApplicationController
         return render :json => @tag.errors, :status => :bad_request
       end
 
-      @tag.update_asset_name! if params[:content_tag][:title]
+      @tag.update_asset_name!(@current_user) if params[:content_tag][:title]
       render :json => @tag
     end
   end
@@ -446,7 +599,7 @@ class ContextModulesController < ApplicationController
       elsif params[:unpublish]
         @module.unpublish
       end
-      if @module.update_attributes(params[:context_module])
+      if @module.update_attributes(context_module_params)
         json = @module.as_json(:include => :content_tags, :methods => :workflow_state, :permissions => {:user => @current_user, :session => session})
         json['context_module']['relock_warning'] = true if @module.relock_warning?
         render :json => json
@@ -465,5 +618,59 @@ class ContextModulesController < ApplicationController
         format.json { render :json => @module.as_json(:methods => :workflow_state) }
       end
     end
+  end
+
+  private
+  def preload_assignments_and_quizzes(tags, user_is_admin)
+    assignment_tags = tags.select{|ct| ct.can_have_assignment?}
+    return unless assignment_tags.any?
+    ActiveRecord::Associations::Preloader.new.preload(assignment_tags, :content)
+
+    content_with_assignments = assignment_tags.
+      select{|ct| ct.content_type != "Assignment" && ct.content.assignment_id}.map(&:content)
+    ActiveRecord::Associations::Preloader.new.preload(content_with_assignments, :assignment) if content_with_assignments.any?
+
+    if user_is_admin && should_preload_override_data?
+      assignments = assignment_tags.map(&:assignment).compact
+      plain_quizzes = assignment_tags.select{|ct| ct.content.is_a?(Quizzes::Quiz) && !ct.content.assignment}.map(&:content)
+
+      preload_has_too_many_overrides(assignments, :assignment_id)
+      preload_has_too_many_overrides(plain_quizzes, :quiz_id)
+      overrideables = (assignments + plain_quizzes).select{|o| !o.has_too_many_overrides}
+
+      if overrideables.any?
+        ActiveRecord::Associations::Preloader.new.preload(overrideables, :assignment_overrides)
+        overrideables.each { |o| o.has_no_overrides = true if o.assignment_overrides.size == 0 }
+      end
+    end
+  end
+
+  def should_preload_override_data?
+    key = ['preloaded_module_override_data', @context.global_asset_string, @current_user].cache_key
+    # if the user has been touched we should preload all of the overrides because it's almost certain we'll need them all
+    if Rails.cache.read(key)
+      false
+    else
+      Rails.cache.write(key, true)
+      true
+    end
+  end
+
+  def preload_has_too_many_overrides(assignments_or_quizzes, override_column)
+    # find the assignments/quizzes with too many active overrides and mark them as such
+    if assignments_or_quizzes.any?
+      ids = AssignmentOverride.active.where(override_column => assignments_or_quizzes).
+        group(override_column).having("COUNT(*) > ?", Setting.get('assignment_all_dates_too_many_threshold', '25').to_i).
+        active.pluck(override_column)
+
+      if ids.any?
+        assignments_or_quizzes.each{|o| o.has_too_many_overrides = true if ids.include?(o.id) }
+      end
+    end
+  end
+
+  def context_module_params
+    params.require(:context_module).permit(:name, :unlock_at, :require_sequential_progress, :publish_final_grade, :requirement_count,
+      :completion_requirements => strong_anything, :prerequisites => strong_anything)
   end
 end

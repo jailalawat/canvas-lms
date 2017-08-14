@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
 
 describe ExternalContentController do
@@ -9,7 +26,7 @@ describe ExternalContentController do
     end
 
     it "gets a context for external_tool_dialog" do
-      c = course
+      c = course_factory
       get :success, service: 'external_tool_dialog', course_id: c.id
       expect(assigns[:context]).to_not be_nil
     end
@@ -18,7 +35,7 @@ describe ExternalContentController do
   describe "POST success/external_tool_dialog" do
     it "js env is set correctly" do
 
-      c = course
+      c = course_factory
       post(:success, service: 'external_tool_dialog', course_id: c.id, lti_message_type: 'ContentItemSelection',
            lti_version: 'LTI-1p0',
            data: '',
@@ -51,7 +68,7 @@ describe ExternalContentController do
     end
 
     context 'external_tool service_id' do
-      let(:test_course) {course}
+      let(:test_course) {course_factory}
       let(:launch_url) {'http://test.com/launch'}
       let(:tool) do
         test_course.context_external_tools.create!(
@@ -151,7 +168,7 @@ describe ExternalContentController do
 
   describe "#content_items_for_canvas" do
     it 'sets default placement advice' do
-      c = course
+      c = course_factory
       post(:success, service: 'external_tool_dialog', course_id: c.id, lti_message_type: 'ContentItemSelection',
            lti_version: 'LTI-1p0',
            data: '',
@@ -165,6 +182,62 @@ describe ExternalContentController do
       expect(data.first.placement_advice.presentation_document_target).to eq("default")
       expect(data.first.placement_advice.display_height).to eq(600)
       expect(data.first.placement_advice.display_width).to eq(800)
+    end
+
+    it "uses the default url if one isn't provided" do
+      c = course_factory
+      json = JSON.parse(File.read(File.join(Rails.root, 'spec', 'fixtures', 'lti', 'content_items_2.json')))
+      json['@graph'][0].delete('url')
+      launch_url = 'http://example.com/launch'
+      post(:success, service: 'external_tool_dialog', course_id: c.id, lti_message_type: 'ContentItemSelection',
+           lti_version: 'LTI-1p0',
+           data: Canvas::Security.create_jwt({default_launch_url: launch_url}),
+           content_items: json.to_json,
+           lti_msg: '',
+           lti_log: '',
+           lti_errormsg: '',
+           lti_errorlog: '')
+
+      data = controller.js_env[:retrieved_data]
+      expect(data.first.canvas_url).to include "http%3A%2F%2Fexample.com%2Flaunch"
+    end
+
+    context 'lti_links' do
+      it "generates a canvas tool launch url" do
+        c = course_factory
+        json = JSON.parse(File.read(File.join(Rails.root, 'spec', 'fixtures', 'lti', 'content_items.json')))
+        post(:success, service: 'external_tool_dialog', course_id: c.id, lti_message_type: 'ContentItemSelection',
+             lti_version: 'LTI-1p0' ,
+             content_items: json.to_json)
+
+        data = controller.js_env[:retrieved_data]
+        expect(data.first.canvas_url).to include "/external_tools/retrieve"
+        expect(data.first.canvas_url).to include "url=http%3A%2F%2Flti-tool-provider-example.dev%2Fmessages%2Fblti"
+      end
+
+      it "generates a borderless launch url for iframe target" do
+        c = course_factory
+        json = JSON.parse(File.read(File.join(Rails.root, 'spec', 'fixtures', 'lti', 'content_items.json')))
+        json['@graph'][0]['placementAdvice']['presentationDocumentTarget'] = 'iframe'
+        post(:success, service: 'external_tool_dialog', course_id: c.id, lti_message_type: 'ContentItemSelection',
+             lti_version: 'LTI-1p0' ,
+             content_items: json.to_json)
+
+        data = controller.js_env[:retrieved_data]
+        expect(data.first.canvas_url).to include "display=borderless"
+      end
+
+      it "generates a borderless launch url for window target" do
+        c = course_factory
+        json = JSON.parse(File.read(File.join(Rails.root, 'spec', 'fixtures', 'lti', 'content_items.json')))
+        json['@graph'][0]['placementAdvice']['presentationDocumentTarget'] = 'window'
+        post(:success, service: 'external_tool_dialog', course_id: c.id, lti_message_type: 'ContentItemSelection',
+             lti_version: 'LTI-1p0' ,
+             content_items: json.to_json)
+
+        data = controller.js_env[:retrieved_data]
+        expect(data.first.canvas_url).to include "display=borderless"
+      end
     end
   end
 

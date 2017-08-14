@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,8 +17,8 @@
 #
 
 class GradebookCsvsController < ApplicationController
-  before_filter :require_context
-  before_filter :require_user
+  before_action :require_context
+  before_action :require_user
 
   def show
     if authorized_action(@context, @current_user, [:manage_grades, :view_all_grades])
@@ -28,8 +28,7 @@ class GradebookCsvsController < ApplicationController
 
       csv_options = {
         include_sis_id: @context.grants_any_right?(@current_user, session, :read_sis, :manage_sis),
-        grading_period_id: params[:grading_period_id],
-        include_priors: Canvas::Plugin.value_to_boolean(params[:include_priors])
+        grading_period_id: params[:grading_period_id]
       }
 
       attachment_progress = @context.gradebook_to_csv_in_background(filename, @current_user, csv_options)

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -112,8 +112,9 @@ module Api
                       'id' => 'users.id',
                       'sis_integration_id' => 'pseudonyms.integration_id',
                       'lti_context_id' => 'users.lti_context_id',
-                      'lti_user_id' => 'users.lti_context_id' }.freeze,
-        :is_not_scoped_to_account => ['users.id', 'users.lti_context_id'].freeze,
+                      'lti_user_id' => 'users.lti_context_id',
+                      'uuid' => 'users.uuid' }.freeze,
+        :is_not_scoped_to_account => ['users.id', 'users.lti_context_id', 'users.uuid'].freeze,
         :scope => 'pseudonyms.account_id',
         :joins => :pseudonym }.freeze,
     'accounts' =>
@@ -136,11 +137,9 @@ module Api
           :scope => 'root_account_id' }.freeze,
   }.freeze
 
-  # (digits in 2**63-1) - 1, so that any ID representable in MAX_ID_LENGTH
-  # digits is < 2**63, which is the max signed 64-bit integer, which is what's
-  # used for the DB ids.
-  MAX_ID_LENGTH = 18
+  MAX_ID_LENGTH = (2**63 - 1).to_s.length
   ID_REGEX = %r{\A\d{1,#{MAX_ID_LENGTH}}\z}
+  USER_UUID_REGEX = %r{\Auuid:(\w{40,})\z}
 
   def self.sis_parse_id(id, lookups, _current_user = nil,
                         root_account: nil)
@@ -155,6 +154,8 @@ module Api
       sis_id = $2
     elsif id =~ ID_REGEX
       return lookups['id'], (id =~ /\A\d+\z/ ? id.to_i : id)
+    elsif id =~ USER_UUID_REGEX
+      return lookups['uuid'], $1
     else
       return nil, nil
     end
@@ -217,11 +218,10 @@ module Api
 
   def self.relation_for_sis_mapping_and_columns(relation, columns, sis_mapping, sis_root_account)
     raise ArgumentError, "sis_root_account required for lookups" unless sis_root_account.is_a?(Account)
-
     return relation.none if columns.empty?
+    relation = relation.all unless relation.is_a?(ActiveRecord::Relation)
 
     not_scoped_to_account = sis_mapping[:is_not_scoped_to_account] || []
-
     if columns.length == 1 && not_scoped_to_account.include?(columns.keys.first)
       relation = relation.where(columns)
     else
@@ -245,9 +245,26 @@ module Api
           else
             ids_hash = { sis_root_account => ids }
           end
-          ids_hash.each do |root_account, ids|
-            query << "(#{sis_mapping[:scope]} = #{root_account.id} AND #{column} IN (?))"
-            args << ids
+          Shard.partition_by_shard(ids_hash.keys) do |root_accounts_on_shard|
+            sub_query = []
+            sub_args = []
+            root_accounts_on_shard.each do |root_account|
+              ids = ids_hash[root_account]
+              sub_query << "(#{sis_mapping[:scope]} = #{root_account.id} AND #{column} IN (?))"
+              sub_args << ids
+            end
+            if Shard.current == relation.primary_shard
+              query.concat(sub_query)
+              args.concat(sub_args)
+            else
+              raise "cross-shard non-ID Api lookups are only supported for users" unless relation.klass == User
+              sub_args.unshift(sub_query.join(" OR "))
+              users = relation.klass.joins(sis_mapping[:joins]).where(*sub_args).select(:id, :updated_at).to_a
+              User.preload_shard_associations(users)
+              users.each { |u| u.associate_with_shard(relation.primary_shard, :shadow) }
+              query << "#{relation.table_name}.id IN (?)"
+              args << users
+            end
           end
         end
       end
@@ -291,10 +308,12 @@ module Api
 
   # Returns collection as the first return value, and the meta information hash
   # as the second return value
-  def self.jsonapi_paginate(collection, controller, base_url, pagination_args={})
+  def self.jsonapi_paginate(collection, controller, base_url, pagination_args = {})
     collection = paginate_collection!(collection, controller, pagination_args)
     meta = jsonapi_meta(collection, controller, base_url)
-
+    hash = build_links_hash(base_url, meta_for_pagination(controller, collection))
+    links = build_links_from_hash(hash)
+    controller.response.headers["Link"] = links.join(',') if links.length > 0
     return collection, meta
   end
 
@@ -469,40 +488,14 @@ module Api
 
     rewriter = UserContent::HtmlRewriter.new(context, user)
     rewriter.set_handler('files') do |match|
-      if match.obj_id
-        obj   = preloaded_attachments[match.obj_id]
-        obj ||= if context.is_a?(User) || context.nil?
-                  Attachment.where(id: match.obj_id).first
-                else
-                  context.attachments.find_by_id(match.obj_id)
-                end
-      end
-
-      unless obj && !obj.deleted? && ((is_public && !obj.locked_for?(user)) || user_can_download_attachment?(obj, context, user))
-        if obj && obj.previewable_media? && (uri = URI.parse(match.url) rescue nil)
-          uri.query = (uri.query.to_s.split("&") + ["no_preview=1"]).join("&")
-          next uri.to_s
-        else
-          next
-        end
-      end
-
-      if ["Course", "Group", "Account", "User"].include?(obj.context_type)
-        opts = {:only_path => true}
-        opts.merge!(:verifier => obj.uuid) unless respond_to?(:in_app?, true) && in_app? && !is_public
-        if match.rest.start_with?("/preview")
-          url = self.send("#{obj.context_type.downcase}_file_preview_url", obj.context_id, obj.id, opts)
-        else
-          opts[:download] = '1'
-          opts[:wrap] = '1' if match.rest.include?('wrap=1')
-          url = self.send("#{obj.context_type.downcase}_file_download_url", obj.context_id, obj.id, opts)
-        end
-      else
-        opts = {:download => '1', :only_path => true}
-        opts.merge!(:verifier => obj.uuid) unless respond_to?(:in_app?, true) && in_app? && !is_public
-        url = file_download_url(obj.id, opts)
-      end
-      url
+      UserContent::FilesHandler.new(
+        match: match,
+        context: context,
+        user: user,
+        preloaded_attachments: preloaded_attachments,
+        is_public: is_public,
+        in_app: (respond_to?(:in_app?, true) && in_app?)
+      ).processed_url
     end
     html = rewriter.translate_content(html)
 
@@ -516,7 +509,8 @@ module Api
   # and adds context (e.g. /courses/:id/) if it is missing
   # exception: it leaves user-context file links alone
   def process_incoming_html_content(html)
-    Html::Content.process_incoming(html)
+    host, port = [request.host, request.port] if self.respond_to?(:request)
+    Html::Content.process_incoming(html, host: host, port: port)
   end
 
   def value_to_boolean(value)
@@ -575,38 +569,6 @@ module Api
     end
     return nil unless api_type
     @inverse_map[api_type.downcase]
-  end
-
-  def self.recursively_stringify_json_ids(value, opts = {})
-    case value
-    when Hash
-      stringify_json_ids(value, opts)
-      value.each_value { |v| recursively_stringify_json_ids(v, opts) if v.is_a?(Hash) || v.is_a?(Array) }
-    when Array
-      value.each { |v| recursively_stringify_json_ids(v, opts) if v.is_a?(Hash) || v.is_a?(Array) }
-    end
-    value
-  end
-
-  def self.stringify_json_ids(value, opts = {})
-    return unless value.is_a?(Hash)
-    value.keys.each do |key|
-      if key =~ /(^|_)id$/
-        # id, foo_id, etc.
-        value[key] = stringify_json_id(value[key], opts)
-      elsif key =~ /(^|_)ids$/ && value[key].is_a?(Array)
-        # ids, foo_ids, etc.
-        value[key].map!{ |id| stringify_json_id(id, opts) }
-      end
-    end
-  end
-
-  def self.stringify_json_id(id, opts = {})
-    if opts[:reverse]
-      id.is_a?(String) ? id.to_i : id
-    else
-      id.is_a?(Integer) ? id.to_s : id
-    end
   end
 
   def accepts_jsonapi?

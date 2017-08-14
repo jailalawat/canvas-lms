@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 class UserMerge
 
   def self.from(user)
@@ -30,72 +47,7 @@ class UserMerge
       end
     end
 
-    max_position = target_user.communication_channels.last.try(:position) || 0
-    to_retire_ids = []
-    from_user.communication_channels.each do |cc|
-      source_cc = cc
-      # have to find conflicting CCs, and make sure we don't have conflicts
-      target_cc = target_user.communication_channels.detect { |cc| cc.path.downcase == source_cc.path.downcase && cc.path_type == source_cc.path_type }
-
-      if !target_cc && from_user.shard != target_user.shard
-        User.clone_communication_channel(source_cc, target_user, max_position)
-      end
-      next unless target_cc
-
-      # we prefer keeping the "most" active one, preferring the target user if they're equal
-      # the comments inline show all the different cases, with the source cc on the left,
-      # target cc on the right.  The * indicates the CC that will be retired in order
-      # to resolve the conflict
-      if target_cc.active?
-        # retired, active
-        # unconfirmed*, active
-        # active*, active
-        to_retire = source_cc
-      elsif source_cc.active?
-        # active, unconfirmed*
-        # active, retired
-        target_cc.destroy_permanently!
-        if from_user.shard != target_user.shard
-          User.clone_communication_channel(source_cc, target_user, max_position)
-        end
-      elsif target_cc.unconfirmed?
-        # unconfirmed*, unconfirmed
-        # retired, unconfirmed
-        to_retire = source_cc
-      elsif source_cc.unconfirmed?
-        # unconfirmed, retired
-        target_cc.destroy_permanently!
-        if from_user.shard != target_user.shard
-          User.clone_communication_channel(source_cc, target_user, max_position)
-        end
-      elsif
-        # retired, retired
-        to_retire = source_cc
-      end
-
-      if to_retire
-        to_retire_ids << to_retire.id
-      end
-    end
-
-    if from_user.shard != target_user.shard
-      from_user.communication_channels.update_all(:workflow_state => 'retired') unless from_user.communication_channels.empty?
-
-      from_user.user_services.each do |us|
-        new_us = us.clone
-        new_us.shard = target_user.shard
-        new_us.user = target_user
-        new_us.save!
-      end
-      from_user.user_services.delete_all
-    else
-      from_user.shard.activate do
-        CommunicationChannel.where(:id => to_retire_ids).where("workflow_state<>'retired'").update_all(:workflow_state => 'retired') unless to_retire_ids.empty?
-      end
-      scope = from_user.communication_channels
-      scope = scope.where("id NOT IN (?)", to_retire_ids) unless to_retire_ids.empty?
-      scope.update_all(["user_id=?, position=position+?", target_user, max_position]) unless from_user.communication_channels.empty?
-    end
+    handle_communication_channels(target_user, user_merge_data)
 
     destroy_conflicting_module_progressions(@from_user, target_user)
 
@@ -132,7 +84,10 @@ class UserMerge
             # a) delete empty submissions where there is a non-empty submission in the from user
             # b) don't delete otherwise
             subscope = scope.having_submission.select(unique_id)
-            already_scope.where(unique_id => subscope).without_submission.delete_all
+            scope_to_delete = already_scope.where(unique_id => subscope).without_submission
+            ModeratedGrading::ProvisionalGrade.where(:submission_id => scope_to_delete).delete_all
+            SubmissionComment.where(:submission_id => scope_to_delete).delete_all
+            scope_to_delete.delete_all
           end
           # for the from user
           # a) we ignore the empty submissions in our update unless the target user has no submission
@@ -142,7 +97,7 @@ class UserMerge
           scope = scope.where("#{unique_id} NOT IN (?)", subscope)
           model.transaction do
             update_versions(from_user, target_user, scope, table, :user_id)
-            scope.update_all(:user_id => target_user)
+            scope.update_all(user_id: target_user.id)
           end
         rescue => e
           Rails.logger.error "migrating #{table} column user_id failed: #{e}"
@@ -163,15 +118,19 @@ class UserMerge
 
       account_users = AccountUser.where(user_id: from_user)
       user_merge_data.add_more_data(account_users)
-      account_users.update_all(user_id: target_user)
+      account_users.update_all(user_id: target_user.id)
+
+      attachments = Attachment.where(user_id: from_user)
+      user_merge_data.add_more_data(attachments)
+      Attachment.send_later(:migrate_attachments, from_user, target_user)
 
       updates = {}
-      ['access_tokens', 'asset_user_accesses', 'attachments',
+      ['access_tokens', 'asset_user_accesses',
        'calendar_events', 'collaborations',
        'context_module_progressions',
        'group_memberships', 'page_comments',
        'rubric_assessments',
-       'submission_comment_participants', 'user_services', 'web_conferences',
+       'user_services', 'web_conferences',
        'web_conference_participants', 'wiki_pages'].each do |key|
         updates[key] = "user_id"
       end
@@ -196,8 +155,6 @@ class UserMerge
         end
       end
 
-      Attachment.send_later(:migrate_attachments, from_user, target_user)
-
       context_updates = ['calendar_events']
       context_updates.each do |table|
         klass = table.classify.constantize
@@ -218,20 +175,120 @@ class UserMerge
     from_user.destroy
   end
 
+  def handle_communication_channels(target_user, user_merge_data)
+    max_position = target_user.communication_channels.last.try(:position) || 0
+    to_retire_ids = []
+    known_ccs = target_user.communication_channels.pluck(:id)
+    from_user.communication_channels.each do |cc|
+      # have to find conflicting CCs, and make sure we don't have conflicts
+      target_cc = detect_conflicting_cc(cc, target_user)
+
+      if !target_cc && from_user.shard != target_user.shard
+        User.clone_communication_channel(cc, target_user, max_position)
+        new_cc = target_user.communication_channels.where.not(id: known_ccs).take
+        known_ccs << new_cc.id
+        user_merge_data.add_more_data([new_cc], user: target_user, workflow_state: 'non_existent')
+      end
+
+      next unless target_cc
+      to_retire = handle_conflicting_ccs(cc, target_cc, target_user, max_position)
+
+      to_retire_ids << to_retire.id if to_retire
+    end
+
+    finish_ccs(max_position, target_user, to_retire_ids, user_merge_data)
+  end
+
+  def detect_conflicting_cc(source_cc, target_user)
+    target_user.communication_channels.detect do |c|
+      c.path.downcase == source_cc.path.downcase && c.path_type == source_cc.path_type
+    end
+  end
+
+  def finish_ccs(max_position, target_user, to_retire_ids, user_merge_data)
+    if from_user.shard != target_user.shard
+      handle_cross_shard_cc(target_user, user_merge_data)
+    else
+      from_user.shard.activate do
+        ccs = CommunicationChannel.where(id: to_retire_ids).where.not(workflow_state: 'retired')
+        user_merge_data.add_more_data(ccs) unless to_retire_ids.empty?
+        ccs.update_all(workflow_state: 'retired') unless to_retire_ids.empty?
+      end
+      scope = from_user.communication_channels.where.not(workflow_state: 'retired')
+      scope = scope.where.not(id: to_retire_ids) unless to_retire_ids.empty?
+      unless scope.empty?
+        user_merge_data.add_more_data(scope)
+        scope.update_all(["user_id=?, position=position+?", target_user, max_position])
+      end
+    end
+  end
+
+  def handle_cross_shard_cc(target_user, user_merge_data)
+    ccs = from_user.communication_channels.where.not(workflow_state: 'retired')
+    user_merge_data.add_more_data(ccs) unless ccs.empty?
+    ccs.update_all(workflow_state: 'retired') unless ccs.empty?
+
+    from_user.user_services.each do |us|
+      new_us = us.clone
+      new_us.shard = target_user.shard
+      new_us.user = target_user
+      new_us.save!
+      user_merge_data.add_more_data([new_us], user: target_user, workflow_state: 'non_existent')
+    end
+    user_merge_data.add_more_data(from_user.user_services)
+    from_user.user_services.delete_all
+  end
+
+  def handle_conflicting_ccs(source_cc, target_cc, target_user, max_position)
+    # we prefer keeping the "most" active one, preferring the target user if they're equal
+    # the comments inline show all the different cases, with the source cc on the left,
+    # target cc on the right.  The * indicates the CC that will be retired in order
+    # to resolve the conflict
+    if target_cc.active?
+      # retired, active
+      # unconfirmed*, active
+      # active*, active
+      to_retire = source_cc
+    elsif source_cc.active?
+      # active, unconfirmed*
+      # active, retired
+      # target_cc will not be able to be restored on split, but it is either unconfirmed or retired so nbd
+      target_cc.destroy_permanently!
+      if from_user.shard != target_user.shard
+        User.clone_communication_channel(source_cc, target_user, max_position)
+      end
+    elsif target_cc.unconfirmed?
+      # unconfirmed*, unconfirmed
+      # retired, unconfirmed
+      to_retire = source_cc
+    elsif source_cc.unconfirmed?
+      # unconfirmed, retired
+      # target_cc will not be able to be restored on split, but it is either unconfirmed or retired so nbd
+      target_cc.destroy_permanently!
+      if from_user.shard != target_user.shard
+        User.clone_communication_channel(source_cc, target_user, max_position)
+      end
+    elsif
+      # retired, retired
+    to_retire = source_cc
+    end
+    to_retire
+  end
+
   def move_observees(target_user, user_merge_data)
     # record all the records before destroying them
     # pass the from_user since user_id will be the observer
-    user_merge_data.add_more_data(from_user.user_observees, from_user)
+    user_merge_data.add_more_data(from_user.user_observees, user: from_user)
     user_merge_data.add_more_data(from_user.user_observers)
     # delete duplicate or invalid observers/observees, move the rest
     from_user.user_observees.where(user_id: target_user.user_observees.map(&:user_id)).destroy_all
     from_user.user_observees.where(user_id: target_user).destroy_all
-    user_merge_data.add_more_data(target_user.user_observees.where(user_id: from_user), target_user)
+    user_merge_data.add_more_data(target_user.user_observees.where(user_id: from_user), user: target_user)
     target_user.user_observees.where(user_id: from_user).destroy_all
-    from_user.user_observees.active.update_all(observer_id: target_user)
-    xor_observer_ids = UserObserver.where(user_id: [from_user, target_user]).uniq.pluck(:observer_id)
+    from_user.user_observees.active.update_all(observer_id: target_user.id)
+    xor_observer_ids = UserObserver.where(user_id: [from_user, target_user]).distinct.pluck(:observer_id)
     from_user.user_observers.where(observer_id: target_user.user_observers.map(&:observer_id)).destroy_all
-    from_user.user_observers.active.update_all(user_id: target_user)
+    from_user.user_observers.active.update_all(user_id: target_user.id)
     # for any observers not already watching both users, make sure they have
     # any missing observer enrollments added
     target_user.user_observers.where(observer_id: xor_observer_ids).each(&:create_linked_enrollments)
@@ -301,7 +358,11 @@ class UserMerge
     # record both records state sicne both will change
     user_merge_data.add_more_data(scope)
     # update the record on the target user to the better state of the from users enrollment
-    Enrollment.where(id: scope).where.not(id: keeper).update_all(workflow_state: keeper.workflow_state)
+
+    enrollment_ids = Enrollment.where(id: scope).where.not(id: keeper).pluck(:id)
+    Enrollment.where(:id => enrollment_ids).update_all(workflow_state: keeper.workflow_state)
+    EnrollmentState.force_recalculation(enrollment_ids)
+
     # mark the would be keeper from the from_user as deleted so it will not be moved later
     keeper.destroy
   end
@@ -352,7 +413,7 @@ class UserMerge
           # move all the enrollments that have not been marked as deleted to the target user
           to_move = Enrollment.active.where(column => from_user)
           user_merge_data.add_more_data(to_move)
-          to_move.update_all(column => target_user)
+          to_move.update_all(column => target_user.id)
         end
       end
     end

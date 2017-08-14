@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,6 +17,7 @@
 #
 
 require_relative '../../../spec_helper.rb'
+require_dependency "api/html/content"
 
 module Api
   module Html
@@ -37,6 +38,16 @@ module Api
           expect(Content.new(string).might_need_modification?).to be(true)
         end
 
+        it 'is true for a link that includes the host' do
+          string = "<body><a href='https://example.com/123'>link</a></body>"
+          expect(Content.new(string, host: "example.com").might_need_modification?).to be(true)
+        end
+
+        it 'is false for a link to files in a context' do
+          string = "<body><a href='/courses/1/files'>link</a></body>"
+          expect(Content.new(string).might_need_modification?).to be(false)
+        end
+
         it 'is false for garden-variety content' do
           string = "<body><a href='http://example.com/123'>link</a></body>"
           expect(Content.new(string).might_need_modification?).to be(false)
@@ -46,10 +57,12 @@ module Api
       describe "#modified_html" do
         it "scrubs links" do
           string = "<body><a href='http://somelink.com'>link</a></body>"
-          Html::Link.expects(:new).with("http://somelink.com").returns(
+          host = 'somelink.com'
+          port = 80
+          Html::Link.expects(:new).with("http://somelink.com", host: host, port: port).returns(
             stub(to_corrected_s: "http://otherlink.com")
           )
-          html = Content.new(string).modified_html
+          html = Content.new(string, host: host, port: port).modified_html
           expect(html).to match(/otherlink.com/)
         end
 
@@ -63,14 +76,14 @@ module Api
       describe "#rewritten_html" do
 
         it "stuffs mathml into a data attribute on equation images" do
-          string = "<div><ul><li><img class='equation_image' alt='\int f(x)/g(x)'/></li>"\
-                 "<li><img class='equation_image' alt='\\sum 1..n'/></li>"\
+          string = "<div><ul><li><img class='equation_image' data-equation-content='\int f(x)/g(x)'/></li>"\
+                 "<li><img class='equation_image' data-equation-content='\\sum 1..n'/></li>"\
                  "<li><img class='nothing_special'></li></ul></div>"
           url_helper = stub(rewrite_api_urls: nil)
           html = Content.new(string).rewritten_html(url_helper)
           expected = "<div><ul>\n"\
-              "<li><img class=\"equation_image\" alt=\"\int f(x)/g(x)\" data-mathml=\"&lt;math xmlns=&quot;http://www.w3.org/1998/Math/MathML&quot; display=&quot;inline&quot;&gt;&lt;mi&gt;i&lt;/mi&gt;&lt;mi&gt;n&lt;/mi&gt;&lt;mi&gt;t&lt;/mi&gt;&lt;mi&gt;f&lt;/mi&gt;&lt;mo stretchy='false'&gt;(&lt;/mo&gt;&lt;mi&gt;x&lt;/mi&gt;&lt;mo stretchy='false'&gt;)&lt;/mo&gt;&lt;mo&gt;/&lt;/mo&gt;&lt;mi&gt;g&lt;/mi&gt;&lt;mo stretchy='false'&gt;(&lt;/mo&gt;&lt;mi&gt;x&lt;/mi&gt;&lt;mo stretchy='false'&gt;)&lt;/mo&gt;&lt;/math&gt;\"></li>\n"\
-              "<li><img class=\"equation_image\" alt=\"\\sum 1..n\" data-mathml='&lt;math xmlns=\"http://www.w3.org/1998/Math/MathML\" display=\"inline\"&gt;&lt;mo lspace=\"thinmathspace\" rspace=\"thinmathspace\"&gt;&amp;Sum;&lt;/mo&gt;&lt;mn&gt;1&lt;/mn&gt;&lt;mo&gt;.&lt;/mo&gt;&lt;mo&gt;.&lt;/mo&gt;&lt;mi&gt;n&lt;/mi&gt;&lt;/math&gt;'></li>\n"\
+              "<li><img class=\"equation_image\" data-equation-content=\"\int f(x)/g(x)\" data-mathml=\"&lt;math xmlns=&quot;http://www.w3.org/1998/Math/MathML&quot; display=&quot;inline&quot;&gt;&lt;mi&gt;i&lt;/mi&gt;&lt;mi&gt;n&lt;/mi&gt;&lt;mi&gt;t&lt;/mi&gt;&lt;mi&gt;f&lt;/mi&gt;&lt;mo stretchy='false'&gt;(&lt;/mo&gt;&lt;mi&gt;x&lt;/mi&gt;&lt;mo stretchy='false'&gt;)&lt;/mo&gt;&lt;mo&gt;/&lt;/mo&gt;&lt;mi&gt;g&lt;/mi&gt;&lt;mo stretchy='false'&gt;(&lt;/mo&gt;&lt;mi&gt;x&lt;/mi&gt;&lt;mo stretchy='false'&gt;)&lt;/mo&gt;&lt;/math&gt;\"></li>\n"\
+              "<li><img class=\"equation_image\" data-equation-content=\"\\sum 1..n\" data-mathml='&lt;math xmlns=\"http://www.w3.org/1998/Math/MathML\" display=\"inline\"&gt;&lt;mo lspace=\"thinmathspace\" rspace=\"thinmathspace\"&gt;&amp;Sum;&lt;/mo&gt;&lt;mn&gt;1&lt;/mn&gt;&lt;mo&gt;.&lt;/mo&gt;&lt;mo&gt;.&lt;/mo&gt;&lt;mi&gt;n&lt;/mi&gt;&lt;/math&gt;'></li>\n"\
               "<li><img class=\"nothing_special\"></li>\n</ul></div>"
           expect(html).to eq(expected)
         end
@@ -106,7 +119,6 @@ module Api
           })
 
           child_account = Account.default.sub_accounts.create!(name: 'child account')
-          child_account.root_account.enable_feature! :use_new_styles
           child_account.root_account.settings[:sub_account_includes] = true
 
           bc = child_account.build_brand_config({
@@ -115,6 +127,7 @@ module Api
           })
           bc.parent = root_bc
           bc.save!
+          child_account.save!
 
           html = Content.new(string, child_account, include_mobile: true).add_css_and_js_overrides
           expect(html.to_s).to eq '<link rel="stylesheet" href="https://example.com/root/account.css">' \
@@ -123,8 +136,26 @@ module Api
                                   '<script src="https://example.com/root/account.js"></script>' \
                                   '<script src="https://example.com/child/account.js"></script>'
         end
+
+        it "includes brand_config css & js from site admin even if no account in chain have a brand_config" do
+          string = "<div>stuff</div>"
+
+          site_admin_bc = Account.site_admin.create_brand_config!({
+            mobile_css_overrides: 'https://example.com/site_admin/account.css',
+            mobile_js_overrides: 'https://example.com/site_admin/account.js'
+          })
+
+          child_account = Account.default.sub_accounts.create!(name: 'child account')
+          child_account.save!
+
+          html = Content.new(string, child_account, include_mobile: true).add_css_and_js_overrides
+          expect(html.to_s).to eq '<link rel="stylesheet" href="https://example.com/site_admin/account.css">' \
+                                  '<div>stuff</div>' \
+                                  '<script src="https://example.com/site_admin/account.js"></script>'
+        end
+
+
       end
     end
   end
 end
-

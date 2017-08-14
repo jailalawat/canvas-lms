@@ -1,8 +1,22 @@
-@import "base/environment";
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
 
-@if $use_new_styles == false {
-  #wrapper-container { min-width: 1150px; }
-}
+@import "base/environment";
 
 .scheduler-content {
   padding: 1em;
@@ -206,12 +220,21 @@
   overflow-y: auto;
   label {
     margin-bottom: 0;
+    width: 170px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 
 .ag_sections {
   @include reset_list;
   padding-left: 35px;
+  li {
+    label {
+      width: 150px;
+    }
+  }
 }
 
 .ag_sections_toggle {
@@ -221,6 +244,8 @@
   float: left;
   background-image: url(/images/jqueryui/icon_sprite.png);
   background-position: (-16px) -80px;
+  border: none;
+  background-color: transparent;
 }
 
 .ag-sections-expanded {
@@ -336,4 +361,8 @@
       }
     }
   }
+}
+
+.scheduler-event-details-footer {
+    display: none;
 }

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,7 +16,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require 'aws-sdk'
+require 'aws-sdk-sns'
 
 class DeveloperKey < ActiveRecord::Base
   include CustomValidations
@@ -28,14 +28,16 @@ class DeveloperKey < ActiveRecord::Base
   has_many :page_views
   has_many :access_tokens
 
-  attr_accessible :api_key, :name, :user, :account, :icon_url, :redirect_uri, :email, :event, :auto_expire_tokens
+  has_one :tool_consumer_profile, :class_name => 'Lti::ToolConsumerProfile'
 
   before_create :generate_api_key
   before_create :set_auto_expire_tokens
   before_save :nullify_empty_icon_url
+  before_save :protect_default_key
   after_save :clear_cache
 
-  validates_as_url :redirect_uri
+  validates_as_url :redirect_uri, allowed_schemes: nil
+  validate :validate_redirect_uris
 
   scope :nondeleted, -> { where("workflow_state<>'deleted'") }
 
@@ -47,6 +49,30 @@ class DeveloperKey < ActiveRecord::Base
       event :activate, transitions_to: :active
     end
     state :deleted
+  end
+
+  def redirect_uri=(value)
+    super(value.presence)
+  end
+
+  def redirect_uris=(value)
+    value = value.split if value.is_a?(String)
+    super(value)
+  end
+
+  def validate_redirect_uris
+    uris = redirect_uris.map do |value|
+      value, _ = CanvasHttp.validate_url(value, allowed_schemes: nil)
+      value
+    end
+
+    self.redirect_uris = uris unless uris == redirect_uris
+  rescue URI::Error, ArgumentError
+    errors.add :redirect_uris, 'is not a valid URI'
+  end
+
+  def protect_default_key
+    raise "Please never delete the default developer key" if workflow_state != 'active' && self == self.class.default
   end
 
   alias_method :destroy_permanently!, :destroy
@@ -78,6 +104,10 @@ class DeveloperKey < ActiveRecord::Base
 
   def account_name
     account.try(:name)
+  end
+
+  def last_used_at
+    self.access_tokens.maximum(:last_used_at)
   end
 
   class << self
@@ -119,9 +149,16 @@ class DeveloperKey < ActiveRecord::Base
   # verify that the given uri has the same domain as this key's
   # redirect_uri domain.
   def redirect_domain_matches?(redirect_uri)
+    return true if redirect_uris.include?(redirect_uri)
+
+    # legacy deprecated
     self_domain = URI.parse(self.redirect_uri).host
     other_domain = URI.parse(redirect_uri).host
-    return self_domain.present? && other_domain.present? && (self_domain == other_domain || other_domain.end_with?(".#{self_domain}"))
+    result = self_domain.present? && other_domain.present? && (self_domain == other_domain || other_domain.end_with?(".#{self_domain}"))
+    if result && redirect_uri != self.redirect_uri
+      Rails.logger.info("Allowed lenient OAuth redirect uri #{redirect_uri} on developer key #{global_id}")
+    end
+    result
   rescue URI::Error
     return false
   end
@@ -131,7 +168,7 @@ class DeveloperKey < ActiveRecord::Base
     if !defined?(@sns)
       settings = ConfigFile.load('sns')
       @sns = nil
-      @sns = AWS::SNS.new(settings) if settings
+      @sns = Aws::SNS::Client.new(settings) if settings
     end
     @sns
   end

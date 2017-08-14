@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
 require 'delayed/testing'
 
@@ -5,7 +22,6 @@ describe BrandConfigRegenerator do
   let(:new_brand_config) { BrandConfig.for(variables: {"ic-brand-primary" => "green"}) }
   def setup_account_family_with_configs
     @parent_account = Account.default
-    @parent_account.enable_feature!(:use_new_styles)
     @parent_account.brand_config = @parent_config = BrandConfig.for(variables: {"ic-brand-primary" => "red"})
     @parent_config.save!
     @parent_account.save!
@@ -43,8 +59,9 @@ describe BrandConfigRegenerator do
       brand_config_md5: second_config.md5
     )
 
-    regenerator = BrandConfigRegenerator.new(@parent_account, user, new_brand_config)
+    regenerator = BrandConfigRegenerator.new(@parent_account, user_factory, new_brand_config)
 
+    # 5 = 2 "inheriting" accounts + 3 "inheriting" shared configs
     brandable_css_stub = BrandableCSS.stubs(:compile_brand!).times(5)
     Delayed::Testing.drain
     expect(brandable_css_stub).to be_verified
@@ -80,7 +97,7 @@ describe BrandConfigRegenerator do
     child_config.save!
     @child_account.save!
 
-    regenerator = BrandConfigRegenerator.new(@parent_account, user, new_brand_config)
+    regenerator = BrandConfigRegenerator.new(@parent_account, user_factory, new_brand_config)
 
     brandable_css_stub = BrandableCSS.stubs(:compile_brand!).times(4)
     Delayed::Testing.drain
@@ -93,7 +110,7 @@ describe BrandConfigRegenerator do
   it "handles reverting to default (nil) theme correctly" do
     setup_account_family_with_configs
 
-    regenerator = BrandConfigRegenerator.new(@parent_account, user, nil)
+    regenerator = BrandConfigRegenerator.new(@parent_account, user_factory, nil)
 
     brandable_css_stub = BrandableCSS.stubs(:compile_brand!).times(4)
     Delayed::Testing.drain
@@ -109,4 +126,27 @@ describe BrandConfigRegenerator do
     expect(@grand_child_shared_config.brand_config).to eq(@grand_child_account.brand_config)
   end
 
+  it "handles site_admin correctly" do
+    setup_account_family_with_configs
+    site_admin_config = BrandConfig.for(variables: {"ic-brand-primary" => "orange"})
+    site_admin_config.save!
+
+    regenerator = BrandConfigRegenerator.new(Account.site_admin, user_factory, new_brand_config)
+
+    # 6 = 3 "inheriting" accounts = 3 "inheriting" shared configs
+    brandable_css_stub = BrandableCSS.stubs(:compile_brand!).times(6)
+    Delayed::Testing.drain
+    expect(brandable_css_stub).to be_verified
+    expect(regenerator.progresses.count).to eq(6)
+
+    expect(Account.site_admin.brand_config).to eq(new_brand_config)
+
+    expect(@parent_account.reload.brand_config.parent).to eq(new_brand_config)
+    expect(@parent_shared_config.reload.brand_config.parent).to eq(new_brand_config)
+    expect(@parent_shared_config.brand_config).to eq(@parent_account.brand_config)
+
+    expect(@child_account.reload.brand_config.parent).to eq(@parent_account.brand_config)
+    expect(@child_shared_config.reload.brand_config.parent).to eq(@parent_account.brand_config)
+    expect(@child_shared_config.brand_config).to eq(@child_account.brand_config)
+  end
 end

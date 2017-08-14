@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
 
 require 'nokogiri'
@@ -41,7 +58,7 @@ describe Quizzes::QuizzesController do
         end
 
         it "should show an overridden due date for student" do
-          @course.enroll_user(user, 'StudentEnrollment')
+          @course.enroll_user(user_factory, 'StudentEnrollment')
           user_session(@user)
 
           get "/courses/#{@course.id}/quizzes/#{@quiz.id}"
@@ -123,7 +140,7 @@ describe Quizzes::QuizzesController do
         get "/courses/#{@course.id}/quizzes/#{@quiz.id}"
 
         doc = Nokogiri::HTML(response.body)
-        expect(doc.css("#right-side .rs-margin-top").text).not_to include "Resume Quiz"
+        expect(doc.css("#right-side").text).not_to include "Resume Quiz"
       end
     end
   end

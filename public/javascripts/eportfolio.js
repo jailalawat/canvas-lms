@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,8 +12,8 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
 // There's technically a security vulnerability here.  Since we let
@@ -25,25 +25,27 @@
 // settings on their own personal eportfolio, they can't
 // affect anyone else
 
-define([
-  'i18n!eportfolio',
-  'jquery' /* $ */,
-  'compiled/userSettings',
-  'jsx/shared/rce/RichContentEditor',
-  'eportfolios/eportfolio_section',
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.inst_tree' /* instTree */,
-  'jquery.instructure_forms' /* formSubmit, getFormData, formErrors, errorBox */,
-  'jqueryui/dialog',
-  'compiled/jquery/fixDialogButtons' /* fix dialog formatting */,
-  'jquery.instructure_misc_helpers' /* replaceTags, scrollSidebar */,
-  'jquery.instructure_misc_plugins' /* confirmDelete, showIf */,
-  'jquery.loadingImg' /* loadingImage */,
-  'jquery.templateData' /* fillTemplateData, getTemplateData */,
-  'vendor/jquery.scrollTo' /* /\.scrollTo/ */,
-  'jqueryui/progressbar' /* /\.progressbar/ */,
-  'jqueryui/sortable' /* /\.sortable/ */
-], function(I18n, $, userSettings, RichContentEditor, EportfolioSection) {
+import I18n from 'i18n!eportfolio'
+import $ from 'jquery'
+import React from 'react'
+import ReactDOM from 'react-dom'
+import userSettings from 'compiled/userSettings'
+import RichContentEditor from 'jsx/shared/rce/RichContentEditor'
+import MoveToDialog from 'jsx/eportfolios/MoveToDialog'
+import {fetchContent} from 'eportfolios/eportfolio_section'
+import './jquery.ajaxJSON'
+import './jquery.inst_tree' /* instTree */
+import './jquery.instructure_forms' /* formSubmit, getFormData, formErrors, errorBox */
+import 'jqueryui/dialog'
+import 'compiled/jquery/fixDialogButtons'
+import 'compiled/jquery.rails_flash_notifications' /* $.screenReaderFlashMessageExclusive */
+import './jquery.instructure_misc_helpers' /* replaceTags, scrollSidebar */
+import './jquery.instructure_misc_plugins' /* confirmDelete, showIf */
+import './jquery.loadingImg'
+import './jquery.templateData' /* fillTemplateData, getTemplateData */
+import './vendor/jquery.scrollTo'
+import 'jqueryui/progressbar'
+import 'jqueryui/sortable'
 
   // optimization so user isn't waiting on RCS to
   // respond when they hit edit
@@ -71,13 +73,58 @@ define([
       if(section_type == "rich_text" || section_type == "html" || $section.hasClass('read_only')) {
         idx++;
         var name = "section_" + idx;
-        var sectionContent = EportfolioSection.fetchContent($section, section_type, name)
+        var sectionContent = fetchContent($section, section_type, name)
         data = $.extend(data, sectionContent)
       }
     });
     data['section_count'] = idx;
     return data;
   }
+
+  function _saveList(parent, prefix, anchor) {
+    var ids = $(parent).sortable('toArray');
+    var valid_ids = [];
+    for(var idx in ids) {
+      var id = ids[idx];
+      id = id.substring(prefix.length);
+      if(!isNaN(id)) { valid_ids.push(id); }
+    }
+    var order = valid_ids.join(",");
+    var data = {order: order};
+    $(parent).loadingImage({image_size: 'small'});
+    $.ajaxJSON($(anchor).attr('href'), 'POST', data, function(data) {
+      $(parent).loadingImage('remove');
+    });
+  }
+
+  function saveSectionList() {
+    _saveList("#section_list", "section_", ".reorder_sections_url")
+  }
+
+  function savePageList() {
+    _saveList("#page_list", "page_", ".reorder_pages_url")
+  }
+
+  function showMoveDialog(source, destinations, triggerElement, dialogLabel, onMove) {
+    var appElement = document.querySelector('#application')
+    var modalRoot = document.querySelector('#eportfolios_move_to_modal_root')
+    if (!modalRoot) {
+      $('#application').append('<div id="eportfolios_move_to_modal_root"></div>')
+      modalRoot = document.querySelector('#eportfolios_move_to_modal_root')
+    }
+    ReactDOM.render(React.createElement(MoveToDialog, {
+      source: source,
+      destinations: destinations,
+      appElement: appElement,
+      triggerElement: triggerElement,
+      header: dialogLabel,
+      onClose: function() {
+        setTimeout(function() { ReactDOM.unmountComponentAtNode(modalRoot) })
+      },
+      onMove: onMove
+    }), modalRoot)
+  }
+
   $(document).ready(function() {
     $(".portfolio_settings_link").click(function(event) {
       event.preventDefault();
@@ -166,7 +213,7 @@ define([
           $preview.html($section.find(".edit_section").val());
           $section.find(".section_content").after($preview);
         } else if (section_type == "rich_text") {
-          var $richText = $section.find('.edit_section)');
+          var $richText = $section.find('.edit_section');
           var editorContent = RichContentEditor.callOnRCE($richText, "get_code");
           if (editorContent){ $preview.html($.raw(editorContent)) }
           $section.find(".section_content").after($preview);
@@ -277,6 +324,9 @@ define([
         if (section_type == "html") {
           $edit.find(".edit_section").focus().select();
         }
+        if (section_type == "submission") {
+          $edit.find(".submission:first .text").focus()
+        }
       });
     });
     $(".delete_page_section_link").click(function(event) {
@@ -318,7 +368,8 @@ define([
       var $section = $(this).parents(".section");
       var $selection = $section.find(".submission_list li.active-leaf:first");
       if($selection.length === 0) { return; }
-      var url = $selection.find(".submission_preview_url").attr('href');
+      var url = $selection.find(".submission_info").attr('href');
+      var title = $selection.find(".submission_info").text();
       var id = $selection.attr('id').substring(11);
       $section.fillTemplateData({
         data: {submission_id: id}
@@ -328,6 +379,8 @@ define([
       $frame.attr('src', url);
       $section.append($frame);
       $section.addClass('read_only');
+      $(this).focus()
+      $.screenReaderFlashMessageExclusive(I18n.t('submission added: %{title}', { title: title }))
     }).delegate('.upload_file_button', 'click', function(event) {
       event.preventDefault();
       event.stopPropagation();
@@ -493,7 +546,6 @@ define([
         $("#page_select_list").append($page.show());
       });
     }).triggerHandler('change');
-    $.scrollSidebar();
 
     $(".delete_comment_link").click(function(event) {
       event.preventDefault();
@@ -640,9 +692,11 @@ define([
   function countObjects(type) {
     var cnt = $("#" + type + "_list ." + type + ":not(.unsaved)").length;
     if(cnt > 1) {
-      $("#" + type + "_list .remove_page_link").css('display', '');
+      $("#" + type + "_list .remove_" + type + "_link").css('display', '');
+      $("#" + type + "_list .move_" + type + "_link").css('display', '');
     } else {
-      $("#" + type + "_list .remove_page_link").hide();
+      $("#" + type + "_list .remove_" + type + "_link").hide();
+      $("#" + type + "_list .move_" + type + "_link").hide();
     }
   }
   $(document).ready(function() {
@@ -662,6 +716,7 @@ define([
         $("#page_list").append($page.show());
       }
       $page.removeClass('unsaved');
+      $page.find(".settings-label").text(I18n.t("Settings for %{title}", { title: entry.name }))
       $page.fillTemplateData({
         data: entry,
         id: 'page_' + entry.id,
@@ -698,33 +753,19 @@ define([
       event.preventDefault();
       if($("#page_list").hasClass('editing')) {
         $("#page_list").removeClass('editing');
-        $("#page_list .page").attr('title', '');
+        $("#page_list .page_url").attr('title', '');
         $("#page_list").sortable('destroy');
         $("#section_pages").removeClass('editing');
       } else {
         $("#page_list").addClass('editing');
-        $("#page_list .page").attr('title', I18n.t('links.manage_pages', 'Click to edit, drag to reorder'));
+        $("#page_list .page_url").attr('title', I18n.t('Click to edit, drag to reorder'));
         $("#page_list").sortable({
           axis: 'y',
           helper: 'clone',
           stop: function(event, ui) {
             ui.item.addClass('just_dropped');
           },
-          update: function(event, ui) {
-            var ids = $("#page_list").sortable('toArray');
-            var valid_ids = [];
-            for(var idx in ids) {
-              var id = ids[idx];
-              id = id.substring(5);
-              if(!isNaN(id)) { valid_ids.push(id); }
-            }
-            var order = valid_ids.join(",");
-            var data = {order: order};
-            $("#page_list").loadingImage({image_size: 'small'});
-            $.ajaxJSON($(".reorder_pages_url").attr('href'), 'POST', data, function(data) {
-              $("#page_list").loadingImage('remove');
-            });
-          }
+          update: savePageList
         });
         $("#section_pages").addClass('editing');
       }
@@ -763,6 +804,33 @@ define([
           });
         }
       });
+    });
+    $(".move_page_link").click(function(event) {
+      event.preventDefault();
+
+      var page = $(event.target).closest('.page')
+      var source = {
+        id: page.attr('id'),
+        label: page.find('.name').text()
+      }
+      var otherPages = $('#page_list .page').not(page).not('#page_blank').toArray()
+      var destinations = otherPages.map(function(otherPage) { return {
+        id: $(otherPage).attr('id'),
+        label: $(otherPage).find('.name').text()
+      }})
+
+      var triggerElement = page.find('.page_settings_menu .al-trigger')
+      var dialogLabel = I18n.t('Move Page')
+      var onMove = function(before) {
+        if (before !== '') {
+          $(page).insertBefore($('#' + before))
+        } else {
+          $(page).insertAfter($('#page_list .page:last'))
+        }
+        $('#page_list').sortable('refreshPositions')
+        savePageList()
+      }
+      showMoveDialog(source, destinations, triggerElement, dialogLabel, onMove)
     });
     $("#page_name").keydown(function(event) {
       if(event.keyCode == 27) { // esc
@@ -870,9 +938,10 @@ define([
       var $section = $("#section_" + category.id);
       if($section.length === 0) {
         $section = $("#section_blank").clone(true).removeAttr('id');
-        $("#section_list").append($section.show());
+        $("#section_list").append($section.css("display", ""));
       }
       $section.removeClass('unsaved');
+      $section.find(".settings-label").text(I18n.t("Settings for %{title}", { title: category.name }))
       $section.fillTemplateData({
         data: category,
         id: 'section_' + category.id,
@@ -901,11 +970,11 @@ define([
       if($("#section_list").hasClass('editing')) {
         $("#section_list").sortable('destroy');
         $("#section_list_manage").removeClass('editing');
-        $("#section_list").removeClass('editing').sortable('disable');
+        $("#section_list").removeClass('editing');
         var manage_sections = I18n.t('buttons.manage_sections', "Manage Sections");
         $(".arrange_sections_link").text(manage_sections).val(manage_sections);
         $(".add_section").hide();
-        $("#section_list > li").attr('title', "");
+        $("#section_list .name").attr('title', "");
       } else {
         $("#section_list_manage").addClass('editing');
         $("#section_list").sortable({
@@ -914,27 +983,13 @@ define([
           stop: function(event, ui) {
             ui.item.addClass('just_dropped');
           },
-          update: function(event, ui) {
-            var ids = $("#section_list").sortable('toArray');
-            var valid_ids = [];
-            for(var idx in ids) {
-              var id = ids[idx];
-              id = id.substring(8);
-              if(!isNaN(id)) { valid_ids.push(id); }
-            }
-            var order = valid_ids.join(",");
-            var data = {order: order};
-            $("#section_list").loadingImage({image_size: 'small'});
-            $.ajaxJSON($(".reorder_sections_url").attr('href'), 'POST', data, function(data) {
-              $("#section_list").loadingImage('remove');
-            });
-          }
+          update: saveSectionList
         });
         $("#section_list").addClass('editing').sortable('enable');
         var done_editing = I18n.t('buttons.done_editing', "Done Editing");
         $(".arrange_sections_link").text(done_editing).val(done_editing);
         $(".add_section").show();
-        $("#section_list > li").attr('title', I18n.t('titles.section_list', "Drag to Arrange, Click to Edit"));
+        $("#section_list .name").attr('title', I18n.t('titles.section_list', "Drag to Arrange, Click to Edit"));
       }
     });
     $(".add_section_link").click(function(event) {
@@ -944,7 +999,8 @@ define([
       editObject($section, 'section');
     });
     $(".remove_section_link").click(function(event) {
-      event.preventDefault();
+      event.preventDefault()
+
       hideEditObject('section');
       $(this).parents("li").confirmDelete({
         message: I18n.t('confirm_delete_section', "Delete this section and all its pages?"),
@@ -958,6 +1014,34 @@ define([
         }
       });
     });
+    $(".move_section_link").click(function(event) {
+      event.preventDefault();
+
+      var section = $(event.target).closest('.section')
+      var source = {
+        id: section.attr('id'),
+        label: section.find('.name').text()
+      }
+      var otherSections = $('#section_list .section').not(section).not('#section_blank').toArray()
+      var destinations = otherSections.map(function(otherSection) { return {
+        id: $(otherSection).attr('id'),
+        label: $(otherSection).find('.name').text()
+      }})
+      var dialogLabel = I18n.t('Move Section')
+
+      var triggerElement = section.find('.section_settings_menu .al-trigger')
+
+      var onMove = function(before) {
+        if (before !== '') {
+          $(section).insertBefore(document.getElementById(before))
+        } else {
+          $(section).insertAfter($('#section_list .section:last'))
+        }
+        $('#section_list').sortable('refreshPositions')
+        saveSectionList()
+      }
+      showMoveDialog(source, destinations, triggerElement, dialogLabel, onMove)
+    })
     $("#section_list").delegate('.edit_section_link', 'click', function(event) {
       if($(this).parents("li").hasClass('unsaved')) {
         event.preventDefault();
@@ -1000,7 +1084,7 @@ define([
       var url = $(this).attr('href');
       var errorCount = 0;
       var check = function(first) {
-        req_url = url;
+        var req_url = url;
         if (first) {
           req_url = url + "?compile=1";
         }
@@ -1033,4 +1117,3 @@ define([
       });
     });
   });
-});

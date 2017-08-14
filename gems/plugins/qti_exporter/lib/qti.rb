@@ -1,5 +1,23 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'nokogiri'
 require 'qti/qti_plugin_validator'
+require 'shellwords'
 
 module Qti
   PYTHON_MIGRATION_EXECUTABLE = 'migrate.py'
@@ -97,7 +115,7 @@ module Qti
 
   def self.get_conversion_command(out_dir, manifest_file, file_path_prepend = nil)
     prepend = file_path_prepend ? "--pathprepend=\"#{file_path_prepend}\" " : ""
-    "\"#{@migration_executable}\" #{prepend}--ucvars --nogui --overwrite --cpout=#{out_dir.gsub(/ /, "\\ ")} #{manifest_file.gsub(/ /, "\\ ")} 2>&1"
+    "\"#{@migration_executable}\" #{prepend}--ucvars --nogui --overwrite --cpout=#{Shellwords.escape(out_dir)} #{Shellwords.escape(manifest_file)} 2>&1"
   end
 
 end

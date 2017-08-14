@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,7 +22,7 @@ class Login::Oauth2Controller < Login::OauthBaseController
     nonce = session[:oauth2_nonce] = SecureRandom.hex(24)
     expiry = Time.zone.now + Setting.get('oauth2_client_timeout', 10.minutes.to_i).to_i
     jwt = Canvas::Security.create_jwt({ aac_id: @aac.global_id, nonce: nonce }, expiry)
-    redirect_to @aac.generate_authorize_url(oauth2_login_callback_url, jwt)
+    redirect_to delegated_auth_redirect_uri(@aac.generate_authorize_url(oauth2_login_callback_url, jwt))
   end
 
   def create
@@ -32,12 +32,14 @@ class Login::Oauth2Controller < Login::OauthBaseController
     raise ActiveRecord::RecordNotFound unless @aac.is_a?(AccountAuthorizationConfig::Oauth2)
 
     unique_id = nil
+    provider_attributes = {}
     return unless timeout_protection do
       token = @aac.get_token(params[:code], oauth2_login_callback_url)
       unique_id = @aac.unique_id(token)
+      provider_attributes = @aac.provider_attributes(token)
     end
 
-    find_pseudonym(unique_id)
+    find_pseudonym(unique_id, provider_attributes)
   end
 
   protected

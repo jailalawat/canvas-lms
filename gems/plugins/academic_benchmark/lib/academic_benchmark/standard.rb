@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module AcademicBenchmark
 
 class Standard
@@ -18,22 +35,19 @@ class Standard
     end
   end
 
-  def build_outcomes
+  def build_outcomes(ratings={})
     hash = {:migration_id => guid, :vendor_guid => guid, :low_grade => low_grade, :high_grade => high_grade, :is_global_standard => true}
     hash[:description] = description
     if is_leaf?
       # create outcome
       hash[:type] = 'learning_outcome'
       hash[:title] = build_num_title
-      set_default_ratings(hash)
+      set_default_ratings(hash, ratings)
     else
       #create outcome group
       hash[:type] = 'learning_outcome_group'
       hash[:title] = build_title
-      hash[:outcomes] = []
-      @children.each do |chld|
-        hash[:outcomes] << chld.build_outcomes
-      end
+      hash[:outcomes] = @children.map {|chld| chld.build_outcomes(ratings)}
     end
 
     hash
@@ -139,12 +153,13 @@ class Standard
     num && @children.empty?
   end
 
-  def set_default_ratings(hash)
+  def set_default_ratings(hash, overrides={})
     hash[:ratings] = [{:description => "Exceeds Expectations", :points => 5},
                       {:description => "Meets Expectations", :points => 3},
                       {:description => "Does Not Meet Expectations", :points => 0}]
     hash[:mastery_points] = 3
     hash[:points_possible] = 5
+    hash.merge!(overrides)
   end
 end
 end

@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,27 +12,33 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-define([
-  'i18n!gradebook',
-  'jquery',
-  'underscore',
-  'str/htmlEscape',
-  'jsx/gradebook/uploads/wait_for_processing',
-  'jsx/gradebook/uploads/process_gradebook_upload',
-  'vendor/slickgrid',
-  'vendor/slickgrid/slick.editors',
-  'jquery.instructure_forms' /* errorBox */,
-  'jquery.instructure_misc_helpers' /* /\.detect/ */,
-  'jquery.templateData' /* fillTemplateData */
-], function(I18n, $, _, htmlEscape, waitForProcessing, processGradebookUpload, SlickGrid) {
+import I18n from 'i18n!gradebook'
+import $ from 'jquery'
+import _ from 'underscore'
+import htmlEscape from './str/htmlEscape'
+import numberHelper from 'jsx/shared/helpers/numberHelper'
+import waitForProcessing from 'jsx/gradebook/uploads/wait_for_processing'
+import ProcessGradebookUpload from 'jsx/gradebook/uploads/process_gradebook_upload'
+import GradeFormatHelper from 'jsx/gradebook/shared/helpers/GradeFormatHelper'
+import './vendor/slickgrid' /* global Slick */
+import './vendor/slickgrid/slick.editors' /* global.Slick.Editors */
+import './jquery.instructure_forms' /* errorBox */
+import './jquery.instructure_misc_helpers' /* /\.detect/ */
+import './jquery.templateData' /* fillTemplateData */
 
   var GradebookUploader = {
-    createGeneralFormatter: function(attribute) {
-      return function(row, cell, value) {
-        return value ? value[attribute] : "";
+    createGeneralFormatter: function (attribute) {
+      return function (row, cell, value) {
+        return value ? value[attribute] : '';
+      }
+    },
+
+    createNumberFormatter: function (attribute) {
+      return function (row, cell, value) {
+        return value ? GradeFormatHelper.formatGrade(value[attribute]) : '';
       }
     },
 
@@ -89,16 +95,23 @@ define([
             field: this.id,
             width: 125,
             editor: Slick.Editors.UploadGradeCellEditor,
-            formatter: self.createGeneralFormatter('grade'),
+            formatter: self.createNumberFormatter('grade'),
             active: true,
             previous_id: this.previous_id,
             cssClass: "new-grade"
           };
 
+          if (this.grading_type !== 'letter_grade') {
+            newGrade.editorFormatter = function (grade) {
+              return GradeFormatHelper.formatGrade(grade, {defaultValue: ''});
+            };
+            newGrade.editorParser = GradeFormatHelper.delocalizeGrade;
+          }
+
           var conflictingGrade = {
             id: this.id + "_conflicting",
             width: 125,
-            formatter: self.createGeneralFormatter('original_grade'),
+            formatter: self.createNumberFormatter('original_grade'),
             field: this.id + "_conflicting",
             name: htmlEscape(I18n.t('From')),
             cssClass: 'conflicting-grade'
@@ -122,7 +135,7 @@ define([
             id        : this.id
           };
           $.each(this.submissions, function(){
-            var originalGrade = parseInt(this.original_grade);
+            var originalGrade = parseInt(this.original_grade),
                 updatedGrade  = parseInt(this.grade),
                 updateWillRemoveGrade = !isNaN(originalGrade) && isNaN(updatedGrade);
 
@@ -149,7 +162,7 @@ define([
           $gradebookGridForm.submit(function(e){
             e.preventDefault();
             $gradebookGridForm.disableWhileLoading(
-              processGradebookUpload(uploadedGradebook)
+              ProcessGradebookUpload.upload(uploadedGradebook)
             );
           }).show();
 
@@ -184,17 +197,12 @@ define([
           $("#no_changes_detected").show();
         }
 
-        if ( uploadedGradebook.assignments_outside_current_periods.length > 0 ) {
-          var $assignment_list = $("<ul></ul>");
-          var assignments     = uploadedGradebook.assignments_outside_current_periods;
+        if (uploadedGradebook.warning_messages.prevented_new_assignment_creation_in_closed_period) {
+          $("#prevented-new-assignment-in-closed-period").show();
+        }
 
-          _.each(assignments, function(assignment) {
-            var $li = $("<li></li>");
-            $li.text(assignment.title);
-            $assignment_list.append($li);
-          });
-          $("#assignments_outside_current_periods").removeClass("hidden");
-          $("#assignments_outside_current_periods").append($assignment_list);
+        if (uploadedGradebook.warning_messages.prevented_grading_ungradeable_submission) {
+          $("#prevented-grading-ungradeable-submission").show();
         }
     },
 
@@ -249,14 +257,16 @@ define([
                   data: {
                     name: record.name,
                     title: record.title,
-                    points_possible: record.points_possible
+                    points_possible: I18n.n(record.points_possible)
                   }
                 })
                 .appendTo("#gradebook_importer_resolution_section ." + thing + "_section table tbody")
                 .show()
                 .find("input.points_possible")
                 .change(function(){
-                  record.points_possible = $(this).val();
+                  var $this = $(this);
+                  record.points_possible = numberHelper.parse($this.val());
+                  $this.val(I18n.n(record.points_possible));
                 });
             });
             $("#gradebook_importer_resolution_section, #gradebook_importer_resolution_section ." + thing + "_section").show();
@@ -318,7 +328,7 @@ define([
                       return sub.user_id == student.id && sub.assignment_id == val;
                     });
                     if (original_submission) {
-                      submission.original_grade = original_submission.score;
+                      submission.original_grade = I18n.n(original_submission.score);
                     }
                   });
                 } else if (thing === 'student') {
@@ -329,7 +339,7 @@ define([
                       return sub.user_id == obj.id && sub.assignment_id == submission.assignment_id;
                     });
                     if (original_submission) {
-                      submission.original_grade = original_submission.score;
+                      submission.original_grade = I18n.n(original_submission.score);
                     }
                   });
                 }
@@ -370,5 +380,4 @@ define([
     }
   };
 
-  return GradebookUploader;
-});
+export default GradebookUploader;

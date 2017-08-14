@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,7 +21,7 @@ require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
 describe ExternalFeedAggregator do
   context "#process_feed" do
     before(:once) do
-      course(active_all: true)
+      course_factory(active_all: true)
       @feed = external_feed_model
     end
 

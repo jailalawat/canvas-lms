@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -12,8 +12,8 @@
 # A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
 # details.
 #
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <http://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
 require File.expand_path(File.dirname(__FILE__) + '/../sharding_spec_helper.rb')
@@ -134,7 +134,7 @@ describe NotificationMessageCreator do
     end
 
     it "should not send dispatch messages for pre-registered users" do
-      course
+      course_factory
       notification_model
       u1 = user_model(:name => "user 2")
       u1.communication_channels.create(:path => "user2@example.com").confirm!
@@ -161,7 +161,7 @@ describe NotificationMessageCreator do
     end
 
     it "should send dashboard and dispatch messages for registered users based on default policies" do
-      course
+      course_factory
       notification_model(:category => 'TestImmediately')
       u1 = user_model(:name => "user 1", :workflow_state => "registered")
       u1.communication_channels.create(:path => "user1@example.com").confirm!
@@ -220,7 +220,7 @@ describe NotificationMessageCreator do
 
     it "should make a delayed message for the default channel based on the notification's default frequency when there is no policy on any channel for the notification" do
       notification_set # we get one channel here
-      communication_channel_model(:path => 'this one gets a delayed policy').confirm! # this gives us a total of two channels
+      communication_channel_model(path: 'yes@example.com').confirm! # this gives us a total of two channels
       NotificationPolicy.delete_all
 
       @notification = @notification.dup
@@ -237,7 +237,7 @@ describe NotificationMessageCreator do
     end
 
     it "should send dashboard (but not dispatch messages) for registered users based on default policies" do
-      course
+      course_factory
       notification_model(:category => 'TestNever', :name => "Show In Feed")
       expect(@notification.default_frequency).to eql("never")
       u1 = user_model(:name => "user 1", :workflow_state => "registered")
@@ -250,7 +250,7 @@ describe NotificationMessageCreator do
     end
 
     it "should not send dashboard messages for non-feed or non-dashboard messages" do
-      course
+      course_factory
       notification_model(:category => 'TestNever', :name => "Don't Show In Feed")
       expect(@notification.default_frequency).to eql("never")
       u1 = user_model(:name => "user 1", :workflow_state => "registered")
@@ -329,21 +329,21 @@ describe NotificationMessageCreator do
       @communication_channel.bounce_count = CommunicationChannel::RETIRE_THRESHOLD - 1
       @communication_channel.save!
       messages = NotificationMessageCreator.new(@notification, @assignment, :to_list => @user).create_message
-      expect(messages.select{|m| m.to == 'value for path'}.size).to eq 1
+      expect(messages.select{|m| m.to == 'valid@example.com'}.size).to eq 1
 
       @communication_channel.bounce_count = CommunicationChannel::RETIRE_THRESHOLD
       @communication_channel.save!
       messages = NotificationMessageCreator.new(@notification, @assignment, :to_list => @user).create_message
-      expect(messages.select{|m| m.to == 'value for path'}.size).to eq 0
+      expect(messages.select{|m| m.to == 'valid@example.com'}.size).to eq 0
     end
 
     it "should not use notification policies for unconfirmed communication channels" do
       notification_set
-      cc = communication_channel_model(:workflow_state => 'unconfirmed', :path => "nope")
-      notification_policy_model(:communication_channel_id => cc.id, :notification_id => @notification.id)
-      messages = NotificationMessageCreator.new(@notification, @assignment, :to_list => @user).create_message
+      cc = communication_channel_model(workflow_state: 'unconfirmed', path: 'nope@example.com')
+      notification_policy_model(communication_channel_id: cc.id, notification_id: @notification.id)
+      messages = NotificationMessageCreator.new(@notification, @assignment, to_list: @user).create_message
       expect(messages.size).to eq 2
-      expect(messages.map(&:to).sort).to eq ['dashboard', 'value for path']
+      expect(messages.map(&:to).sort).to eq ['dashboard', 'valid@example.com']
     end
 
     it "should not use notification policies for unconfirmed communication channels even if that's all the user has" do
@@ -376,7 +376,18 @@ describe NotificationMessageCreator do
         NotificationMessageCreator.new(@notification, @assignment, :to_list => @user).create_message
       }.to change(DelayedMessage, :count).by 0
     end
- end
+
+    it "should not use non-email channels for summary messages" do
+      notification_set
+      @notification_policy.frequency = 'daily'
+      @notification_policy.save!
+      @communication_channel.update_attribute(:path_type, 'sms')
+
+      expect {
+        NotificationMessageCreator.new(@notification, @assignment, :to_list => @user).create_message
+      }.to change(DelayedMessage, :count).by 0
+    end
+  end
 
   context "localization" do
     before(:each) do
@@ -412,7 +423,7 @@ describe NotificationMessageCreator do
     end
 
     it "should respect course locales" do
-      course
+      course_factory
       I18n.backend.stub(es: {messages: {test_name: {email: {subject: 'El Tigre Chino'}}}}) do
         I18n.config.available_locales_set.merge([:es, 'es'])
         @course.enroll_teacher(@user).accept!
@@ -424,7 +435,7 @@ describe NotificationMessageCreator do
     end
 
     it "should respect account locales" do
-      course
+      course_factory
       I18n.backend.stub(es: {messages: {test_name: {email: {subject: 'El Tigre Chino'}}}}) do
         I18n.config.available_locales_set.merge([:es, 'es'])
         @course.account.update_attribute(:default_locale, 'es')
@@ -464,7 +475,36 @@ describe NotificationMessageCreator do
       NotificationMessageCreator.new(@notification, @user, :to_list => @user).create_message
       expect(@cc.notification_policies.reload).not_to be_empty
       expect(@cc.delayed_messages.reload).not_to be_empty
+    end
 
+    it "should properly find the root account for cross-shard summary messages" do
+      Canvas::MessageHelper.create_notification(:name => 'Summaries', :category => 'Summaries')
+      notification_model(:name => 'Assignment Created')
+
+      @user = User.create!
+      @cc = @user.communication_channels.create!(path: "user@example.com")
+      @cc.confirm!
+
+      notification_policy_model(:notification => @notification, :communication_channel => @cc)
+      @notification_policy.frequency = 'daily'
+      @notification_policy.save!
+
+      @shard1.activate do
+        @cs_account = Account.new
+        @cs_account.settings[:outgoing_email_default_name] = "OutgoingName"
+        @cs_account.save!
+        course_factory(active_all: true, :account => @cs_account)
+        @course.enroll_student(@user).accept!
+        assignment_model(:course => @course)
+      end
+
+      dm = @cc.delayed_messages.reload.first
+      expect(dm).to_not be_nil
+
+      DelayedMessage.summarize([dm])
+      message = @user.messages.reload.last
+      expect(message.root_account).to eq @cs_account
+      expect(message.from_name).to eq "OutgoingName"
     end
 
     it "should find an already existing notification policy" do

@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2013 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 @import "components/ic-forms";
 @import "components/buttons";
@@ -17,7 +35,7 @@ html {
   color: $ic-color-light;
   background-color: black;
   background-image:
-    linear-gradient(to bottom,  rgba(0,225,225,0.7) 0%,rgba(0,30,194,0.7) 100%),
+    linear-gradient(to bottom,  rgba(0,225,255,0.8) 0%,rgba(0,30,194,0.8) 100%),
     url('/images/mobile_login/mobile_background.png');
   background-size: cover;
   min-height: 420px;  /* this is a workaround to be high enough on an iphone */
@@ -88,7 +106,7 @@ input {
   border-radius: $ic-border-radius;
 }
 input::-webkit-input-placeholder {
-  color: $gray-light;
+  color: $ic-color-medium;
 }
 .error {
   background: $ic-color-danger;

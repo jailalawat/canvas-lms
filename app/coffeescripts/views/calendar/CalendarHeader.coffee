@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!calendar',
   'jquery'
@@ -28,6 +45,8 @@ define [
       'click #create_new_event_link': '_triggerCreateNewEvent'
       'click #refresh_calendar_link': '_triggerRefreshCalendar'
       'keydown .calendar_view_buttons': '_handleKeyDownEvent'
+      'focus .recommend_agenda': '_showVisualAgendaRecommendation'
+      'blur .recommend_agenda': '_hideVisualAgendaRecommendation'
 
     initialize: ->
       super
@@ -88,6 +107,12 @@ define [
       @$createNewEventLink.hide()
       @$appointmentGroupTitle.hide()
       @$schedulerDoneButton.show()
+
+    _showVisualAgendaRecommendation: ->
+      @$recommendAgenda.removeClass('screenreader-only')
+
+    _hideVisualAgendaRecommendation: ->
+      @$recommendAgenda.addClass('screenreader-only')
 
     showAgendaRecommendation: ->
       @$recommendAgenda.show()

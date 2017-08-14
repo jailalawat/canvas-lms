@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative "common"
 require_relative "helpers/context_modules_common"
 require_relative "helpers/quizzes_common"
@@ -9,8 +26,8 @@ describe "context modules" do
   let(:quiz_helper) { Class.new { extend QuizzesCommon } }
 
   context "progressions", priority: "1" do
-    before :each do
-      course_with_teacher_logged_in
+    before :once do
+      course_with_teacher(active_all: true)
 
       @module1 = @course.context_modules.create!(:name => "module1")
       @assignment = @course.assignments.create!(:name => "pls submit", :submission_types => ["online_text_entry"], :points_possible => 42)
@@ -37,12 +54,7 @@ describe "context modules" do
       @module3.workflow_state = 'unpublished'
       @module3.save!
 
-      @students = []
-      4.times do |i|
-        student = User.create!(:name => "hello student #{i}")
-        @course.enroll_student(student).accept!
-        @students << student
-      end
+      @students = create_users_in_course(@course, 4, return_type: :record)
 
       # complete for student 0
       @assignment.submit_homework(@students[0], :body => "done!")
@@ -51,6 +63,10 @@ describe "context modules" do
       @assignment.submit_homework(@students[1], :body => "done!")
       @external_url_tag.context_module_action(@students[2], :read)
       # unlocked for student 3
+    end
+
+    before(:each) do
+      user_session(@teacher)
     end
 
     it "should show student progressions to teachers" do
@@ -92,7 +108,7 @@ describe "context modules" do
     end
 
     it "should show multiple student progressions to observers" do
-      @observer = user
+      @observer = user_factory
       @course.enroll_user(@observer, 'ObserverEnrollment', {:allow_multiple_enrollments => true,
                                                             :associated_user_id => @students[0].id})
       @course.enroll_user(@observer, 'ObserverEnrollment', {:allow_multiple_enrollments => true,
@@ -117,8 +133,12 @@ describe "context modules" do
   end
 
   context "progression link" do
+    before(:once) do
+      course_with_teacher(active_all: true)
+    end
+
     before(:each) do
-      course_with_teacher_logged_in
+      user_session(@teacher)
     end
 
     it "should show progressions link in modules home page", priority: "2" do
@@ -156,8 +176,8 @@ describe "context modules" do
   end
 
   context "View Progress button" do
-    before(:each) do
-      course_with_teacher_logged_in
+    before(:once) do
+      course_with_teacher(active_all: true)
       @module1 = @course.context_modules.create!(name: "module1")
       @module1.save!
       @module2 = @course.context_modules.create!(name: "module2")
@@ -169,16 +189,16 @@ describe "context modules" do
       @course.enroll_student(@student).accept!
     end
 
+    before(:each) do
+      user_session(@teacher)
+    end
+
     def validate_access_to_module
       wait_for_ajaximations
       user_session(@teacher)
       get "/courses/#{@course.id}/modules/progressions"
       expect(f(".completed")).to be_displayed
       expect(fln("student_1")).to be_displayed
-      user_session(@student)
-      get "/courses/#{@course.id}/modules/"
-      fln("assignment 2").click
-      expect(f(".assignment-title")).to be_displayed
     end
 
     def add_requirement(requirement = nil)
@@ -210,7 +230,7 @@ describe "context modules" do
       tag = @module1.add_item({id: @assignment_1.id, type: 'assignment'})
       add_requirement({tag.id => {type:'min_score', min_score: 10}})
       @assignment_1.submit_homework(@student, body: "done!")
-      @assignment_1.grade_student(@student, grade: 15)
+      @assignment_1.grade_student(@student, grade: 15, grader: @teacher)
       validate_access_to_module
     end
 

@@ -9,158 +9,92 @@ def log_time(name, &block)
   time
 end
 
-def check_syntax(files)
-  quick = ENV["quick"] && ENV["quick"] == "true"
-  puts "--> Checking Syntax...."
-  show_stoppers = []
-  raise "jsl needs to be in your $PATH, download from: javascriptlint.com" if `which jsl`.empty?
-  puts "--> Found jsl..."
-
-  Array(files).each do |js_file|
-    js_file.strip!
-    # only lint things in public/javascripts that are not in /vendor, /compiled, etc.
-    if js_file.match /public\/javascripts\/(?!vendor|compiled|i18n.js|translations|old_unsupported_dont_use_react)/
-      file_path = File.join(Rails.root, js_file)
-
-      unless quick
-        # to use this, you need to have jshint installed from npm
-        # (which means you need to have node.js installed)
-        # on osx you can do:
-        # brew install node
-        # npm install jshint
-        unless `which jshint`.empty?
-          puts " --> Checking #{js_file} using JSHint:"
-          js_hint_errors = `jshint #{file_path} --config "#{File.join(Rails.root, '.jshintrc')}"`
-          puts js_hint_errors
-        end
-
-        # Checks for coding style problems using google's js style guide.
-        # Only works if you have gjslint installed.
-        # Download from http://code.google.com/closure/utilities/
-        unless `which gjslint`.empty?
-          puts " --> Checking #{js_file} using gjslint.py:"
-          gjslint_errors = `gjslint --nojsdoc --strict #{js_file}`
-          puts gjslint_errors = gjslint_errors.split("\n").reject{ |l| l.match("Line too long") }.join("\n")
-        end
-      end
-
-      jsl_output = `jsl -process "#{file_path}" -nologo -conf "#{File.join(Rails.root, 'config', 'jslint.conf')}"`
-      exit_status = $?.exitstatus
-      if exit_status != 0
-        puts " --> Error checking #{js_file} using jsl:"
-        if jsl_output.match("warning: trailing comma is not legal in ECMA-262 object initializers") || jsl_output.match("extra comma is not recommended in array initializers")
-          exit_status = 2
-          jsl_output << "fatal trailing comma found. Stupid IE!"
-        end
-        if exit_status >= 2
-          show_stoppers << jsl_output
-        end
-        puts jsl_output
-      end
-    end
-  end
-  if show_stoppers.empty?
-    puts " --> No JavaScript errors found using jsl"
-  else
-    raise "FATAL JavaScript errors found using jsl"
-  end
+def parallel_processes
+  processes = (ENV['CANVAS_BUILD_CONCURRENCY'] || Parallel.processor_count).to_i
+  puts "working in #{processes} processes"
+  processes
 end
-
 
 namespace :canvas do
   desc "Compresses static assets"
   task :compress_assets do
     assets = FileList.new('public/**/*.js', 'public/**/*.css')
+    mutex = Mutex.new
     before_bytes = 0
     after_bytes = 0
     processed = 0
-    assets.each do |asset|
+
+    require 'parallel'
+
+    Parallel.each(assets, in_threads: parallel_processes, progress: 'compressing assets') do |asset|
       asset_compressed = "#{asset}.gz"
       unless File.exists?(asset_compressed)
         `gzip --best --stdout "#{asset}" > "#{asset_compressed}"`
-        before_bytes += File::Stat.new(asset).size
-        after_bytes += File::Stat.new(asset_compressed).size
-        processed += 1
+        mutex.synchronize do
+          before_bytes += File::Stat.new(asset).size
+          after_bytes += File::Stat.new(asset_compressed).size
+          processed += 1
+        end
       end
     end
     puts "Compressed #{processed} assets, #{before_bytes} -> #{after_bytes} bytes (#{"%.0f" % ((before_bytes.to_f - after_bytes.to_f) / before_bytes * 100)}% reduction)"
   end
 
-  task :check_syntax  => "canvas:check_syntax:all"
-  namespace :check_syntax do
-    desc "Checks all js files that are staged for commiting to git for syntax errors. Make your .git/hooks/pre-commit look like: rake canvas:check_syntax:changed quick=true to not allow committing js with syntax errors"
-    task :changed do
-      files = `git diff-index --name-only --cached HEAD -- | grep '\.js$'`
-      check_syntax(files)
-    end
-
-    desc "Checks all js files for sytax errors."
-    task :all do
-      #bundles = YAML.load(ERB.new(File.read('config/assets.yml')).result)['javascripts']
-      files = (Dir.glob('./public/javascripts/*.js')).
-        reject{ |file| file =~ /\A\.\/public\/javascripts\/(i18n.js|translations\/)/ }
-
-      check_syntax(files)
-    end
-  end
-
   desc "Compile javascript and css assets."
-  task :compile_assets, :generate_documentation, :check_syntax, :compile_css, :build_js do |t, args|
-    args.with_defaults(:generate_documentation => true, :check_syntax => false, :compile_css => true, :build_js => true)
-    truthy_values = [true, 'true', '1']
-    generate_documentation = truthy_values.include?(args[:generate_documentation])
-    check_syntax = truthy_values.include?(args[:check_syntax])
-    compile_css = truthy_values.include?(args[:compile_css])
-    build_js = truthy_values.include?(args[:build_js])
+  task :compile_assets do |t, args|
 
-    log_time('Making sure node_modules are up to date') {
-      raise 'error running npm install' unless `npm install`
-    }
+    # opt out
+    npm_install = ENV["COMPILE_ASSETS_NPM_INSTALL"] != "0"
+    compile_css = ENV["COMPILE_ASSETS_CSS"] != "0"
+    build_styleguide = ENV["COMPILE_ASSETS_STYLEGUIDE"] != "0"
+    build_webpack = ENV["COMPILE_ASSETS_BUILD_JS"] != "0"
+    build_api_docs = ENV["COMPILE_ASSETS_API_DOCS"] != "0"
 
-    # public/dist/brandable_css/brandable_css_bundles_with_deps.json needs
-    # to exist before we run handlebars stuff, so we have to do this first
-    require 'lib/brandable_css'
-    log_time('compile css (including custom brands)') { BrandableCSS.compile_all! }
+    if npm_install
+      log_time('Making sure node_modules are up to date') {
+        Rake::Task['js:npm_install'].invoke
+      }
+    end
+
+    if compile_css
+      # public/dist/brandable_css/brandable_css_bundles_with_deps.json needs
+      # to exist before we run handlebars stuff, so we have to do this first
+      Rake::Task['css:compile'].invoke
+    end
 
     require 'parallel'
-    processes = (ENV['CANVAS_BUILD_CONCURRENCY'] || Parallel.processor_count).to_i
-    puts "working in #{processes} processes"
 
     tasks = Hash.new
 
-    if compile_css
+    if build_styleguide
       tasks["css:styleguide"] = -> {
         Rake::Task['css:styleguide'].invoke
       }
     end
 
-    # TODO: Once webpack is the only way, remove js:build
-    if build_js
-      tasks["compile coffee, js 18n, run r.js optimizer, and webpack"] = -> {
-        prereqs = ['js:generate', 'i18n:generate_js']
-        prereqs.each do |name|
-          log_time(name) { Rake::Task[name].invoke }
-        end
-        # webpack and js:build can run concurrently
-        Parallel.each(['js:build', 'js:webpack'], :in_threads => processes.to_i) do |name|
-          log_time(name) { Rake::Task[name].invoke }
-        end
-      }
-    else
-      tasks["compile coffee"] = -> {
-        ['js:generate'].each do |name|
-          log_time(name) { Rake::Task[name].invoke }
-        end
-      }
-    end
+    Rake::Task['js:build_client_apps'].invoke
 
-    if check_syntax
-      tasks["check JavaScript syntax"] = -> {
-        Rake::Task['canvas:check_syntax'].invoke
-      }
-    end
+    generate_tasks = []
+    generate_tasks << 'i18n:generate_js' if build_webpack
+    build_tasks = []
+    build_tasks << 'js:webpack' if build_webpack
 
-    if generate_documentation
+    msg = "run " + (generate_tasks + build_tasks).join(", ")
+    tasks[msg] = -> {
+      if generate_tasks.any?
+        Parallel.each(generate_tasks, in_processes: parallel_processes) do |name|
+          log_time(name) { Rake::Task[name].invoke }
+        end
+      end
+
+      if build_tasks.any?
+        Parallel.each(build_tasks, in_threads: parallel_processes) do |name|
+          log_time(name) { Rake::Task[name].invoke }
+        end
+      end
+    }
+
+    if build_api_docs
       tasks["Generate documentation [yardoc]"] = -> {
         Rake::Task['doc:api'].invoke
       }
@@ -168,39 +102,23 @@ namespace :canvas do
 
     times = nil
     real_time = Benchmark.realtime do
-      times = Parallel.map(tasks, :in_processes => processes.to_i) do |name, lamduh|
+      times = Parallel.map(tasks, :in_processes => parallel_processes) do |name, lamduh|
         log_time(name) { lamduh.call }
       end
     end
     combined_time = times.reduce(:+)
     puts "Finished compiling assets in #{real_time}. parallelism saved #{combined_time - real_time} (#{real_time.to_f / combined_time.to_f * 100.0}%)"
-    raise "Error reving files" unless system('node_modules/.bin/gulp rev')
+
+    log_time("gulp rev") { Rake::Task['js:gulp_rev'].invoke }
   end
 
-  desc "Check static assets and generate api documentation."
-     task :check_static_assets do
-       threads = []
-       threads << Thread.new do
-         puts "--> JS tests"
-         Rake::Task['js:test'].invoke
-       end
-
-       threads << Thread.new do
-         puts "--> i18n check"
-         Rake::Task['i18n:check'].invoke
-       end
-
-       threads << Thread.new do
-         puts "--> Check syntax"
-         Rake::Task['canvas:check_syntax'].invoke
-       end
-
-       threads << Thread.new do
-         puts "--> Generating API documentation"
-         Rake::Task['doc:api'].invoke
-       end
-     threads.each(&:join)
-   end
+  desc "Just compile css and js for development"
+  task :compile_assets_dev do
+    ENV["COMPILE_ASSETS_NPM_INSTALL"] = "0"
+    ENV["COMPILE_ASSETS_STYLEGUIDE"] = "0"
+    ENV["COMPILE_ASSETS_API_DOCS"] = "0"
+    Rake::Task['canvas:compile_assets'].invoke
+  end
 end
 
 namespace :lint do
@@ -213,20 +131,6 @@ namespace :lint do
       raise "lint:render_json test failed"
     else
       puts "lint:render_json test succeeded"
-    end
-  end
-end
-
-if CANVAS_RAILS4_0
-  old_task = Rake::Task['db:_dump']
-  old_actions = old_task.actions.dup
-  old_task.actions.clear
-
-  old_task.enhance do
-    if ActiveRecord::Base.dump_schema_after_migration == false
-      # do nothing
-    else
-      old_actions.each(&:call)
     end
   end
 end
@@ -297,6 +201,8 @@ Switchman::Rake.filter_database_servers do |servers, block|
   block.call(servers)
 end
 
-%w{db:pending_migrations db:skipped_migrations db:migrate:predeploy}.each { |task_name| Switchman::Rake.shardify_task(task_name) }
+%w{db:pending_migrations db:skipped_migrations db:migrate:predeploy}.each do |task_name|
+  Switchman::Rake.shardify_task(task_name, categories: ->{ Shard.categories })
+end
 
 end

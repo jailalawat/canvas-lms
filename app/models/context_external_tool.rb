@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 class ContextExternalTool < ActiveRecord::Base
   include Workflow
   include SearchTermHelper
@@ -6,13 +23,10 @@ class ContextExternalTool < ActiveRecord::Base
   has_many :context_external_tool_placements, :autosave => true
 
   belongs_to :context, polymorphic: [:course, :account]
-  attr_accessible :privacy_level, :domain, :url, :shared_secret, :consumer_key,
-                  :name, :description, :custom_fields, :custom_fields_string,
-                  :course_navigation, :account_navigation, :user_navigation,
-                  :resource_selection, :editor_button, :homework_submission,
-                  :course_home_sub_navigation, :course_settings_sub_navigation,
-                  :config_type, :config_url, :config_xml, :tool_id,
-                  :not_selectable
+
+  include MasterCourses::Restrictor
+  restrict_columns :content, [:name, :description]
+  restrict_columns :settings, [:consumer_key, :shared_secret, :url, :domain, :settings]
 
   validates_presence_of :context_id, :context_type, :workflow_state
   validates_presence_of :name, :consumer_key, :shared_secret
@@ -37,35 +51,13 @@ class ContextExternalTool < ActiveRecord::Base
   end
 
   set_policy do
-    given { |user, session| self.context.grants_right?(user, session, :update) }
-    can :read and can :update and can :delete
+    given { |user, session| self.context.grants_right?(user, session, :lti_add_edit) }
+    can :read and can :update and can :delete and can :update_manually
   end
-
-  EXTENSION_TYPES = [:account_navigation,
-                     :assignment_menu,
-                     :assignment_selection,
-                     :collaboration,
-                     :course_home_sub_navigation,
-                     :course_navigation,
-                     :course_settings_sub_navigation,
-                     :discussion_topic_menu,
-                     :editor_button,
-                     :file_menu,
-                     :global_navigation,
-                     :homework_submission,
-                     :link_selection,
-                     :migration_selection,
-                     :module_menu,
-                     :post_grades,
-                     :quiz_menu,
-                     :resource_selection,
-                     :tool_configuration,
-                     :user_navigation,
-                     :wiki_page_menu].freeze
 
   CUSTOM_EXTENSION_KEYS = {:file_menu => [:accept_media_types].freeze}.freeze
 
-  EXTENSION_TYPES.each do |type|
+  Lti::ResourcePlacement::PLACEMENTS.each do |type|
     class_eval <<-RUBY, __FILE__, __LINE__ + 1
       def #{type}(setting=nil)
         extension_setting(:#{type}, setting)
@@ -84,7 +76,15 @@ class ContextExternalTool < ActiveRecord::Base
     self.find_external_tool(launch_url, assignment.context)
   end
 
+  def content_migration_configured?
+    settings.key?('content_migration') &&
+      settings['content_migration'].is_a?(Hash) &&
+      settings['content_migration'].key?('export_start_url') &&
+      settings['content_migration'].key?('import_start_url')
+  end
+
   def extension_setting(type, property = nil)
+    return settings[property] unless type
     type = type.to_sym
     return settings[type] unless property && settings[type]
     settings[type][property] || settings[property] || extension_default_value(type, property)
@@ -100,8 +100,23 @@ class ContextExternalTool < ActiveRecord::Base
     hash[:enabled] = Canvas::Plugin.value_to_boolean(hash[:enabled]) if hash[:enabled]
     settings[type] = {}.with_indifferent_access
 
-    extension_keys = [:custom_fields, :default, :display_type, :enabled, :icon_url, :canvas_icon_class,
-                      :selection_height, :selection_width, :text, :url, :message_type]
+    extension_keys = [
+      :canvas_icon_class,
+      :custom_fields,
+      :default,
+      :display_type,
+      :enabled,
+      :icon_svg_path_64,
+      :icon_url,
+      :message_type,
+      :prefer_sis_email,
+      :selection_height,
+      :selection_width,
+      :text,
+      :windowTarget,
+      :url
+    ]
+
     if custom_keys = CUSTOM_EXTENSION_KEYS[type]
       extension_keys += custom_keys
     end
@@ -128,7 +143,7 @@ class ContextExternalTool < ActiveRecord::Base
 
   def sync_placements!(placements)
     old_placements = self.context_external_tool_placements.pluck(:placement_type)
-    placements_to_delete = EXTENSION_TYPES.map(&:to_s) - placements
+    placements_to_delete = Lti::ResourcePlacement::PLACEMENTS.map(&:to_s) - placements
     if placements_to_delete.any?
       self.context_external_tool_placements.where(placement_type: placements_to_delete).delete_all if self.persisted?
       self.context_external_tool_placements.reload if self.context_external_tool_placements.loaded?
@@ -140,9 +155,9 @@ class ContextExternalTool < ActiveRecord::Base
   private :sync_placements!
 
   def url_or_domain_is_set
-    setting_types = EXTENSION_TYPES
+    placements = Lti::ResourcePlacement::PLACEMENTS
     # url or domain (or url on canvas lti extension) is required
-    if url.blank? && domain.blank? && setting_types.all?{|k| !settings[k] || settings[k]['url'].blank? }
+    if url.blank? && domain.blank? && placements.all?{|k| !settings[k] || settings[k]['url'].blank? }
       errors.add(:url, t('url_or_domain_required', "Either the url or domain should be set."))
       errors.add(:domain, t('url_or_domain_required', "Either the url or domain should be set."))
     end
@@ -295,6 +310,7 @@ class ContextExternalTool < ActiveRecord::Base
   def icon_url
     settings[:icon_url]
   end
+
   def canvas_icon_class=(i_url)
     settings[:canvas_icon_class] = i_url
   end
@@ -309,6 +325,14 @@ class ContextExternalTool < ActiveRecord::Base
 
   def text
     settings[:text]
+  end
+
+  def oauth_compliant=(val)
+    settings[:oauth_compliant] = Canvas::Plugin.value_to_boolean(val)
+  end
+
+  def oauth_compliant
+    settings[:oauth_compliant]
   end
 
   def not_selectable
@@ -354,7 +378,7 @@ class ContextExternalTool < ActiveRecord::Base
     settings[:selection_width] = settings[:selection_width].to_i if settings[:selection_width]
     settings[:selection_height] = settings[:selection_height].to_i if settings[:selection_height]
 
-    EXTENSION_TYPES.each do |type|
+    Lti::ResourcePlacement::PLACEMENTS.each do |type|
       if settings[type]
         settings[type][:selection_width] = settings[type][:selection_width].to_i if settings[type][:selection_width]
         settings[type][:selection_height] = settings[type][:selection_height].to_i if settings[type][:selection_height]
@@ -368,7 +392,7 @@ class ContextExternalTool < ActiveRecord::Base
 
     ContextExternalTool.normalize_sizes!(self.settings)
 
-    EXTENSION_TYPES.each do |type|
+    Lti::ResourcePlacement::PLACEMENTS.each do |type|
       if settings[type]
         if !(extension_setting(type, :url)) || (settings[type].has_key?(:enabled) && !settings[type][:enabled])
           settings.delete(type)
@@ -378,7 +402,7 @@ class ContextExternalTool < ActiveRecord::Base
 
     settings.delete(:editor_button) unless editor_button(:icon_url) || editor_button(:canvas_icon_class)
 
-    sync_placements!(EXTENSION_TYPES.select{|type| !!settings[type]}.map(&:to_s))
+    sync_placements!(Lti::ResourcePlacement::PLACEMENTS.select{|type| !!settings[type]}.map(&:to_s))
     true
   end
 
@@ -386,7 +410,7 @@ class ContextExternalTool < ActiveRecord::Base
   def change_domain!(new_domain)
     replace_host = lambda do |url, host|
       uri = Addressable::URI.parse(url)
-      uri.host = host
+      uri.host = host if uri.host
       uri.to_s
     end
 
@@ -410,6 +434,7 @@ class ContextExternalTool < ActiveRecord::Base
 
   def self.standardize_url(url)
     return "" if url.blank?
+    url = url.gsub(/[[:space:]]/, '')
     url = "http://" + url unless url.match(/:\/\//)
     res = Addressable::URI.parse(url).normalize
     res.query = res.query.split(/&/).sort.join('&') if !res.query.blank?
@@ -472,7 +497,7 @@ class ContextExternalTool < ActiveRecord::Base
     url = ContextExternalTool.standardize_url(url)
     host = Addressable::URI.parse(url).host
     if domain
-      domain == host
+      domain.downcase == host.downcase
     elsif standard_url
       Addressable::URI.parse(standard_url).host == host
     else
@@ -600,7 +625,7 @@ class ContextExternalTool < ActiveRecord::Base
     context = context.context if context.is_a?(Group)
 
     tool = context.context_external_tools.having_setting(type).where(id: id).first
-    tool ||= ContextExternalTool.having_setting(type).where(context_type: 'Account', context_id: context.account_chain, id: id).first
+    tool ||= ContextExternalTool.having_setting(type).where(context_type: 'Account', context_id: context.account_chain_ids, id: id).first
     raise ActiveRecord::RecordNotFound if !tool && raise_error
 
     tool
@@ -612,7 +637,7 @@ class ContextExternalTool < ActiveRecord::Base
     if !context.is_a?(Account) && context.respond_to?(:context_external_tools)
       tools += context.context_external_tools.having_setting(type.to_s)
     end
-    tools += ContextExternalTool.having_setting(type.to_s).where(context_type: 'Account', context_id: context.account_chain)
+    tools += ContextExternalTool.having_setting(type.to_s).where(context_type: 'Account', context_id: context.account_chain_ids)
   end
 
   def self.serialization_excludes; [:shared_secret,:settings]; end

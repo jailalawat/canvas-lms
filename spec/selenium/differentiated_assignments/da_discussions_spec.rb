@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/assignments_common')
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/differentiated_assignments')
 
@@ -29,7 +46,9 @@ describe "interaction with differentiated discussions" do
         expect(f("#open-discussions")).to include_text(@da_discussion.title)
       end
       it "should show discussions with a graded submission" do
-        @da_discussion.assignment.grade_student(@student, {:grade => 10})
+        @teacher = User.create!
+        @course.enroll_teacher(@teacher)
+        @da_discussion.assignment.grade_student(@student, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/assignments"
         expect(f("#assignment_group_upcoming")).to include_text(@da_discussion.title)
         get "/courses/#{@course.id}/discussion_topics/"
@@ -53,7 +72,9 @@ describe "interaction with differentiated discussions" do
         expect(driver.current_url).to match %r{/courses/\d+/discussion_topics/#{@da_discussion.id}}
       end
       it "should show the discussion page with a graded submission" do
-        @da_discussion.assignment.grade_student(@user, {:grade => 10})
+        @teacher = User.create!
+        @course.enroll_teacher(@teacher)
+        @da_discussion.assignment.grade_student(@user, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/discussion_topics/#{@da_discussion.id}"
         expect(driver.current_url).to match %r{/courses/\d+/discussion_topics/#{@da_discussion.id}}
       end
@@ -66,7 +87,9 @@ describe "interaction with differentiated discussions" do
         expect(f("#assignments")).to include_text(@da_discussion.title)
       end
       it "should show discussions with a graded submission" do
-        @da_discussion.assignment.grade_student(@student, {:grade => 10})
+        @teacher = User.create!
+        @course.enroll_teacher(@teacher)
+        @da_discussion.assignment.grade_student(@student, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/grades"
         expect(f("#assignments")).to include_text(@da_discussion.title)
       end
@@ -101,7 +124,9 @@ describe "interaction with differentiated discussions" do
         expect(f("#open-discussions")).to include_text(@da_discussion.title)
       end
       it "should show discussions with a graded submission" do
-        @da_discussion.assignment.grade_student(@student, {:grade => 10})
+        @teacher = User.create!
+        @course.enroll_teacher(@teacher)
+        @da_discussion.assignment.grade_student(@student, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/assignments"
         expect(f("#assignment_group_upcoming")).to include_text(@da_discussion.title)
         get "/courses/#{@course.id}/discussion_topics/"
@@ -125,7 +150,9 @@ describe "interaction with differentiated discussions" do
         expect(driver.current_url).to match %r{/courses/\d+/discussion_topics/#{@da_discussion.id}}
       end
       it "should show the discussion page with a graded submission" do
-        @da_discussion.assignment.grade_student(@user, {:grade => 10})
+        @teacher = User.create!
+        @course.enroll_teacher(@teacher)
+        @da_discussion.assignment.grade_student(@user, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/discussion_topics/#{@da_discussion.id}"
         expect(driver.current_url).to match %r{/courses/\d+/discussion_topics/#{@da_discussion.id}}
       end
@@ -138,7 +165,9 @@ describe "interaction with differentiated discussions" do
         expect(f("#assignments")).to include_text(@da_discussion.title)
       end
       it "should show discussions with a graded submission" do
-        @da_discussion.assignment.grade_student(@student, {:grade => 10})
+        @teacher = User.create!
+        @course.enroll_teacher(@teacher)
+        @da_discussion.assignment.grade_student(@student, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/grades"
         expect(f("#assignments")).to include_text(@da_discussion.title)
       end

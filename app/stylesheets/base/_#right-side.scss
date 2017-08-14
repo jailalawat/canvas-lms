@@ -1,10 +1,24 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #right-side-wrapper {
   display: none;
   position: relative;
-  @if $use_new_styles == false {
-    width: 0;
-    right: 0;
-  }
 }
 
 #right-side {
@@ -12,11 +26,6 @@
   // puts it equal with #main, used so datepickers that pop up from #right-side pop up on top
   z-index: 10;
   min-height: 20px;
-  @if $use_new_styles == false {
-    width: $right_side_width - $right_side_margin * 2;
-    color: $ic-color-dark;
-    margin: $right_side_margin $right_side_margin 0;
-  }
   hr {
     border: dotted #aaa;
     border-width: 1px 0 0;
@@ -26,34 +35,11 @@
     @include fontSize($ic-font-size--small);
     overflow: hidden;
     line-height: 1.2em;
-    @if $use_new_styles {
-      border-bottom: 1px solid $ic-border-light;
-      padding-bottom: $ic-sp;
-      margin: 0 0 $ic-sp;
-      font-weight: 500;
-    }
-    @else {
-      color: $gray;
-      font-weight: bold;
-      border-bottom: solid 1px #bbb;
-      margin: $right_side_margin 0;
-      padding-bottom: 6px;
-    }
+    border-bottom: 1px solid $ic-border-light;
+    padding-bottom: $ic-sp / 3;
+    margin: 0 0 $ic-sp / 2;
+    font-weight: bold;
   }
-}
-
-.rs-match-list-indent {
-  padding-left: 31px;
-}
-
-// .rs-margin-lr was removed because it is not needed since #right-side has it's own margin
-.rs-margin-top {
-  margin-top: $right_side_margin;
-}
-
-.rs-margin-all {
-  margin-top: $right_side_margin;
-  margin-bottom: $right_side_margin;
 }
 
 .rs-margin-bottom {
@@ -62,14 +48,13 @@
 
 #right-side .right-side-list {
   @include reset-list;
-  @if $use_new_styles { margin: 0 0 $ic-sp; }
-  @else { margin: 10px 0; }
+  margin: -($ic-sp / 2) 0 $ic-sp;
   li {
-    a {
+    a{
       @include fontSize($ic-font-size--xsmall);
-      padding-top: 4px;
-      padding-bottom: 4px;
-      display: block;
+      padding-top: $ic-sp * 0.75;
+      padding-bottom: $ic-sp * 0.75;
+      display: flex;
       border-bottom: 1px solid #d6d6d6;
       @if $use_high_contrast {
         text-decoration: none;
@@ -89,6 +74,13 @@
       &:focus {
         text-decoration: underline;
       }
+      // this is to give todo and event icons some breathing room
+      > i {
+          min-width: $ic-sp * 2;
+          padding-right: $ic-sp;
+          box-sizing: border-box;
+          color: lighten( $grayDark, 15% );
+      }
     }
     &:last-child a {
       border-bottom: none;
@@ -97,19 +89,13 @@
     // this is for things like "nothing for the next week"
     small {
       display: block;
-      @if $use_new_styles {
-        font-style: italic;
-        @include fontSize(13px);
-      }
-      @else {
-        padding: 3px 0 0px 31px;
-        color: #666;
-        font-size: 1em;
-      }
+      font-style: italic;
+      @include fontSize(13px);
     }
     b, em, p {
       font-weight: normal;
       display: block;
+      line-height: $ic-label-line-height;
     }
     p, .more_link {
       @include fontSize(12px);
@@ -121,6 +107,7 @@
       }
       @else {
         color: #777;
+        text-decoration: none;
       }
     }
     .more_link {
@@ -164,56 +151,19 @@
       height: 1px;
     }
   }
-  &.events {
-    i {
-      width: 40px;
-      min-width: 40px;
-      padding-right: $ic-sp;
-      text-align: right;
-      box-sizing: border-box;
-    }
-    .event > a {
-      display: flex;
-    }
-  }
+
   &.to-do-list {
     li {
       position: relative;
       a.item {
         display: flex;
       }
-      a.disable_item_link {
-        @if $use_high_contrast {
-          color: #555;
-        }
-        @else {
-          color: #777;
-        }
-        padding: 0;
-        position: absolute;
-        background-image: none;
-        right: 0;
-        top: 4px;
-        z-index: 2;
-        border-bottom: none;
-        box-shadow: none;
-        text-align: right;
-      }
-      &:hover {
-        a.disable_item_link {
-          @if $use_high_contrast {
-            color: #222;
-          }
-          @else {
-            color: #444;
-          }
-        }
-      }
     }
   }
 }
+
 #right-side .todo-list-header {
-  margin-top: 21px;
+  margin-top: 29px; // magic number to align with header bottom border
 }
 #right-side .right-side-list .todo-badge-wrapper {
   display: inline-block;
@@ -223,54 +173,38 @@
   padding-right: $ic-sp;
   box-sizing: border-box;
 }
-#right-side .right-side-list .IgnoreButton {
-  width: 25px;
-  min-width: 25px;
+// this is the ignore x-icon on todo list
+#right-side .right-side-list .disable_item_link {
+  position: absolute;
+  right: 0;
+  top: $ic-sp / 2;
+  z-index: 2;
+  padding: 0;
 }
 
 @mixin sidebar-logo {display: block;}
 
-@if $use_new_styles {
+.ic-sidebar-logo {
+  display: none;
+  margin-bottom: $ic-sp*2;
+  text-align: center;
+}
+.ic-sidebar-logo__image {
+  max-width: 180px;
+  max-height: 70px;
+  display: inline-block;
+}
+body:not(.course-menu-expanded) {
   .ic-sidebar-logo {
-    display: none;
-    margin-bottom: $ic-sp*2;
-    text-align: center;
-  }
-  .ic-sidebar-logo__image {
-    max-width: 180px;
-    max-height: 70px;
-    display: inline-block;
-  }
-  body:not(.course-menu-expanded) {
-    .ic-sidebar-logo {
-      @include breakpoint(desktop) {
-        @include sidebar-logo;
-      }
-    }
-  }
-  body.course-menu-expanded {
-    .ic-sidebar-logo {
-      @include breakpoint(desktop--nav-open) {
-        @include sidebar-logo;
-      }
+    @include breakpoint(desktop) {
+      @include sidebar-logo;
     }
   }
 }
-
-// Legacy Styles
-@if not $use_new_styles {
-  // These are the classes that get applied to #right-side-wrapper to handle $.scrollSidebar
-  // NOTE: they used to get applied to body but were moved to #right side to not force a repaint
-  // of the entire page and be less jumpy going in and out display modes.
-  .with-scrolling-right-side {
-    #right-side {
-      position: fixed;
-      top: 0;
-      margin-top: 0;
+body.course-menu-expanded {
+  .ic-sidebar-logo {
+    @include breakpoint(desktop--nav-open) {
+      @include sidebar-logo;
     }
-  }
-  #right-side-wrapper.with-sidebar-pinned-to-bottom {
-    position: absolute;
-    bottom: 0;
   }
 }

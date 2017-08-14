@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!assignments'
   'jquery'
@@ -13,11 +30,15 @@ define [
   'compiled/fn/preventDefault'
   'jst/assignments/AssignmentGroupListItem'
   'compiled/views/assignments/AssignmentKeyBindingsMixin'
-], (I18n, $, _, Cache, hasLocalStorage, DraggableCollectionView, AssignmentListItemView, CreateAssignmentView,CreateGroupView, DeleteGroupView, MoveDialogView, preventDefault, template, AssignmentKeyBindingsMixin) ->
+], (
+  I18n, $, _, Cache, hasLocalStorage, DraggableCollectionView, AssignmentListItemView, CreateAssignmentView,
+  CreateGroupView, DeleteGroupView, MoveDialogView, preventDefault, template, AssignmentKeyBindingsMixin
+) ->
 
   class AssignmentGroupListItemView extends DraggableCollectionView
     @mixin AssignmentKeyBindingsMixin
     @optionProperty 'course'
+    @optionProperty 'userIsAdmin'
 
     tagName: "li"
     className: "item-group-condensed"
@@ -83,6 +104,11 @@ define [
       if @model.hasRules()
         @createRulesToolTip()
 
+    createItemView: (model) ->
+      options =
+        userIsAdmin: @userIsAdmin
+      new @itemView $.extend {}, {model}, options
+
     createRulesToolTip: =>
       link = @$el.find('.tooltip_link')
       link.tooltip
@@ -119,10 +145,12 @@ define [
       if @canManage()
         @editGroupView = new CreateGroupView
           assignmentGroup: @model
+          userIsAdmin: @userIsAdmin
         @createAssignmentView = new CreateAssignmentView
           assignmentGroup: @model
-        @deleteGroupView = new DeleteGroupView
-          model: @model
+        if @canDelete()
+          @deleteGroupView = new DeleteGroupView
+            model: @model
         @moveGroupView = new MoveDialogView
           model: @model
           closeTarget: @$el.find('a[id*=manage_link]')
@@ -160,6 +188,7 @@ define [
       attributes = _.extend(data, {
         course_home: ENV.COURSE_HOME
         canMove: canMove
+        canDelete: @canDelete()
         showRules: @model.hasRules()
         rulesText: I18n.t('rules_text', "Rule", { count: @model.countRules() })
         displayableRules: @displayableRules()
@@ -167,6 +196,8 @@ define [
         groupWeight: data.group_weight
         toggleMessage: @messages.toggleMessage
         hasFrozenAssignments: @model.hasFrozenAssignments? and @model.hasFrozenAssignments()
+        hasIntegrationData: @model.hasIntegrationData? and @model.hasIntegrationData()
+        postToSISName: ENV.SIS_NAME
         ENV: ENV
       })
 
@@ -238,7 +269,6 @@ define [
       @$('.search_show').first().addClass("first_visible")
       @$('.search_show').last().addClass("last_visible")
 
-
     shouldBeExpanded: ->
       @cache.get(@cacheKey())
 
@@ -299,6 +329,13 @@ define [
       expanded = !@cache.get(key)
       @cache.set(key, expanded)
 
+    hasMasterCourseRestrictedAssignments: ->
+      @model.get('assignments').any (m) ->
+        m.isRestrictedByMasterCourse()
+
+    canDelete: ->
+      (@userIsAdmin or @model.canDelete()) && !@hasMasterCourseRestrictedAssignments()
+
     canManage: ->
       ENV.PERMISSIONS.manage
 
@@ -336,6 +373,12 @@ define [
 
     deleteItem: =>
       $(".delete_group[data-focus-returns-to='ag_#{@model.id}_manage_link']").click()
+
+    # Inserts newAssignment into the view *after* oldAssignment if found,
+    # else at the beginning
+    insertAssignment: (newAssignment, oldAssignment) =>
+      position = @collection.indexOf(oldAssignment)
+      @collection.add(newAssignment, { at: position + 1 } )
 
     visibleAssignments: =>
       @collection.filter (assign) ->

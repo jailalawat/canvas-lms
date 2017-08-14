@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,8 +19,7 @@
 class ContextModule < ActiveRecord::Base
   include Workflow
   include SearchTermHelper
-  attr_accessible :context, :name, :unlock_at, :require_sequential_progress,
-                  :completion_requirements, :prerequisites, :publish_final_grade, :requirement_count
+
   belongs_to :context, polymorphic: [:course]
   has_many :context_module_progressions, :dependent => :destroy
   has_many :content_tags, -> { order('content_tags.position, content_tags.title') }, dependent: :destroy
@@ -68,15 +67,19 @@ class ContextModule < ActiveRecord::Base
     @relock_warning
   end
 
-  def relock_progressions(relocked_modules=[])
+  def relock_progressions(relocked_modules=[], student_ids=nil)
     return if relocked_modules.include?(self)
     self.class.connection.after_transaction_commit do
       relocked_modules << self
-      self.context_module_progressions.update_all("workflow_state = 'locked', lock_version = lock_version + 1")
-      self.invalidate_progressions
+      progression_scope = self.context_module_progressions.where(:current => true).where.not(:workflow_state => 'locked')
+      progression_scope = progression_scope.where(:user_id => student_ids) if student_ids
+
+      if progression_scope.update_all(["workflow_state = 'locked', lock_version = lock_version + 1, current = ?", false]) > 0
+        send_later_if_production_enqueue_args(:evaluate_all_progressions, {:strand => "module_reeval_#{self.global_context_id}"})
+      end
 
       self.context.context_modules.each do |mod|
-        mod.relock_progressions(relocked_modules) if self.is_prerequisite_for?(mod)
+        mod.relock_progressions(relocked_modules, student_ids) if self.is_prerequisite_for?(mod)
       end
     end
   end
@@ -86,6 +89,11 @@ class ContextModule < ActiveRecord::Base
       if context_module_progressions.where(current: true).update_all(current: false) > 0
         # don't queue a job unless necessary
         send_later_if_production_enqueue_args(:evaluate_all_progressions, {:strand => "module_reeval_#{self.global_context_id}"})
+      end
+      if @discussion_topics_to_recalculate
+        @discussion_topics_to_recalculate.each do |dt|
+          dt.send_later_if_production_enqueue_args(:recalculate_context_module_actions!, {:strand => "module_reeval_#{self.global_context_id}"})
+        end
       end
     end
   end
@@ -200,7 +208,15 @@ class ContextModule < ActiveRecord::Base
 
   def publish_items!
     self.content_tags.each do |tag|
-      tag.publish if tag.unpublished?
+      if tag.unpublished?
+        if tag.content_type == 'Attachment'
+          tag.content.set_publish_state_for_usage_rights
+          tag.content.save!
+          tag.publish if tag.content.published?
+        else
+          tag.publish
+        end
+      end
       tag.update_asset_workflow_state!
     end
   end
@@ -238,29 +254,32 @@ class ContextModule < ActiveRecord::Base
       return true
     end
 
-    progression = self.find_or_create_progression(user)
+    progression = if opts[:user_context_module_progressions]
+      opts[:user_context_module_progressions][self.id]
+    end
+    progression ||= self.find_or_create_progression(user)
     # if the progression is locked, then position in the progression doesn't
     # matter. we're not available.
 
     tag = opts[:tag]
-    res = progression && !progression.locked?
-    if tag && tag.context_module_id == self.id && self.require_sequential_progress
-      res = progression && !progression.locked? && progression.current_position && progression.current_position >= tag.position
+    avail = progression && !progression.locked? && !locked_for_tag?(tag, progression)
+    if !avail && opts[:deep_check_if_needed]
+      progression = self.evaluate_for(progression)
+      avail = progression && !progression.locked? && !locked_for_tag?(tag, progression)
     end
-    if !res && opts[:deep_check_if_needed]
-      progression = self.evaluate_for(user)
-      if tag && tag.context_module_id == self.id && self.require_sequential_progress
-        res = progression && !progression.locked? && progression.current_position && progression.current_position >= tag.position
-      end
-    end
-    res
+    avail
+  end
+
+  def locked_for_tag?(tag, progression)
+    locked = (tag&.context_module_id == self.id && self.require_sequential_progress)
+    locked && (progression.current_position &.< tag.position)
   end
 
   def self.module_names(context)
     Rails.cache.fetch(['module_names', context].cache_key) do
       names = {}
-      context.context_modules.not_deleted.select([:id, :name]).each do |mod|
-        names[mod.id] = mod.name
+      context.context_modules.not_deleted.pluck(:id, :name).each do |id, name|
+        names[id] = name
       end
       names
     end
@@ -324,7 +343,7 @@ class ContextModule < ActiveRecord::Base
     end
 
     tags = self.content_tags.not_deleted.index_by(&:id)
-    requirements.select do |req|
+    validated_reqs = requirements.select do |req|
       if req[:id] && (tag = tags[req[:id]])
         if %w(must_view must_mark_done must_contribute).include?(req[:type])
           true
@@ -333,6 +352,21 @@ class ContextModule < ActiveRecord::Base
         end
       end
     end
+
+    unless self.new_record?
+      old_requirements = self.completion_requirements || []
+      validated_reqs.each do |req|
+        if req[:type] == 'must_contribute' && !old_requirements.detect{|r| r[:id] == req[:id] && r[:type] == req[:type]} # new requirement
+          tag = tags[req[:id]]
+          if tag.content_type == "DiscussionTopic"
+            @discussion_topics_to_recalculate ||= []
+            @discussion_topics_to_recalculate << tag.content
+          end
+        end
+      end
+    end
+
+    validated_reqs
   end
 
   def completion_requirements_visible_to(user)
@@ -369,11 +403,13 @@ class ContextModule < ActiveRecord::Base
     filter = Proc.new{|tags, user_ids, course_id, opts|
       visible_assignments = opts[:assignment_visibilities] || assignment_visibilities_for_users(user_ids)
       visible_discussions = opts[:discussion_visibilities] || discussion_visibilities_for_users(user_ids)
+      visible_pages = opts[:page_visibilities] || page_visibilities_for_users(user_ids)
       visible_quizzes = opts[:quiz_visibilities] || quiz_visibilities_for_users(user_ids)
       tags.select{|tag|
         case tag.content_type;
         when 'Assignment'; visible_assignments.include?(tag.content_id);
         when 'DiscussionTopic'; visible_discussions.include?(tag.content_id);
+        when 'WikiPage'; visible_pages.include?(tag.content_id);
         when *Quizzes::Quiz.class_names; visible_quizzes.include?(tag.content_id);
         else; true; end
       }
@@ -692,6 +728,11 @@ class ContextModule < ActiveRecord::Base
   def discussion_visibilities_for_users(user_ids)
     discussion_visibilities_by_user = @discussion_visibilities_by_user || DiscussionTopic.visible_ids_by_user(user_id: user_ids, course_id: [context.id])
     user_ids.flat_map{|id| discussion_visibilities_by_user[id]}
+  end
+
+  def page_visibilities_for_users(user_ids)
+    page_visibilities_by_user = @page_visibilities_by_user || WikiPage.visible_ids_by_user(user_id: user_ids, course_id: [context.id])
+    user_ids.flat_map{|id| page_visibilities_by_user[id]}
   end
 
   def quiz_visibilities_for_users(user_ids)

@@ -1,14 +1,22 @@
-# Non-standard Canvas extension to Bundler behavior -- load the Gemfiles from
-# plugins.
-Dir[File.join(File.dirname(__FILE__), '../vendor/plugins/*/Gemfile')].each do |g|
-  unless Dir[File.join(File.dirname(g), "*.gemspec")].empty?
-    raise "#{File.dirname(g)} has a gemspec, and probably needs to be moved to gems/plugins"
-  end
-  eval_gemfile(g)
-end
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 
 # Non-standard Canvas extension to Bundler behavior -- load the Gemfiles from
 # plugins.
 Dir[File.join(File.dirname(__FILE__), '../gems/plugins/*/Gemfile.d/*')].each do |g|
-  eval_gemfile(g)
+  eval(File.read(g), nil, g)
 end

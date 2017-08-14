@@ -1,17 +1,34 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 require_relative '../helpers/quizzes_common'
 
 describe 'when a quiz is published' do
   include_context "in-process server selenium tests"
 
-  let(:quiz_helper) { Class.new { extend QuizzesCommon } }
-
   context 'as a student' do
+    include QuizzesCommon
+
     before(:each) do
       course_with_student_logged_in
-      quiz_helper.create_quiz_with_due_date(
+      create_quiz_with_due_date(
         course: @course,
-        due_at: quiz_helper.default_time_for_due_date(Time.zone.now.advance(days: 2))
+        due_at: default_time_for_due_date(Time.zone.now.advance(days: 2))
       )
     end
 

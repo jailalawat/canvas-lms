@@ -1,12 +1,31 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
+  'jquery'
   'i18n!conversations'
   'underscore'
   'Backbone'
+  'spin.js'
   'compiled/views/conversations/CourseSelectionView'
   'compiled/views/conversations/SearchView'
   'vendor/bootstrap/bootstrap-dropdown'
   'vendor/bootstrap-select/bootstrap-select'
-], (I18n, _, {View}, CourseSelectionView, SearchView) ->
+], ($, I18n, _, {View}, Spinner, CourseSelectionView, SearchView) ->
 
   class InboxHeaderView extends View
 
@@ -109,7 +128,7 @@ define [
       @updateUi(newModel)
 
     updateUi: (newModel) ->
-      @toggleMessageBtns(!newModel || !newModel.get('selected'))
+      @toggleMessageBtns(newModel)
       @onReadStateChange(newModel)
       @onStarStateChange(newModel)
       @onArchivedStateChange(newModel)
@@ -175,13 +194,16 @@ define [
       @courseView.setValue(state.course)
       @trigger('course', @courseView.getCurrentContext())
 
-    toggleMessageBtns: (value) ->
-      @toggleReplyBtn(value)
-      @toggleReplyAllBtn(value)
-      @toggleArchiveBtn(value)
-      @toggleDeleteBtn(value)
-      @toggleAdminBtn(value)
-      @hideForwardBtn(value)
+    toggleMessageBtns: (newModel) ->
+      no_model = !newModel || !newModel.get('selected')
+      cannot_reply = no_model || newModel.get('cannot_reply')
+
+      @toggleReplyBtn(cannot_reply)
+      @toggleReplyAllBtn(cannot_reply)
+      @toggleArchiveBtn(no_model)
+      @toggleDeleteBtn(no_model)
+      @toggleAdminBtn(no_model)
+      @hideForwardBtn(no_model)
 
     toggleReplyBtn:    (value) ->
       @_toggleBtn(@$replyBtn, value)

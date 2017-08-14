@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,7 +22,7 @@ require 'rotp'
 describe Login::OtpController do
   describe '#new' do
     before :once do
-      user_with_pseudonym(:active_all => 1, :password => 'qwerty')
+      user_with_pseudonym(:active_all => 1, :password => 'qwertyuiop')
     end
 
     before do
@@ -100,12 +100,14 @@ describe Login::OtpController do
       end
 
       it "should save the pending key" do
+        @user.one_time_passwords.create!
         @user.otp_communication_channel_id = @user.communication_channels.sms.create!(:path => 'bob')
 
         post :create, :otp_login => { :verification_code => ROTP::TOTP.new(@secret_key).now }
         expect(response).to redirect_to settings_profile_url
         expect(@user.reload.otp_secret_key).to eq @secret_key
         expect(@user.otp_communication_channel).to be_nil
+        expect(@user.one_time_passwords).not_to be_exists
 
         expect(session[:pending_otp_secret_key]).to be_nil
       end
@@ -151,7 +153,7 @@ describe Login::OtpController do
         Account.default.settings[:mfa_settings] = :required
         Account.default.save!
 
-        user_with_pseudonym(:active_all => 1, :password => 'qwerty')
+        user_with_pseudonym(:active_all => 1, :password => 'qwertyuiop')
       end
 
       before do
@@ -164,6 +166,14 @@ describe Login::OtpController do
 
       it "should verify a code" do
         code = ROTP::TOTP.new(@user.otp_secret_key).now
+        post :create, :otp_login => { :verification_code => code }
+        expect(response).to redirect_to dashboard_url(:login_success => 1)
+        expect(cookies['canvas_otp_remember_me']).to be_nil
+        expect(Canvas.redis.get("otp_used:#{@user.global_id}:#{code}")).to eq '1' if Canvas.redis_enabled?
+      end
+
+      it "should verify a backup code" do
+        code = @user.one_time_passwords.create!.code
         post :create, :otp_login => { :verification_code => code }
         expect(response).to redirect_to dashboard_url(:login_success => 1)
         expect(cookies['canvas_otp_remember_me']).to be_nil
@@ -222,9 +232,10 @@ describe Login::OtpController do
       Account.default.settings[:mfa_settings] = :optional
       Account.default.save!
 
-      user_with_pseudonym(:active_all => 1, :password => 'qwerty')
+      user_with_pseudonym(:active_all => 1, :password => 'qwertyuiop')
       @user.otp_secret_key = ROTP::Base32.random_base32
       @user.otp_communication_channel = @user.communication_channels.sms.create!(:path => 'bob')
+      @user.generate_one_time_passwords
       @user.save!
     end
 
@@ -237,6 +248,7 @@ describe Login::OtpController do
       expect(response).to be_success
       expect(@user.reload.otp_secret_key).to be_nil
       expect(@user.otp_communication_channel).to be_nil
+      expect(@user.one_time_passwords).not_to be_exists
     end
 
     it "should delete self as id" do

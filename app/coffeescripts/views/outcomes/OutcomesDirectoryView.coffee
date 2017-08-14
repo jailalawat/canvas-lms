@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -43,6 +43,9 @@ define [
       @inFindDialog = opts.inFindDialog
       @readOnly = opts.readOnly
       @parent = opts.parent
+      outcomeGroupTitle = opts.outcomeGroup.attributes.title
+      ariaLabel = 'directory ' + outcomeGroupTitle + ': depth ' + opts.directoryDepth + ','
+      @$el.attr('aria-label', ariaLabel)
       # the way the event listeners work between OutcomeIconView, OutcomesDirectoryView
       # and SidebarView can cause items to become unselectable following a move. The
       # below attribute is using brute-force to make the view reset to address this problem

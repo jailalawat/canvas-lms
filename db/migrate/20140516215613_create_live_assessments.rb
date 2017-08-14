@@ -1,4 +1,21 @@
-class CreateLiveAssessments < ActiveRecord::Migration
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
+class CreateLiveAssessments < ActiveRecord::Migration[4.2]
   tag :predeploy
 
   def self.up
@@ -7,7 +24,7 @@ class CreateLiveAssessments < ActiveRecord::Migration
       t.string :title, null: false
       t.integer :context_id, limit: 8, null: false
       t.string :context_type, null: false
-      t.timestamps
+      t.timestamps null: true
     end
     add_index :live_assessments_assessments, [:context_id, :context_type, :key], unique: true, name: 'index_live_assessments'
 
@@ -17,7 +34,7 @@ class CreateLiveAssessments < ActiveRecord::Migration
       t.float :possible
       t.float :score
       t.datetime :assessed_at
-      t.timestamps
+      t.timestamps null: true
     end
     add_index :live_assessments_submissions, [:assessment_id, :user_id], unique: true
 

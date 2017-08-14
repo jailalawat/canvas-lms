@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,29 +18,9 @@
 
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
 
-# Public: Create a new valid LTI tool for the given course.
-#
-# course - The course to create the tool for.
-#
-# Returns a valid ExternalTool.
-def new_valid_tool(course)
-  tool = course.context_external_tools.new(
-      name: "bob",
-      consumer_key: "bob",
-      shared_secret: "bob",
-      tool_id: 'some_tool',
-      privacy_level: 'public'
-  )
-  tool.url = "http://www.example.com/basic_lti"
-  tool.resource_selection = {
-    :url => "http://#{HostUrl.default_host}/selection_test",
-    :selection_width => 400,
-    :selection_height => 400}
-  tool.save!
-  tool
-end
-
 describe ExternalToolsController do
+  include ExternalToolsSpecHelper
+
   before :once do
     course_with_teacher(:active_all => true)
     student_in_course(:active_all => true)
@@ -72,7 +52,7 @@ describe ExternalToolsController do
 
     it "does not return a JWT token for another context" do
       teacher_course = @course
-      other_course = course()
+      other_course = course_factory()
 
       @tool.context_id = other_course.id
       @tool.save!
@@ -387,6 +367,7 @@ describe ExternalToolsController do
         @tool.save!
 
         @course.name = 'a course'
+        @course.course_code = 'CS 124'
         @course.save!
       end
 
@@ -399,6 +380,7 @@ describe ExternalToolsController do
         expect(lti_launch.params['lti_message_type']).to eq 'ContentItemSelectionRequest'
         expect(lti_launch.params['content_item_return_url']).to eq "http://test.host/courses/#{@course.id}/external_content/success/external_tool_dialog"
         expect(lti_launch.params['accept_multiple']).to eq 'false'
+        expect(lti_launch.params['context_label']).to eq @course.course_code
       end
 
       it "sets proper return data for migration_selection" do
@@ -572,7 +554,18 @@ describe ExternalToolsController do
         @tool.save!
 
         get :show, course_id: @course.id, id: @tool.id, launch_type: 'migration_selection'
-        expect(assigns[:lti_launch].resource_url).to eq 'http://www.instructure.com/test?first=rory&last=williams'
+        expect(assigns[:lti_launch].params['first']).to be_nil
+      end
+
+      it "does not copy query params to POST if oauth_compliant tool setting is enabled" do
+        user_session(@teacher)
+        @course.root_account.disable_feature!(:disable_lti_post_only)
+        @tool.url = 'http://www.instructure.com/test?first=rory&last=williams'
+        @tool.settings[:oauth_compliant] = true
+        @tool.save!
+
+        get :show, course_id: @course.id, id: @tool.id, launch_type: 'migration_selection'
+        expect(assigns[:lti_launch].params['first']).to be_nil
       end
     end
   end
@@ -633,8 +626,25 @@ describe ExternalToolsController do
       expect(flash[:error]).to eq "Couldn't find valid settings for this link"
     end
 
+    it "should return a variable expansion for a collaboration" do
+      user_session(@teacher)
+      collab = ExternalToolCollaboration.new(
+        title: "my collab",
+        user: @teacher,
+        url: 'http://www.example.com'
+      )
+      collab.context = @course
+      collab.save!
+      tool = new_valid_tool(@course)
+      tool.collaboration = { message_type: 'ContentItemSelectionRequest' }
+      tool.settings[:custom_fields] = { 'collaboration_url' => '$Canvas.api.collaborationMembers.url' }
+      tool.save!
+      get 'retrieve', course_id: @course.id, url: tool.url, content_item_id: collab.id, placement: 'collaboration'
+      expect(assigns[:lti_launch].params['custom_collaboration_url']).to eq api_v1_collaboration_members_url(collab)
+    end
+
     it "should remove query params when post_only is set" do
-      u = user(:active_all => true)
+      u = user_factory(active_all: true)
       account.account_users.create!(user: u)
       user_session(@user)
 
@@ -645,7 +655,7 @@ describe ExternalToolsController do
     end
 
     it "should not remove query params when post_only is not set" do
-      u = user(:active_all => true)
+      u = user_factory(active_all: true)
       account.account_users.create!(user: u)
       user_session(@user)
 
@@ -654,71 +664,106 @@ describe ExternalToolsController do
       expect(assigns[:lti_launch].resource_url).to eq 'http://www.example.com/basic_lti?first=john&last=smith'
     end
 
-    it "lets you specify the selection_type" do
-      u = user(active_all: true)
-      account.account_users.create!( user: u)
-      user_session u
-      tool.collaboration = { message_type: 'ContentItemSelectionRequest' }
+    it "adds params from secure_params" do
+      u = user_factory(active_all: true)
+      account.account_users.create!(user: u)
+      user_session(@user)
       tool.save!
-      get :retrieve, {url: tool.url, account_id: account.id, placement: 'collaboration'}
-      expect(assigns[:lti_launch].params['lti_message_type']).to eq "ContentItemSelectionRequest"
+      lti_assignment_id = SecureRandom.uuid
+      jwt = Canvas::Security.create_jwt({lti_assignment_id: lti_assignment_id})
+      get :retrieve, {url: tool.url, account_id:account.id, secure_params: jwt}
+      expect(assigns[:lti_launch].params['ext_lti_assignment_id']).to eq lti_assignment_id
     end
 
-    it "creates a content-item return url with an id" do
-      u = user(active_all: true)
-      account.account_users.create!(user:u)
-      user_session u
-      tool.collaboration = { message_type: 'ContentItemSelectionRequest' }
-      tool.save!
-      get :retrieve, {url: tool.url, course_id: @course.id, placement: 'collaboration', content_item_id:3 }
-      return_url = assigns[:lti_launch].params['content_item_return_url']
-      expect(return_url).to eq "http://test.host/courses/#{@course.id}/external_content/success/external_tool_dialog/3"
-    end
+    context 'collaborations' do
+      let(:collab) do
+        collab = ExternalToolCollaboration.new(
+          title: "my collab",
+          user: @teacher,
+          url: 'http://www.example.com'
+        )
+        collab.context = @course
+        collab.save!
+        collab
+      end
 
-    it "sets the auto_create param to true" do
-      u = user(active_all: true)
-      account.account_users.create!(user:u)
-      user_session u
-      tool.collaboration = { message_type: 'ContentItemSelectionRequest' }
-      tool.save!
-      get :retrieve, {url: tool.url, course_id: @course.id, placement: 'collaboration', content_item_id:3 }
-      expect(assigns[:lti_launch].params['auto_create']).to eq "true"
-    end
+      it "lets you specify the selection_type" do
+        u = user_factory(active_all: true)
+        account.account_users.create!( user: u)
+        user_session u
+        tool.collaboration = { message_type: 'ContentItemSelectionRequest' }
+        tool.save!
+        get :retrieve, {url: tool.url, account_id: account.id, placement: 'collaboration'}
+        expect(assigns[:lti_launch].params['lti_message_type']).to eq "ContentItemSelectionRequest"
+      end
 
-    it "sets the accept_unsigned param to false" do
-      u = user(active_all: true)
-      account.account_users.create!(user:u)
-      user_session u
-      tool.collaboration = { message_type: 'ContentItemSelectionRequest' }
-      tool.save!
-      get :retrieve, {url: tool.url, course_id: @course.id, placement: 'collaboration', content_item_id:3 }
-      expect(assigns[:lti_launch].params['accept_unsigned']).to eq "false"
-    end
+      it "creates a content-item return url with an id" do
+        u = user_factory(active_all: true)
+        account.account_users.create!(user:u)
+        user_session u
+        tool.collaboration = { message_type: 'ContentItemSelectionRequest' }
+        tool.save!
+        get :retrieve, {url: tool.url, course_id: @course.id, placement: 'collaboration', content_item_id: collab.id }
+        return_url = assigns[:lti_launch].params['content_item_return_url']
+        expect(return_url).to eq "http://test.host/courses/#{@course.id}/external_content/success/external_tool_dialog/#{collab.id}"
+      end
 
-    it "adds a data element with a jwt that contains the id if a content_item_id param is present " do
-      u = user(active_all: true)
-      account.account_users.create!(user:u)
-      user_session u
-      tool.collaboration = { message_type: 'ContentItemSelectionRequest' }
-      tool.save!
-      get :retrieve, {url: tool.url, course_id: @course.id, placement: 'collaboration', content_item_id:3 }
-      data = assigns[:lti_launch].params['data']
-      json_data = Canvas::Security.decode_jwt(data)
-      expect(json_data[:content_item_id]).to eq "3"
-    end
+      it "sets the auto_create param to true" do
+        u = user_factory(active_all: true)
+        account.account_users.create!(user:u)
+        user_session u
+        tool.collaboration = { message_type: 'ContentItemSelectionRequest' }
+        tool.save!
+        get :retrieve, {url: tool.url, course_id: @course.id, placement: 'collaboration', content_item_id: collab.id }
+        expect(assigns[:lti_launch].params['auto_create']).to eq "true"
+      end
 
-    it "adds a data element with a jwt that contains the consumer_key if a content_item_id param is present " do
-      u = user(active_all: true)
-      account.account_users.create!(user:u)
-      user_session u
-      tool.collaboration = { message_type: 'ContentItemSelectionRequest' }
-      tool.save!
-      get :retrieve, {url: tool.url, course_id: @course.id, placement: 'collaboration', content_item_id:3 }
-      data = assigns[:lti_launch].params['data']
-      json_data = Canvas::Security.decode_jwt(data)
-      expect(json_data[:oauth_consumer_key]).to eq tool.consumer_key
-    end
+      it "sets the accept_unsigned param to false" do
+        u = user_factory(active_all: true)
+        account.account_users.create!(user:u)
+        user_session u
+        tool.collaboration = { message_type: 'ContentItemSelectionRequest' }
+        tool.save!
+        get :retrieve, {url: tool.url, course_id: @course.id, placement: 'collaboration', content_item_id: collab.id }
+        expect(assigns[:lti_launch].params['accept_unsigned']).to eq "false"
+      end
 
+      it "adds a data element with a jwt that contains the id if a content_item_id param is present " do
+        u = user_factory(active_all: true)
+        account.account_users.create!(user:u)
+        user_session u
+        tool.collaboration = { message_type: 'ContentItemSelectionRequest' }
+        tool.save!
+        get :retrieve, {url: tool.url, course_id: @course.id, placement: 'collaboration', content_item_id: collab.id }
+        data = assigns[:lti_launch].params['data']
+        json_data = Canvas::Security.decode_jwt(data)
+        expect(json_data[:content_item_id]).to eq collab.id.to_s
+      end
+
+      it "adds a data element with a jwt that contains the consumer_key if a content_item_id param is present " do
+        u = user_factory(active_all: true)
+        account.account_users.create!(user:u)
+        user_session u
+        tool.collaboration = { message_type: 'ContentItemSelectionRequest' }
+        tool.save!
+        get :retrieve, {url: tool.url, course_id: @course.id, placement: 'collaboration', content_item_id: collab.id }
+        data = assigns[:lti_launch].params['data']
+        json_data = Canvas::Security.decode_jwt(data)
+        expect(json_data[:oauth_consumer_key]).to eq tool.consumer_key
+      end
+
+      it 'adds to the data element the default launch url' do
+        u = user_factory(active_all: true)
+        account.account_users.create!(user:u)
+        user_session u
+        tool.collaboration = { message_type: 'ContentItemSelectionRequest' }
+        tool.save!
+        get :retrieve, {url: tool.url, course_id: @course.id, placement: 'collaboration', content_item_id: collab.id }
+        data = assigns[:lti_launch].params['data']
+        json_data = Canvas::Security.decode_jwt(data)
+        expect(json_data[:default_launch_url]).to eq tool.url
+      end
+    end
   end
 
   describe "GET 'resource_selection'" do
@@ -822,6 +867,18 @@ describe ExternalToolsController do
       assert_status(401)
     end
 
+    it "should not create tool if user lacks create_tool_manually" do
+      user_session(@student)
+      post 'create', :course_id => @course.id, :external_tool => {:name => "tool name", :url => "http://example.com", :consumer_key => "key", :shared_secret => "secret"}, :format => "json"
+      assert_status(401)
+    end
+
+    it "should create tool if user is granted create_tool_manually" do
+      user_session(@teacher)
+      post 'create', :course_id => @course.id, :external_tool => {:name => "tool name", :url => "http://example.com", :consumer_key => "key", :shared_secret => "secret"}, :format => "json"
+      assert_status(200)
+    end
+
     it "should accept basic configurations" do
       user_session(@teacher)
       post 'create', :course_id => @course.id, :external_tool => {:name => "tool name", :url => "http://example.com", :consumer_key => "key", :shared_secret => "secret"}, :format => "json"
@@ -831,6 +888,17 @@ describe ExternalToolsController do
       expect(assigns[:tool].url).to eq "http://example.com"
       expect(assigns[:tool].consumer_key).to eq "key"
       expect(assigns[:tool].shared_secret).to eq "secret"
+    end
+
+    it "sets the oauth_compliant setting" do
+      user_session(@teacher)
+      external_tool_settings = {name: "tool name",
+                                url: "http://example.com",
+                                consumer_key: "key",
+                                shared_secret: "secret",
+                                oauth_compliant: true}
+      post 'create', course_id: @course.id, external_tool: external_tool_settings, format: "json"
+      expect(assigns[:tool].settings[:oauth_compliant]).to equal true
     end
 
     it "should fail on basic xml with no url or domain set" do
@@ -885,6 +953,9 @@ describe ExternalToolsController do
         <lticm:property name="selection_width">500</lticm:property>
         <lticm:property name="selection_height">300</lticm:property>
       </lticm:options>
+      <lticm:property name="oauth_compliant">
+       true
+      </lticm:property>
     </blti:extensions>
     <cartridge_bundle identifierref="BLTI001_Bundle"/>
     <cartridge_icon identifierref="BLTI001_Icon"/>
@@ -901,6 +972,7 @@ describe ExternalToolsController do
       expect(assigns[:tool].shared_secret).to eq "secret"
       expect(assigns[:tool].not_selectable).to be_truthy
       expect(assigns[:tool].has_placement?(:editor_button)).to be_truthy
+      expect(assigns[:tool].settings[:oauth_compliant]).to be_truthy
     end
 
     it "should handle advanced xml configurations with no url or domain set" do
@@ -1138,6 +1210,22 @@ describe ExternalToolsController do
 
   end
 
+  describe "PUT 'update'" do
+    it 'updates tool with tool_configuration[prefer_sis_email] param' do
+      @tool = new_valid_tool(@course)
+      user_session(@teacher)
+
+      put :update, course_id: @course.id, external_tool_id: @tool.id, external_tool: { tool_configuration: { prefer_sis_email: "true" } }, format: 'json'
+
+      expect(response).to be_success
+
+      json = json_parse(response.body)
+
+      expect(json['tool_configuration']).to be_truthy
+      expect(json['tool_configuration']['prefer_sis_email']).to eq 'true'
+    end
+  end
+
   describe "'GET 'generate_sessionless_launch'" do
     it "generates a sessionless launch" do
       @tool = new_valid_tool(@course)
@@ -1188,6 +1276,53 @@ describe ExternalToolsController do
       expect(tool_settings['custom_canvas_course_id']).to eq @course.id.to_s
       expect(tool_settings['custom_canvas_user_id']).to eq @user.id.to_s
       expect(tool_settings["resource_link_id"]).to eq opaque_id(@assignment.external_tool_tag)
+    end
+
+    it "requires context_module_id for module_item launch type" do
+      user_session(@user)
+      @tool = new_valid_tool(@course)
+      @cm = ContextModule.create(context: @course)
+      @tg = ContentTag.create(context: @course,
+        context_module: @cm,
+        content_type: 'ContextExternalTool',
+        content: @tool)
+
+       get :generate_sessionless_launch,
+        course_id: @course.id,
+        launch_type: 'module_item',
+        content_type: 'ContextExternalTool'
+
+      expect(response).not_to be_success
+      expect(response.body).to include 'A module item id must be provided for module item LTI launch'
+    end
+
+    it "Sets the correct resource_link_id for module items when module_item_id is provided" do
+      user_session(@user)
+      @tool = new_valid_tool(@course)
+      @cm = ContextModule.create(context: @course)
+      @tg = ContentTag.create(context: @course,
+        context_module: @cm,
+        content_type: 'ContextExternalTool',
+        content: @tool,
+        url: @tool.url)
+      @cm.content_tags << @tg
+      @cm.save!
+      @course.save!
+
+      get :generate_sessionless_launch,
+        course_id: @course.id,
+        launch_type: 'module_item',
+        module_item_id: @tg.id,
+        content_type: 'ContextExternalTool'
+
+      expect(response).to be_success
+
+      json = JSON.parse(response.body.sub(/^while\(1\)\;/, ''))
+      verifier = CGI.parse(URI.parse(json['url']).query)['verifier'].first
+      redis_key = "#{@course.class.name}:#{ExternalToolsController::REDIS_PREFIX}#{verifier}"
+      launch_settings = JSON.parse(Canvas.redis.get(redis_key))
+
+      expect(launch_settings['tool_settings']['resource_link_id']). to eq opaque_id(@tg)
     end
   end
 

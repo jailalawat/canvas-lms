@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,10 +23,13 @@ module Api::V1::Attachment
   include Api::V1::UsageRights
 
   def can_view_hidden_files?(context=@context, user=@current_user, session=nil)
-    context.grants_any_right?(user, session, :manage_files, :read_as_admin)
+    context.grants_any_right?(user, session, :manage_files, :read_as_admin, :manage_contents)
   end
 
   def attachments_json(files, user, url_options = {}, options = {})
+    if options[:can_view_hidden_files] && options[:context] && master_courses?
+      options[:master_course_status] = setup_master_course_restrictions(files, options[:context])
+    end
     files.map do |f|
       attachment_json(f, user, url_options, options)
     end
@@ -93,7 +96,9 @@ module Api::V1::Attachment
       'lock_at' => attachment.lock_at,
       'hidden_for_user' => hidden_for_user,
       'thumbnail_url' => thumbnail_download_url,
-      'modified_at' => attachment.modified_at ? attachment.modified_at : attachment.updated_at
+      'modified_at' => attachment.modified_at ? attachment.modified_at : attachment.updated_at,
+      'mime_class' => attachment.mime_class,
+      'media_entry_id' => attachment.media_entry_id
     )
     locked_json(hash, attachment, user, 'file')
 
@@ -103,7 +108,7 @@ module Api::V1::Attachment
       hash['user'] = user_display_json(attachment.user, context)
     end
     if includes.include? 'preview_url'
-      hash['preview_url'] = attachment.crocodoc_url(user) ||
+      hash['preview_url'] = attachment.crocodoc_url(user, options[:crocodoc_ids]) ||
                             attachment.canvadoc_url(user)
     end
     if includes.include? 'enhanced_preview_url'
@@ -114,6 +119,10 @@ module Api::V1::Attachment
     end
     if includes.include? "context_asset_string"
       hash['context_asset_string'] = attachment.context.try(:asset_string)
+    end
+
+    if options[:master_course_status]
+      hash.merge!(attachment.master_course_api_restriction_data(options[:master_course_status]))
     end
 
     hash

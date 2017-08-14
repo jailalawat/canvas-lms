@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -29,30 +29,54 @@ class AccountAuthorizationConfig::GitHub < AccountAuthorizationConfig::Oauth2
     [ :login_attribute, :jit_provisioning ].freeze
   end
 
-  # Rename db field
-  def domain=(val)
-    self.auth_host = val
-  end
-
-  def domain
-    auth_host
-  end
-
-  def unique_id(token)
-    token.options[:mode] = :query
-    token.get('user').parsed[login_attribute].to_s
-  end
-
   def self.login_attributes
-    ['id'.freeze, 'login'.freeze].freeze
+    ['id'.freeze, 'email'.freeze, 'login'.freeze].freeze
   end
   validates :login_attribute, inclusion: login_attributes
+
+  def self.recognized_federated_attributes
+    [
+      'email'.freeze,
+      'id'.freeze,
+      'login'.freeze,
+      'name'.freeze
+    ].freeze
+  end
+
+  # Rename db field
+  alias_attribute :domain, :auth_host
+
+  def unique_id(token)
+    user(token)[login_attribute].to_s
+  end
+
+  def provider_attributes(token)
+    user(token)
+  end
 
   def login_attribute
     super || 'id'.freeze
   end
 
   protected
+
+  def user(token)
+    token.options[:user] ||= begin
+      token.options[:mode] = :query
+      user = token.get('user').parsed
+      if !user['email'] && authorize_options[:scope]
+        user['email'] = token.get('user/emails').parsed.find { |e| e['primary'] }.try(:[], 'email')
+      end
+      user
+    end
+  end
+
+  def authorize_options
+    res = {}
+    res[:scope] = 'user:email' if login_attribute == 'email' ||
+        federated_attributes.any? { |(_k, v)| v['attribute'] == 'email' }
+    res
+  end
 
   def client_options
     {

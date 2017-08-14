@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,14 +19,12 @@
 module AssignmentsHelper
   def completed_link_options
     {
-      class: 'pass',
       title: I18n.t('tooltips.finished', 'finished')
     }
   end
 
   def in_progress_link_options
     {
-      class: 'warning',
       title: I18n.t('tooltips.incomplete', 'incomplete')
     }
   end
@@ -39,8 +37,14 @@ module AssignmentsHelper
   end
 
   def student_peer_review_link_for(context, assignment, assessment)
-    link_options = assessment.completed? ? completed_link_options : in_progress_link_options
-    link_to submission_author_name_for(assessment), context_url(context, :context_assignment_submission_url, assignment.id, assessment.asset.user_id), link_options
+    options = assessment.completed? ? completed_link_options : in_progress_link_options
+    icon_class = assessment.completed? ? 'icon-check' : 'icon-warning'
+    text = safe_join [
+      "<i class='#{icon_class}' aria-hidden='true'></i>".html_safe,
+      submission_author_name_for(assessment)
+    ]
+    href = context_url(context, :context_assignment_submission_url, assignment.id, assessment.asset.user_id)
+    link_to text, href, options
   end
 
   def due_at(assignment, user)
@@ -48,11 +52,8 @@ module AssignmentsHelper
       multiple_due_dates(assignment)
     else
       assignment = assignment.overridden_for(user)
-      if assignment.due_at
-        datetime_string(assignment.due_at)
-      else
-        I18n.t('No Due Date')
-      end
+      due_date = assignment.due_at || assignment.applied_overrides.map(&:due_at).compact.first
+      due_date ? datetime_string(due_date) : I18n.t('No Due Date')
     end
   end
 
@@ -79,5 +80,23 @@ module AssignmentsHelper
   def turnitin_active?
     @assignment.turnitin_enabled? && @context.turnitin_enabled? &&
     !@assignment.submission_types.include?("none")
+  end
+
+  def vericite_active?
+    @assignment.vericite_enabled? && @context.vericite_enabled? &&
+    !@assignment.submission_types.include?("none")
+  end
+
+  def i18n_grade(grade, grading_type = nil)
+    number = Float(grade.sub(/%$/, '')) rescue nil
+    if number.present?
+      if grading_type.nil?
+        grading_type = (/%$/ =~ grade) ? 'percent' : 'points'
+      end
+      if grading_type == 'points' || grading_type == 'percent'
+        return I18n.n(round_if_whole(number), percentage: (grading_type == 'percent'))
+      end
+    end
+    grade
   end
 end

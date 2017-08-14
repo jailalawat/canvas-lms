@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,6 +18,7 @@
 
 require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper.rb')
 require File.expand_path(File.dirname(__FILE__) + '/../../messages/messages_helper')
+require_dependency "services/notification_service"
 
 module Services
   describe NotificationService do
@@ -64,6 +65,22 @@ module Services
         expect{@message.deliver}.not_to raise_error
       end
 
+      it "expects email sms message type to go through mailer" do
+        @queue.expects(:send_message).once
+        Mailer.expects(:create_message).once
+        @message.path_type = "sms"
+        @message.to = "18015550100@vtext.com"
+        expect{@message.deliver}.not_to raise_error
+      end
+
+      it "expects twilio to not call mailer create_message" do
+        @queue.expects(:send_message).once
+        Mailer.expects(:create_message).never
+        @message.path_type = "sms"
+        @message.to = "+18015550100"
+        expect{@message.deliver}.not_to raise_error
+      end
+
       it "processes push notification message type" do
         @queue.expects(:send_message).once
         sns_client = mock()
@@ -76,24 +93,24 @@ module Services
       end
 
       it "throws error if cannot connect to queue" do
-        @queue.stubs(:send_message).raises(AWS::SQS::Errors::ServiceError)
-        expect{@message.deliver}.to raise_error(AWS::SQS::Errors::ServiceError)
-        expect(@message.transmission_errors).to include("AWS::SQS::Errors::ServiceError")
+        @queue.stubs(:send_message).raises(Aws::SQS::Errors::ServiceError.new('a', 'b'))
+        expect{@message.deliver}.to raise_error(Aws::SQS::Errors::ServiceError)
+        expect(@message.transmission_errors).to include("Aws::SQS::Errors::ServiceError")
         expect(@message.workflow_state).to eql("staged")
       end
 
       it "throws error if queue does not exist" do
-        @queue.stubs(:send_message).raises(AWS::SQS::Errors::NonExistentQueue)
-        expect{@message.deliver}.to raise_error(AWS::SQS::Errors::NonExistentQueue)
-        expect(@message.transmission_errors).to include("AWS::SQS::Errors::NonExistentQueue")
+        @queue.stubs(:send_message).raises(Aws::SQS::Errors::NonExistentQueue.new('a', 'b'))
+        expect{@message.deliver}.to raise_error(Aws::SQS::Errors::NonExistentQueue)
+        expect(@message.transmission_errors).to include("Aws::SQS::Errors::NonExistentQueue")
         expect(@message.workflow_state).to eql("staged")
       end
 
       context 'payload contents' do
         class SendMessageSpy
           attr_accessor :sent_hash
-          def send_message(json)
-            @sent_hash = JSON.parse(json)
+          def send_message(message_body: , queue_url: )
+            @sent_hash = JSON.parse(message_body)
           end
         end
 
@@ -112,7 +129,7 @@ module Services
           NotificationService.stubs(:notification_queue).returns(spy)
 
           NotificationService.process(1, 'hello', 'email', 'alice@example.com')
-          compare_json(expected, spy.sent_hash)
+          expect(expected).to eq spy.sent_hash
         end
       end
     end

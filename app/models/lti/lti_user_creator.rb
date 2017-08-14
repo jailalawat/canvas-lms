@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Lti
   class LtiUserCreator
     # deprecated mapping
@@ -14,17 +31,17 @@ module Lti
     def initialize(canvas_user, canvas_root_account, canvas_tool, canvas_context)
       @canvas_user = canvas_user
       @canvas_root_account = canvas_root_account
+      @canvas_tool = canvas_tool
       @canvas_context = canvas_context
-      @opaque_identifier = canvas_tool.opaque_identifier_for(@canvas_user)
-      @pseudonym = false
+      @opaque_identifier = @canvas_tool.opaque_identifier_for(@canvas_user)
     end
 
     def convert
+      lti_helper = Lti::SubstitutionsHelper.new(@canvas_context, @canvas_root_account, @canvas_user, @canvas_tool)
       user = ::LtiOutbound::LTIUser.new
-
       user.id = @canvas_user.id
       user.avatar_url = @canvas_user.avatar_url
-      user.email = @canvas_user.email
+      user.email = lti_helper.email
       user.first_name = @canvas_user.first_name
       user.last_name = @canvas_user.last_name
       user.name = @canvas_user.name
@@ -35,8 +52,7 @@ module Lti
       user.concluded_roles = -> { concluded_roles() }
       user.login_id = -> { pseudonym ? pseudonym.unique_id : nil }
       user.sis_source_id = -> { pseudonym ? pseudonym.sis_user_id : nil }
-
-      lti_helper = Lti::SubstitutionsHelper.new(@canvas_context, @canvas_root_account, @canvas_user)
+      user.current_observee_ids = -> { current_course_observee_lti_context_ids() }
       user.current_roles = lti_helper.current_lis_roles.split(',')
 
       user
@@ -44,8 +60,8 @@ module Lti
 
     private
     def pseudonym
-      if @pseudonym === false
-        @pseudonym ||= @canvas_user.find_pseudonym_for_account(@canvas_root_account)
+      unless instance_variable_defined?(:@pseudonym)
+        @pseudonym = SisPseudonym.for(@canvas_user, @canvas_root_account, type: :trusted, require_sis: false)
       end
       @pseudonym
     end
@@ -69,7 +85,17 @@ module Lti
     def current_course_enrollments
       return [] unless @canvas_context.is_a?(Course)
 
-      @current_course_enrollments ||= @canvas_user.enrollments.current.where(course_id: @canvas_context).to_a
+      @current_course_enrollments ||= @canvas_user.enrollments.current.where(course_id: @canvas_context).preload(:enrollment_state).to_a
+    end
+
+    def current_course_observee_lti_context_ids
+      return [] unless @canvas_context.is_a?(Course)
+
+      @current_course_observee_lti_context_ids ||= @canvas_user.observer_enrollments
+                                                               .current
+                                                               .where(course_id: @canvas_context)
+                                                               .preload(:associated_user)
+                                                               .map { |e| e.try(:associated_user).try(:lti_context_id) }.compact
     end
 
     def current_account_enrollments()

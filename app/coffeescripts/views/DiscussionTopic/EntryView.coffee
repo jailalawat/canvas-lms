@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'underscore'
@@ -64,12 +81,15 @@ define [
       super
       @constructor.instances[@cid] = this
       @$el.attr 'id', "entry-#{@model.get 'id'}"
+      @$el.toggleClass 'no-replies', !@model.hasActiveReplies()
+      @$el.addClass 'deleted' if @model.get 'deleted'
       @model.on 'change:deleted', @toggleDeleted
       @model.on 'change:read_state', @toggleReadState
       @model.on 'change:editor', (entry) =>
         @render()
         entry.trigger('edited')
       @model.on 'change:replies', (model, value) =>
+        @$el.toggleClass 'no-replies', !@model.hasActiveReplies()
         if _.isEmpty(value)
           delete @treeView
         else
@@ -123,10 +143,8 @@ define [
       @addCountsToHeader() unless @addedCountsToHeader
       @$el.toggleClass 'collapsed'
       if @$el.hasClass('collapsed')
-        $el.attr('title', I18n.t('Expand Subdiscussion'))
         $el.find('.screenreader-only').text(I18n.t('Expand Subdiscussion'))
       else
-        $el.attr('title', I18n.t('Collapse Subdiscussion'))
         $el.find('.screenreader-only').text(I18n.t('Collapse Subdiscussion'))
 
     expand: ->
@@ -138,16 +156,11 @@ define [
 
     addCountsToHeader: ->
       stats = @countPosterity()
-      html = """
-        <div class='new-and-total-badge'>
-          <span class="new-items">#{htmlEscape stats.unread}</span>
-          <span class="total-items">#{htmlEscape stats.total}</span>
-        </div>
-        """
       @$headerBadges.append entryStatsTemplate({stats})
       @addedCountsToHeader = true
 
     toggleDeleted: (model, deleted) =>
+      @$el.toggleClass 'deleted', deleted
       @$entryContent.toggleClass 'deleted-discussion-entry', deleted
       if deleted
         @model.set('updated_at', (new Date).toISOString())

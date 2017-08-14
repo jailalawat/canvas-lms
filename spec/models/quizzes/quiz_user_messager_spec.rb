@@ -1,4 +1,5 @@
-# Copyright (C) 2014 Instructure, Inc.
+#
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,7 +23,7 @@ describe Quizzes::QuizUserMessager do
   include Quizzes::QuizUserMessagerSpecHelper
 
   before :once do
-    course_with_teacher_logged_in(active_all: true)
+    course_with_teacher(active_all: true)
     course_quiz(true)
     course_with_student(active_all: true, course: @course)
     @unsubmitted = @student

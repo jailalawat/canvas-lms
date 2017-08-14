@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 require_relative '../helpers/quizzes_common'
 
@@ -14,7 +31,7 @@ describe 'taking a quiz' do
     before(:each) { user_session(@student) }
 
     def auto_submit_quiz(quiz)
-      take_and_answer_quiz(submit: false, quiz: quiz, lock_after: 10.seconds)
+      take_and_answer_quiz(submit: false, quiz: quiz, lock_after: 5.seconds)
       verify_times_up_dialog
       expect_new_page_load { close_times_up_dialog }
     end
@@ -73,27 +90,23 @@ describe 'taking a quiz' do
         it 'doesn\'t automatically submit once the due date passes', priority: "2", test_id: 551293 do
           take_and_answer_quiz(submit: false, quiz: quiz_nearly_due)
 
-          # TODO: refactor with timecop
-          # wait at least one minute for the due date to pass
-          sleep(65)
+          Timecop.freeze(65.seconds.from_now) do
+            verify_no_times_up_dialog
+            submit_quiz
 
-          verify_no_times_up_dialog
-          submit_quiz
-
-          verify_quiz_submission_is_late
+            verify_quiz_submission_is_late
+          end
         end
 
         it 'marks the quiz submission as "late"', priority: "2", test_id: 551785 do
           take_and_answer_quiz(submit: false, quiz: quiz_nearly_due)
 
-          # TODO: refactor with timecop
-          # wait at least one minute for the due date to pass
-          sleep(65)
+          Timecop.freeze(65.seconds.from_now) do
+            verify_no_times_up_dialog
+            submit_quiz
 
-          verify_no_times_up_dialog
-          submit_quiz
-
-          verify_quiz_submission_is_late_in_speedgrader
+            verify_quiz_submission_is_late_in_speedgrader
+          end
         end
       end
     end

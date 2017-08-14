@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_dependency 'importers'
 
 module Importers
@@ -33,6 +50,9 @@ module Importers
       item ||= Assignment.where(context_type: context.class.to_s, context_id: context, id: hash[:id]).first
       item ||= Assignment.where(context_type: context.class.to_s, context_id: context, migration_id: hash[:migration_id]).first if hash[:migration_id]
       item ||= context.assignments.temp_record #new(:context => context)
+
+      item.mark_as_importing!(migration)
+
       item.title = hash[:title]
       item.title = I18n.t('untitled assignment') if item.title.blank?
       item.migration_id = hash[:migration_id]
@@ -111,13 +131,22 @@ module Importers
         item.points_possible = 0
       end
 
+      if !item.new_record? && item.is_child_content? && (item.editing_restricted?(:due_dates) || item.editing_restricted?(:availability_dates))
+        # is a date-restricted master course item - clear their old overrides because we're mean
+        item.assignment_overrides.where.not(:set_type => AssignmentOverride::SET_TYPE_NOOP).destroy_all
+      end
+
       item.save_without_broadcasting!
+      # somewhere in the callstack, save! will call Quiz#update_assignment, and Rails will have helpfully
+      # reloaded the quiz's assignment, so we won't know about the changes to the object (in particular,
+      # workflow_state) that it did
+      item.reload
 
       rubric = nil
       rubric = context.rubrics.where(migration_id: hash[:rubric_migration_id]).first if hash[:rubric_migration_id]
       rubric ||= context.available_rubric(hash[:rubric_id]) if hash[:rubric_id]
       if rubric
-        assoc = rubric.associate_with(item, context, :purpose => 'grading')
+        assoc = rubric.associate_with(item, context, :purpose => 'grading', :skip_updating_points_possible => true)
         assoc.use_for_grading = !!hash[:rubric_use_for_grading] if hash.has_key?(:rubric_use_for_grading)
         assoc.hide_score_total = !!hash[:rubric_hide_score_total] if hash.has_key?(:rubric_hide_score_total)
         if hash[:saved_rubric_comments]
@@ -125,10 +154,32 @@ module Importers
           assoc.summary_data[:saved_comments] ||= {}
           assoc.summary_data[:saved_comments] = hash[:saved_rubric_comments]
         end
+        assoc.skip_updating_points_possible = true
         assoc.save
 
         item.points_possible ||= rubric.points_possible if item.infer_grading_type == "points"
       end
+
+      if hash[:assignment_overrides]
+        hash[:assignment_overrides].each do |o|
+          override = item.assignment_overrides.where(o.slice(:set_type, :set_id)).first
+          override ||= item.assignment_overrides.build
+          override.set_type = o[:set_type]
+          override.title = o[:title]
+          override.set_id = o[:set_id]
+          AssignmentOverride.overridden_dates.each do |field|
+            next unless o.key?(field)
+            override.send "override_#{field}", Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(o[field])
+          end
+          override.save!
+          migration.add_imported_item(override,
+            key: [item.migration_id, override.set_type, override.set_id].join('/'))
+        end
+        if hash.has_key?(:only_visible_to_overrides)
+          item.only_visible_to_overrides = hash[:only_visible_to_overrides]
+        end
+      end
+
       if hash[:grading_standard_migration_id]
         gs = context.grading_standards.where(migration_id: hash[:grading_standard_migration_id]).first
         item.grading_standard = gs if gs
@@ -157,9 +208,12 @@ module Importers
         item.saved_by = :quiz
       end
 
-      hash[:due_at] ||= hash[:due_date]
+      hash[:due_at] ||= hash[:due_date] if hash.has_key?(:due_date)
+      master_migration = migration&.for_master_course_import?  # propagate null dates only for blueprint syncs
       [:due_at, :lock_at, :unlock_at, :peer_reviews_due_at].each do |key|
-        item.send"#{key}=", Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(hash[key]) unless hash[key].nil?
+        if hash.has_key?(key) && (master_migration || hash[key].present?)
+          item.send"#{key}=", Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(hash[key])
+        end
       end
 
       if hash[:has_group_category]
@@ -167,17 +221,29 @@ module Importers
         item.group_category ||= context.group_categories.active.where(:name => t("Project Groups")).first_or_create
       end
 
-      [:turnitin_enabled, :peer_reviews,
+      [:peer_reviews,
        :automatic_peer_reviews, :anonymous_peer_reviews,
        :grade_group_students_individually, :allowed_extensions,
-       :position, :peer_review_count, :muted, :moderated_grading
+       :position, :peer_review_count, :muted, :moderated_grading,
+       :omit_from_final_grade, :intra_group_peer_reviews
       ].each do |prop|
         item.send("#{prop}=", hash[prop]) unless hash[prop].nil?
       end
 
-      if item.turnitin_enabled
+      [:turnitin_enabled, :vericite_enabled].each do |prop|
+        if !hash[prop].nil? && context.send("#{prop}?")
+          item.send("#{prop}=", hash[prop])
+        end
+      end
+
+      if item.turnitin_enabled || item.vericite_enabled
         settings = JSON.parse(hash[:turnitin_settings]).with_indifferent_access
-        item.turnitin_settings = settings
+        settings[:created] = false if settings[:created]
+        if item.vericite_enabled
+          item.vericite_settings = settings
+        else
+          item.turnitin_settings = settings
+        end
       end
 
       migration.add_imported_item(item)

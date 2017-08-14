@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper')
 require File.expand_path(File.dirname(__FILE__) + '/../views_helper')
 
@@ -23,11 +40,12 @@ describe "courses/_to_do_list.html.erb" do
         expect(response).to include "15 points"
         expect(response).to include "My Awesome Course"
         expect(response).to include due_at(@assignment, @user)
+        expect(response).to include "Ignore SubmitMe"
       end
     end
     describe "submissions to review" do
       it "shows peer reviews" do
-        course(active_all: true)
+        course_factory(active_all: true)
         due_date = 2.days.from_now
         assignment_model(course: @course,
                          due_at: due_date,
@@ -47,6 +65,7 @@ describe "courses/_to_do_list.html.erb" do
         view_context
         render partial: "courses/to_do_list", locals: {contexts: nil}
         expect(response).to include "Peer Review for ReviewMe"
+        expect(response).to include "Ignore ReviewMe"
       end
     end
   end
@@ -54,7 +73,7 @@ describe "courses/_to_do_list.html.erb" do
   context "as a teacher" do
     describe "assignments to grade" do
       it "shows assignment data" do
-        course(active_all: true)
+        course_factory(active_all: true)
         due_date = 2.days.from_now
         assignment_model(course: @course,
                          due_at: due_date,
@@ -63,7 +82,7 @@ describe "courses/_to_do_list.html.erb" do
                          title: "GradeMe")
 
         2.times do
-          @course.enroll_student(user).accept!
+          @course.enroll_student(user_factory).accept!
           @assignment.submit_homework(@user, {:submission_type => 'online_text_entry', :body => 'blah'})
         end
 
@@ -79,6 +98,7 @@ describe "courses/_to_do_list.html.erb" do
         expect(response).to include due_at(@assignment, @user)
         expect(response).to include "2"
         expect(response).to include "2 submissions need grading"
+        expect(response).to include "Ignore GradeMe until new submission"
       end
 
       it "shows 999+ when there are more than 999 to grade" do
@@ -88,9 +108,9 @@ describe "courses/_to_do_list.html.erb" do
                          due_at: due_date,
                          submission_types: "online_text_entry",
                          points_possible: 15,
-                         title: "GradeMe",
-                         needs_grading_count: 1000)
-        Assignments::NeedsGradingCountQuery.any_instance.stubs(:count).returns(1000)
+                         title: "GradeMe")
+        Assignment.stubs(:need_grading_info).returns(Assignment.where(id: @assignment.id))
+        Assignments::NeedsGradingCountQuery.any_instance.stubs(:manual_count).returns(1000)
         @user = @teacher
         @user.course_nicknames[@course.id] = "My Awesome Course"
         @user.save!
@@ -115,16 +135,17 @@ describe "courses/_to_do_list.html.erb" do
                          submission_types: "online_text_entry",
                          points_possible: 15,
                          title: "ModerateMe",
-                         moderated_grading: true,
-                         needs_grading_count: 1)
+                         moderated_grading: true)
+        Assignments::NeedsGradingCountQuery.any_instance.stubs(:manual_count).returns(1)
         @submission = submission_model(assignment: @assignment, body: "my submission")
-        @submission.find_or_create_provisional_grade!(scorer: @teacher, grade: 5)
+        @submission.find_or_create_provisional_grade!(@teacher, grade: 5)
         @user = @teacher
         @user.course_nicknames[@course.id] = "My Awesome Course"
         @user.save!
         view_context
         render partial: "courses/to_do_list", locals: {contexts: nil}
         expect(response).to include "Moderate ModerateMe"
+        expect(response).to include "Ignore ModerateMe until new mark"
       end
     end
   end

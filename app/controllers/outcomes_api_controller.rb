@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -102,6 +102,11 @@
 #           "example": true,
 #           "type": "boolean"
 #         },
+#         "can_unlink": {
+#           "description": "whether the outcome can be unlinked",
+#           "example": true,
+#           "type": "boolean"
+#         },
 #         "assessed": {
 #           "description": "whether this outcome has been used to assess a student",
 #           "example": true,
@@ -113,8 +118,8 @@
 class OutcomesApiController < ApplicationController
   include Api::V1::Outcome
 
-  before_filter :require_user
-  before_filter :get_outcome
+  before_action :require_user
+  before_action :get_outcome
 
   # @API Show an outcome
   #
@@ -216,17 +221,8 @@ class OutcomesApiController < ApplicationController
   def update
     return unless authorized_action(@outcome, @current_user, :update)
 
-    if @outcome.assessed?
-      return render(
-        :json => assessed_outcome_error_message,
-        :status => :bad_request
-      )
-    end
-
-    @outcome.update_attributes(params.slice(*DIRECT_PARAMS))
     update_outcome_criterion(@outcome) if params[:mastery_points] || params[:ratings]
-
-    if @outcome.save
+    if @outcome.update_attributes(params.permit(*DIRECT_PARAMS))
       render :json => outcome_json(@outcome, @current_user, session)
     else
       render :json => @outcome.errors, :status => :bad_request
@@ -251,11 +247,6 @@ class OutcomesApiController < ApplicationController
       criterion[:ratings] = params[:ratings]
     end
     outcome.rubric_criterion = criterion
-  end
-
-  def assessed_outcome_error_message
-    message = t("This outcome has been used to assess a student and can no longer be updated")
-    { errors: message }
   end
 
   # Direct params are those that have a direct correlation to attrs in the model

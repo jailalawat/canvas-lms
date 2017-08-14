@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/calendar2_common')
 
@@ -83,14 +100,25 @@ describe "calendar2" do
           expect(f("#content")).not_to contain_css('.fc_event')
         end
 
-        it "should constrain context selection to 10" do
-          11.times do |x|
-            course_with_teacher(:course_name => "Course #{x + 1}", :user => @user, :active_all => true).course
-          end
+        it "should constrain context selection to 10 by default" do
+          create_courses 11, enroll_user: @user
 
           get "/calendar2"
           ff('.context_list_context').each(&:click)
           expect(ff('.context_list_context.checked').count).to eq 10
+        end
+
+        it "should adjust context selection limit based on account setting" do
+          Account.default.tap do |a|
+            a.settings[:calendar_contexts_limit] = 15
+            a.save!
+          end
+
+          create_courses 17, enroll_user: @user
+
+          get "/calendar2"
+          ff('.context_list_context').each(&:click)
+          expect(ff('.context_list_context.checked').count).to eq 15
         end
 
         it "should validate calendar feed display" do

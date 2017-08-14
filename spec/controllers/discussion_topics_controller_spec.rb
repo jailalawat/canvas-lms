@@ -1,5 +1,5 @@
-
-# Copyright (C) 2012 Instructure, Inc.
+#
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -28,7 +28,7 @@ describe DiscussionTopicsController do
   end
 
   def course_topic(opts={})
-    @topic = @course.discussion_topics.build(:title => "some topic", :pinned => opts[:pinned])
+    @topic = @course.discussion_topics.build(:title => "some topic", :pinned => opts.fetch(:pinned, false))
     user = opts[:user] || @user
     if user && !opts[:skip_set_user]
       @topic.user = user
@@ -41,6 +41,7 @@ describe DiscussionTopicsController do
     end
 
     @topic.save
+    @topic.reload
     @topic
   end
 
@@ -153,6 +154,40 @@ describe DiscussionTopicsController do
       get 'index', :group_id => @group.id
       expect(response).to be_success
       expect(assigns["topics"]).to include(@topic)
+    end
+
+    it "does not filter module locked discussion by default" do
+      course_topic(user: @teacher)
+      @locked_topic = @topic
+      course_topic(user: @teacher)
+      @module = @course.context_modules.create!(name: 'some module')
+      @module.add_item(type: 'discussion_topic', id: @topic.id)
+      @locked_module = @course.context_modules.create!(name: 'some locked module')
+      @locked_module.add_item(type: 'discussion_topic', id: @locked_topic.id)
+      @locked_module.unlock_at = 2.months.from_now
+      @locked_module.save!
+      user_session(@student)
+
+      get 'index', course_id: @course.id
+      expect(response).to be_success
+      expect(assigns["topics"]).to include(@locked_topic)
+    end
+
+    it "filters module locked discussions when asked to" do
+      course_topic(user: @teacher)
+      @locked_topic = @topic
+      course_topic(user: @teacher)
+      @module = @course.context_modules.create!(name: 'some module')
+      @module.add_item(type: 'discussion_topic', id: @topic.id)
+      @locked_module = @course.context_modules.create!(name: 'some locked module')
+      @locked_module.add_item(type: 'discussion_topic', id: @locked_topic.id)
+      @locked_module.unlock_at = 2.months.from_now
+      @locked_module.save!
+      user_session(@student)
+
+      get 'index', course_id: @course.id, exclude_context_module_locked_topics: true
+      expect(response).to be_success
+      expect(assigns["topics"]).not_to include(@locked_topic)
     end
   end
 
@@ -366,6 +401,26 @@ describe DiscussionTopicsController do
         expect(assigns[:groups]).to eq([@group2])
       end
 
+      it "should redirect to group for student if DA applies to section" do
+        user_session(@student)
+        @group1.add_user(@student)
+
+        course_topic(user: @teacher, with_assignment: true)
+        @topic.group_category = @group_category
+        @topic.save!
+
+        asmt = @topic.assignment
+        asmt.only_visible_to_overrides = true
+        override = asmt.assignment_overrides.build
+        override.set = @course.default_section
+        override.save!
+        asmt.save!
+
+        get 'show', :course_id => @course.id, :id => @topic.id
+        redirect_path = "/groups/#{@group1.id}/discussion_topics?root_discussion_topic_id=#{@topic.id}"
+        expect(response).to redirect_to redirect_path
+      end
+
       it "should redirect to the student's group" do
         user_session(@student)
         @group1.add_user(@student)
@@ -475,7 +530,32 @@ describe DiscussionTopicsController do
         get 'show', :course_id => @course.id, :id => @topic.id
         expect(assigns[:initial_post_required]).to be_falsey
       end
+    end
 
+    context "student context cards" do
+      before(:once) do
+        course_topic user: @teacher
+        @course.root_account.enable_feature! :student_context_cards
+      end
+
+      it "is disabed for students" do
+        user_session(@student)
+        get :show, course_id: @course.id, id: @topic.id
+        expect(assigns[:js_env][:STUDENT_CONTEXT_CARDS_ENABLED]).to be_falsey
+      end
+
+      it "is disabled for teachers when feature_flag is off" do
+        @course.root_account.disable_feature! :student_context_cards
+        user_session(@teacher)
+        get :show, course_id: @course.id, id: @topic.id
+        expect(assigns[:js_env][:STUDENT_CONTEXT_CARDS_ENABLED]).to be_falsey
+      end
+
+      it "is enabled for teachers when feature_flag is on" do
+        user_session(@teacher)
+        get :show, course_id: @course.id, id: @topic.id
+        expect(assigns[:js_env][:STUDENT_CONTEXT_CARDS_ENABLED]).to eq true
+      end
     end
 
   end
@@ -487,6 +567,48 @@ describe DiscussionTopicsController do
       get 'new', course_id: @course.id, due_at: due_at.iso8601
       expect(assigns[:js_env][:DISCUSSION_TOPIC][:ATTRIBUTES][:assignment][:due_at]).to eq due_at.iso8601
     end
+
+    it "js_env DUE_DATE_REQUIRED_FOR_ACCOUNT is true when AssignmentUtil.due_date_required_for_account? == true" do
+      user_session(@teacher)
+      AssignmentUtil.stubs(:due_date_required_for_account?).returns(true)
+      get 'new', :course_id => @course.id
+      expect(assigns[:js_env][:DUE_DATE_REQUIRED_FOR_ACCOUNT]).to eq(true)
+    end
+
+    it "js_env DUE_DATE_REQUIRED_FOR_ACCOUNT is false when AssignmentUtil.due_date_required_for_account? == false" do
+      user_session(@teacher)
+      AssignmentUtil.stubs(:due_date_required_for_account?).returns(false)
+      get 'new', :course_id => @course.id
+      expect(assigns[:js_env][:DUE_DATE_REQUIRED_FOR_ACCOUNT]).to eq(false)
+    end
+
+    it "js_env MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT is true when AssignmentUtil.name_length_required_for_account? == true" do
+      user_session(@teacher)
+      AssignmentUtil.stubs(:name_length_required_for_account?).returns(true)
+      get 'new', :course_id => @course.id
+      expect(assigns[:js_env][:MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT]).to eq(true)
+    end
+
+    it "js_env MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT is false when AssignmentUtil.name_length_required_for_account? == false" do
+      user_session(@teacher)
+      AssignmentUtil.stubs(:name_length_required_for_account?).returns(false)
+      get 'new', :course_id => @course.id
+      expect(assigns[:js_env][:MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT]).to eq(false)
+    end
+
+    it "js_env MAX_NAME_LENGTH is a 15 when AssignmentUtil.assignment_max_name_length returns 15" do
+      user_session(@teacher)
+      AssignmentUtil.stubs(:assignment_max_name_length).returns(15)
+      get 'new', :course_id => @course.id
+      expect(assigns[:js_env][:MAX_NAME_LENGTH]).to eq(15)
+    end
+
+    it "js_env SIS_NAME is Foo Bar when AssignmentUtil.post_to_sis_friendly_name is Foo Bar" do
+      user_session(@teacher)
+      AssignmentUtil.stubs(:post_to_sis_friendly_name).returns('Foo Bar')
+      get 'new', :course_id => @course.id
+      expect(assigns[:js_env][:SIS_NAME]).to eq('Foo Bar')
+    end
   end
 
   describe "GET 'edit'" do
@@ -494,11 +616,70 @@ describe DiscussionTopicsController do
       course_topic
     end
 
-    before do
+    include_context "grading periods within controller" do
+      let(:course) { @course }
+      let(:teacher) { @teacher }
+      let(:request_params) { [:edit, course_id: course, id: @topic] }
+    end
+
+    it "should not explode with mgp and group context" do
+      group1 = Factories::GradingPeriodGroupHelper.new.create_for_account(@course.root_account)
+      group1.enrollment_terms << @course.enrollment_term
       user_session(@teacher)
+      group = group_model(:context => @course)
+      group_topic = group.discussion_topics.create!(:title => "title")
+      get(:edit, group_id: group, id: group_topic)
+      expect(response).to be_success
+      expect(assigns[:js_env]).to have_key(:active_grading_periods)
+    end
+
+    it "js_env DUE_DATE_REQUIRED_FOR_ACCOUNT is true when AssignmentUtil.due_date_required_for_account? == true" do
+      user_session(@teacher)
+      AssignmentUtil.stubs(:due_date_required_for_account?).returns(true)
+      get :edit, course_id: @course.id, id: @topic.id
+      expect(assigns[:js_env][:DUE_DATE_REQUIRED_FOR_ACCOUNT]).to eq(true)
+    end
+
+    it "js_env DUE_DATE_REQUIRED_FOR_ACCOUNT is false when AssignmentUtil.due_date_required_for_account? == false" do
+      user_session(@teacher)
+      AssignmentUtil.stubs(:due_date_required_for_account?).returns(false)
+      get :edit, course_id: @course.id, id: @topic.id
+      expect(assigns[:js_env][:DUE_DATE_REQUIRED_FOR_ACCOUNT]).to eq(false)
+    end
+
+    it "js_env MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT is true when AssignmentUtil.name_length_required_for_account? == true" do
+      user_session(@teacher)
+      AssignmentUtil.stubs(:name_length_required_for_account?).returns(true)
+      get :edit, course_id: @course.id, id: @topic.id
+      expect(assigns[:js_env][:MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT]).to eq(true)
+    end
+
+    it "js_env MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT is false when AssignmentUtil.name_length_required_for_account? == false" do
+      user_session(@teacher)
+      AssignmentUtil.stubs(:name_length_required_for_account?).returns(false)
+      get :edit, course_id: @course.id, id: @topic.id
+      expect(assigns[:js_env][:MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT]).to eq(false)
+    end
+
+    it "js_env MAX_NAME_LENGTH is a 15 when AssignmentUtil.assignment_max_name_length returns 15" do
+      user_session(@teacher)
+      AssignmentUtil.stubs(:assignment_max_name_length).returns(15)
+      get :edit, course_id: @course.id, id: @topic.id
+      expect(assigns[:js_env][:MAX_NAME_LENGTH]).to eq(15)
+    end
+
+    it "js_env SIS_NAME is Foo Bar when AssignmentUtil.post_to_sis_friendly_name is Foo Bar" do
+      user_session(@teacher)
+      AssignmentUtil.stubs(:post_to_sis_friendly_name).returns('Foo Bar')
+      get :edit, :course_id => @course.id, :id => @topic.id
+      expect(assigns[:js_env][:SIS_NAME]).to eq('Foo Bar')
     end
 
     context 'conditional-release' do
+      before do
+        user_session(@teacher)
+      end
+
       it 'should include environment variables if enabled' do
         ConditionalRelease::Service.stubs(:enabled_in_context?).returns(true)
         ConditionalRelease::Service.stubs(:env_for).returns({ dummy: 'value' })
@@ -514,6 +695,92 @@ describe DiscussionTopicsController do
         expect(response).to have_http_status :success
         expect(controller.js_env).not_to have_key :dummy
       end
+    end
+  end
+
+  context 'student planner' do
+    before do
+      @course.root_account.enable_feature!(:student_planner)
+    end
+
+    before :each do
+      course_topic
+    end
+
+    it 'js_env STUDENT_PLANNER_ENABLED is true for teachers' do
+      user_session(@teacher)
+      get :edit, course_id: @course.id, id: @topic.id
+      expect(assigns[:js_env][:STUDENT_PLANNER_ENABLED]).to be true
+    end
+
+    it 'js_env STUDENT_PLANNER_ENABLED is false for students' do
+      user_session(@student)
+      get :edit, course_id: @course.id, id: @topic.id
+      expect(assigns[:js_env][:STUDENT_PLANNER_ENABLED]).to be false
+    end
+
+    it 'should create a topic with a todo date' do
+      user_session(@teacher)
+      todo_date = 1.day.from_now.in_time_zone('America/New_York')
+      post 'create', course_id: @course.id, todo_date: todo_date, format: 'json', title: 'Discussion 1'
+      expect(JSON.parse(response.body)['todo_date']).to eq todo_date.in_time_zone('UTC').iso8601
+    end
+
+    it 'should update a topic with a todo date' do
+      user_session(@teacher)
+      todo_date = 1.day.from_now.in_time_zone('America/New_York')
+      put 'update', course_id: @course.id, topic_id: @topic.id, todo_date: todo_date.iso8601(6), format: 'json'
+      expect(@topic.reload.todo_date).to eq todo_date
+    end
+
+    it 'should remove a todo date from a topic' do
+      user_session(@teacher)
+      @topic.update_attributes(todo_date: 1.day.from_now.in_time_zone('America/New_York'))
+      put 'update', course_id: @course.id, topic_id: @topic.id, todo_date: nil, format: 'json'
+      expect(@topic.reload.todo_date).to be nil
+    end
+
+    it 'should not allow a student to update the to-do date' do
+      user_session(@student)
+      put 'update', course_id: @course.id, topic_id: @topic.id, todo_date: 1.day.from_now, format: 'json'
+      expect(@topic.reload.todo_date).to eq nil
+    end
+
+    it 'should not allow a todo date on a graded topic' do
+      user_session(@teacher)
+      assign = @course.assignments.create!(title: 'Graded Topic 1', submission_types: 'discussion_topic')
+      topic = assign.discussion_topic
+      put 'update', course_id: @course.id, topic_id: topic.id, todo_date: 1.day.from_now, format: 'json'
+      expect(response.code).to eq '400'
+    end
+
+    it 'should not allow changing a topic to graded and adding a todo date' do
+      user_session(@teacher)
+      put 'update', course_id: @course.id, topic_id: @topic.id, format: 'json', todo_date: 1.day.from_now,
+        assignment: {submission_types: ['discussion_topic'], name: 'Graded Topic 1'}
+      expect(response.code).to eq '400'
+    end
+
+    it 'should allow a todo date when changing a topic from graded to ungraded' do
+      user_session(@teacher)
+      todo_date = 1.day.from_now
+      assign = @course.assignments.create!(title: 'Graded Topic 1', submission_types: 'discussion_topic')
+      topic = assign.discussion_topic
+      put 'update', course_id: @course.id, topic_id: topic.id, todo_date: todo_date.iso8601(6), format: 'json',
+        assignment: {set_assignment: false, name: 'Graded Topic 1'}
+      expect(response.code).to eq '200'
+      expect(topic.reload.assignment).to be nil
+      expect(topic.todo_date).to eq todo_date
+    end
+
+    it 'should remove an existing todo date when changing a topic from ungraded to graded' do
+      user_session(@teacher)
+      @topic.update_attributes(todo_date: 1.day.from_now)
+      put 'update', course_id: @course.id, topic_id: @topic.id, format: 'json',
+        assignment: {submission_types: ['discussion_topic'], name: 'Graded Topic 1'}
+      expect(response.code).to eq '200'
+      expect(@topic.reload.assignment).to be_truthy
+      expect(@topic.todo_date).to be nil
     end
   end
 
@@ -535,8 +802,15 @@ describe DiscussionTopicsController do
       expect(feed.links.first.href).to match(/http:\/\//)
     end
 
-    it "should include an author for each entry" do
+    it "should not include entries in an anonymous feed" do
       get 'public_feed', :format => 'atom', :feed_code => @course.feed_code
+      feed = Atom::Feed.load_feed(response.body) rescue nil
+      expect(feed).not_to be_nil
+      expect(feed.entries).to be_empty
+    end
+
+    it "should include an author for each entry with an enrollment feed" do
+      get 'public_feed', :format => 'atom', :feed_code => @course.teacher_enrollments.first.feed_code
       feed = Atom::Feed.load_feed(response.body) rescue nil
       expect(feed).not_to be_nil
       expect(feed.entries).not_to be_empty
@@ -588,7 +862,6 @@ describe DiscussionTopicsController do
 
       specify { expect(topic).to be_a DiscussionTopic }
       specify { expect(topic.user).to eq @user }
-      specify { expect(topic.current_user).to eq @user }
       specify { expect(topic.delayed_post_at).to be_nil }
       specify { expect(topic.lock_at).to be_nil }
       specify { expect(topic.workflow_state).to eq 'active' }
@@ -645,6 +918,33 @@ describe DiscussionTopicsController do
       expect(@student.recent_stream_items.map {|item| item.data}).not_to include topic
     end
 
+    it 'does dispatch new topic notification when not hidden' do
+      notification = Notification.create(name: 'New Discussion Topic', category: 'TestImmediately')
+      @student.communication_channels.create!(path: 'student@example.com') {|cc| cc.workflow_state = 'active'}
+      obj_params = topic_params(@course, published: true)
+      user_session(@teacher)
+      post 'create', { :format => :json }.merge(obj_params)
+      json = JSON.parse response.body
+      topic = DiscussionTopic.find(json['id'])
+      expect(topic).to be_published
+      expect(@student.email_channel.messages.map(&:context)).to include(topic)
+    end
+
+    it 'does dispatch new topic notification when published' do
+      notification = Notification.create(name: 'New Discussion Topic', category: 'TestImmediately')
+      @student.communication_channels.create!(path: 'student@example.com') {|cc| cc.workflow_state = 'active'}
+      obj_params = topic_params(@course, published: false)
+      user_session(@teacher)
+      post 'create', { :format => :json }.merge(obj_params)
+
+      json = JSON.parse response.body
+      topic = DiscussionTopic.find(json['id'])
+      expect(@student.email_channel.messages).to be_empty
+
+      put 'update', course_id: @course.id, topic_id: topic.id, title: 'Updated Topic', format: 'json', published: true
+      expect(@student.email_channel.messages.map(&:context)).to include(topic)
+    end
+
     it 'dispatches an assignment stream item with the correct title' do
       notification = Notification.create(:name => "Assignment Created")
       obj_params = topic_params(@course).
@@ -688,7 +988,7 @@ describe DiscussionTopicsController do
 
     it "should not change the editor if only pinned was changed" do
       put('update', course_id: @course.id, topic_id: @topic.id,
-        format: 'json', pinned: true)
+        format: 'json', pinned: '1')
       @topic.reload
       expect(@topic.pinned).to be_truthy
       expect(@topic.editor).to_not eq @teacher

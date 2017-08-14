@@ -1,7 +1,29 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../../../spec_helper.rb')
 
 describe Quizzes::QuizSubmission::QuestionReferenceDataFixer do
   before(:once) do
+    # make sure the sequences are nowhere near each other, so as to avoid
+    # flickering failures due to colliding ids
+    User.connection.execute "ALTER SEQUENCE public.assessment_questions_id_seq RESTART WITH 1000"
+    User.connection.execute "ALTER SEQUENCE public.quiz_questions_id_seq RESTART WITH 2000"
+
     @course = course_model
     @bank = @course.assessment_question_banks.create!(:title=>'Test Bank')
     @aq = assessment_question_model({

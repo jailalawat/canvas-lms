@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Canvas::Plugins::TicketingSystem
   # If this plugin is enabled, then whenever an ErrorReport is
   # created in canvas, a JSON document representing that error
@@ -27,7 +44,7 @@ module Canvas::Plugins::TicketingSystem
         to: conf[:email_address],
         from: error_report.email,
         subject: I18n.t("Canvas Error Report"),
-        body: error_report.to_document,
+        body: JSON.pretty_generate(error_report.to_document, space_before: ''),
         root_account_id: error_report.account_id,
         delay_for: 0,
         context: error_report.raw_report

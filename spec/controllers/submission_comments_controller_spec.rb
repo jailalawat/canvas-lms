@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -28,5 +28,29 @@ describe SubmissionCommentsController do
       expect(response).to be_success
     end
 
+  end
+
+  describe "PATCH 'update'" do
+    before(:once) do
+      course_with_teacher(active_all: true)
+      @the_teacher = @teacher
+      submission_comment_model(author: @teacher, draft_comment: true)
+
+      @test_params = {
+        id: @submission_comment.id,
+        format: :json,
+        submission_comment: {
+          draft: false
+        }
+      }
+    end
+
+    before(:each) do
+      user_session(@the_teacher)
+    end
+
+    it 'allows updating the status field' do
+      expect { patch 'update', @test_params }.to change { SubmissionComment.draft.count }.by(-1)
+    end
   end
 end

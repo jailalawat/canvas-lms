@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -64,7 +64,6 @@ describe ContextModulesController do
         expect(assigns[:modules]).to eq [@m2]
       end
     end
-
   end
 
   describe "PUT 'update'" do
@@ -99,6 +98,11 @@ describe ContextModulesController do
     end
   end
 
+  def use_route(options)
+    options[:use_route] = :course_context_module_first_redirect if CANVAS_RAILS4_2
+    options
+  end
+
   describe "GET 'module_redirect'" do
     it "should skip leading and trailing sub-headers" do
       course_with_student_logged_in(:active_all => true)
@@ -112,20 +116,24 @@ describe ContextModulesController do
       assignmentTag2 = @module.add_item :type => 'assignment', :id => assignment2.id
       header2 = @module.add_item :type => 'context_module_sub_header'
 
-      get 'module_redirect', :course_id => @course.id, :context_module_id => @module.id, :first => 1, :use_route => :course_context_module_first_redirect
-      expect(response).to redirect_to course_assignment_url(@course.id, assignment1.id, :module_item_id => assignmentTag1.id)
 
-      get 'module_redirect', :course_id => @course.id, :context_module_id => @module.id, :last => 1, :use_route => :course_context_module_last_redirect
-      expect(response).to redirect_to course_assignment_url(@course.id, assignment2.id, :module_item_id => assignmentTag2.id)
+      # CANVAS_RAILS4_2 remove this silence when we drop Rails 4.2
+      ActiveSupport::Deprecation.silence do
+        get 'module_redirect', use_route(:course_id => @course.id, :context_module_id => @module.id, :first => 1)
+        expect(response).to redirect_to course_assignment_url(@course.id, assignment1.id, :module_item_id => assignmentTag1.id)
 
-      assignmentTag1.destroy
-      assignmentTag2.destroy
+        get 'module_redirect', use_route(:course_id => @course.id, :context_module_id => @module.id, :last => 1)
+        expect(response).to redirect_to course_assignment_url(@course.id, assignment2.id, :module_item_id => assignmentTag2.id)
 
-      get 'module_redirect', :course_id => @course.id, :context_module_id => @module.id, :first => 1, :use_route => :course_context_module_first_redirect
-      expect(response).to redirect_to course_context_modules_url(@course.id, :anchor => "module_#{@module.id}")
+        assignmentTag1.destroy
+        assignmentTag2.destroy
 
-      get 'module_redirect', :course_id => @course.id, :context_module_id => @module.id, :last => 1, :use_route => :course_context_module_last_redirect
-      expect(response).to redirect_to course_context_modules_url(@course.id, :anchor => "module_#{@module.id}")
+        get 'module_redirect', use_route(:course_id => @course.id, :context_module_id => @module.id, :first => 1)
+        expect(response).to redirect_to course_context_modules_url(@course.id, :anchor => "module_#{@module.id}")
+
+        get 'module_redirect', use_route(:course_id => @course.id, :context_module_id => @module.id, :last => 1)
+        expect(response).to redirect_to course_context_modules_url(@course.id, :anchor => "module_#{@module.id}")
+      end
     end
   end
 
@@ -332,7 +340,7 @@ describe ContextModulesController do
       expect(@module.evaluate_for(@user).requirements_met).to be_blank
     end
 
-    it "should not mark a locked external url item read" do
+    it "should not mark an unpublished external url item read" do
       user_session(@student)
       @module = @course.context_modules.create!
       @module.unpublish
@@ -395,7 +403,9 @@ describe ContextModulesController do
       expect(tagA).to be_unpublished
       expect(m1.reload.content_tags.order(:position).pluck(:id)).to eq [tagB.id, tagA.id]
       post 'reorder_items', course_id: @course.id, context_module_id: m1.id, order: "#{tagA.id},#{tagB.id}"
-      expect(m1.reload.content_tags.order(:position).pluck(:id)).to eq [tagA.id, tagB.id]
+      tags = m1.reload.content_tags.order(:position).to_a
+      expect(tags.map(&:position)).to eq [1, 2]
+      expect(tags.map(&:id)).to eq [tagA.id, tagB.id]
     end
 
     it "should only touch module once on reorder" do
@@ -532,7 +542,7 @@ describe ContextModulesController do
   describe "GET progressions" do
     context "unauthenticated user in public course" do
       before(:once) do
-        course(:is_public => true, :active_all => true)
+        course_factory(:is_public => true, :active_all => true)
         @user = nil
         @mod1 = @course.context_modules.create!(:name => 'unlocked')
         @mod2 = @course.context_modules.create!(:name => 'locked', :unlock_at => 1.week.from_now)
@@ -624,6 +634,50 @@ describe ContextModulesController do
       end
     end
 
+    it "should return too_many_overrides if applicable for assignments" do
+      course_with_teacher_logged_in(:active_all => true)
+      @mod = @course.context_modules.create!
+      @assign = @course.assignments.create! title: "WHAT", points_possible: 123
+      @tag = @mod.add_item(type: 'assignment', id: @assign.id)
+
+      Setting.set('assignment_all_dates_too_many_threshold', '1')
+
+      2.times do
+        student = student_in_course(:course => @course, :active_all => true).user
+        override = assignment_override_model(:assignment => @assign)
+        os = override.assignment_override_students.create!(:user => student)
+      end
+
+      AssignmentOverrideApplicator.expects(:overrides_for_assignment_and_user).never
+
+      get 'content_tag_assignment_data', course_id: @course.id, format: 'json' # precache
+      json = JSON.parse response.body.gsub("while(1);",'')
+      expect(json[@tag.id.to_s]["vdd_tooltip"]).to be_nil
+      expect(json[@tag.id.to_s]["has_many_overrides"]).to be_truthy
+    end
+
+    it "should return too_many_overrides if applicable for graded topics" do
+      course_with_teacher_logged_in(:active_all => true)
+      @mod = @course.context_modules.create!
+      @assign = assignment_model(:course => @course, :submission_types => 'discussion_topic', :title => 'discuss')
+      @topic = @assign.discussion_topic
+
+      @tag = @mod.add_item(type: 'discussion_topic', id: @topic.id)
+
+      Setting.set('assignment_all_dates_too_many_threshold', '1')
+
+      2.times do
+        student = student_in_course(:course => @course, :active_all => true).user
+        override = assignment_override_model(:assignment => @assign)
+        os = override.assignment_override_students.create!(:user => student)
+      end
+
+      get 'content_tag_assignment_data', course_id: @course.id, format: 'json' # precache
+      json = JSON.parse response.body.gsub("while(1);",'')
+      expect(json[@tag.id.to_s]["vdd_tooltip"]).to be_nil
+      expect(json[@tag.id.to_s]["has_many_overrides"]).to be_truthy
+    end
+
     it "should not cache 'past_due'" do
       course_with_student_logged_in(:active_all => true)
       @mod = @course.context_modules.create!
@@ -661,6 +715,26 @@ describe ContextModulesController do
       expect(json[@tag.id.to_s]["vdd_tooltip"]["due_dates"].count).to eq 2
     end
 
+    it "should return too_many_overrides if applicable for survey quizzes" do
+      course_with_teacher_logged_in(:active_all => true)
+      @mod = @course.context_modules.create!
+      @quiz = @course.quizzes.create!(:title => "sad", :due_at => 1.week.from_now, :quiz_type => "survey")
+      @tag = @mod.add_item(type: 'quiz', id: @quiz.id)
+
+      Setting.set('assignment_all_dates_too_many_threshold', '1')
+
+      2.times do
+        student = student_in_course(:course => @course, :active_all => true).user
+        override = assignment_override_model(:quiz => @quiz)
+        os = override.assignment_override_students.create!(:user => student)
+      end
+
+      get 'content_tag_assignment_data', course_id: @course.id, format: 'json' # precache
+      json = JSON.parse response.body.gsub("while(1);",'')
+      expect(json[@tag.id.to_s]["vdd_tooltip"]).to be_nil
+      expect(json[@tag.id.to_s]["has_many_overrides"]).to be_truthy
+    end
+
     it "should return past_due if survey quiz is past due" do
       course_with_student_logged_in(:active_all => true)
       @mod = @course.context_modules.create!
@@ -681,14 +755,14 @@ describe ContextModulesController do
       @tag = @mod.add_item(type: 'quiz', id: @quiz.id)
 
       @quiz.generate_submission(@student).complete!
-      
+
       get 'content_tag_assignment_data', course_id: @course.id, format: 'json' # precache
       json = JSON.parse response.body.gsub("while(1);",'')
       expect(json[@tag.id.to_s]["past_due"]).to be_blank
     end
   end
 
-  describe "GET 'show'" do
+  describe "GET show" do
     before :once do
       course_with_teacher(active_all: true)
     end
@@ -708,6 +782,187 @@ describe ContextModulesController do
       user_session(@student)
       get 'show', course_id: @course.id, id: @m1.id
       assert_unauthorized
+    end
+  end
+
+  describe "GET 'choose_mastery_path'" do
+    before :each do
+      ConditionalRelease::Service.stubs(:enabled_in_context?).returns(true)
+    end
+
+    before :once do
+      course_with_student(:active_all => true)
+      @mod = @course.context_modules.create!
+      ag = @course.assignment_groups.create!
+      @assg = ag.assignments.create!(:context => @course)
+      @item = @mod.add_item :type => 'assignment', :id => @assg.id
+    end
+
+    before :each do
+      user_session @student
+    end
+
+    it "should return 404 if no rule matches item assignment" do
+      user_session(@student)
+
+      ConditionalRelease::Service.stubs(:rules_for).returns([])
+
+      get 'choose_mastery_path', :course_id => @course.id, :id => @item.id
+      assert_response(:missing)
+    end
+
+    it "should return 404 if matching rule is unlocked but has one selected assignment set" do
+      user_session(@student)
+
+      ConditionalRelease::Service.stubs(:rules_for).returns([
+        {
+          trigger_assignment: @assg.id,
+          locked: false,
+          selected_set_id: 99,
+          assignment_sets: [{}],
+        }
+      ])
+
+      get 'choose_mastery_path', :course_id => @course.id, :id => @item.id
+      assert_response(:missing)
+    end
+
+    it "should redirect to context modules page with warning if matching rule is locked" do
+      user_session(@student)
+
+      ConditionalRelease::Service.stubs(:rules_for).returns([
+        {
+          trigger_assignment: @assg.id,
+          locked: true,
+          assignment_sets: [],
+        }
+      ])
+
+      get 'choose_mastery_path', :course_id => @course.id, :id => @item.id
+      assert(flash[:warning].present?)
+      assert_redirected_to(controller: 'context_modules', action: 'index')
+    end
+
+    it "should show choose page if matches a rule that is unlocked and has more than two assignment sets" do
+      user_session(@student)
+      assg1, assg2 = create_assignments(@course.id, 2).map {|id| Assignment.find(id)}
+
+      ConditionalRelease::Service.stubs(:rules_for).returns([
+        {
+          trigger_assignment: @assg.id,
+          locked: false,
+          assignment_sets: [
+            { id: 1, assignments: [{ assignment_id: 1, model: assg1 }] },
+            { id: 2, assignments: [{ assignment_id: 2, model: assg2 }] }
+          ]
+        }
+      ])
+
+      get 'choose_mastery_path', :course_id => @course.id, :id => @item.id
+      assert_response(:success)
+      mastery_path_data = controller.js_env[:CHOOSE_MASTERY_PATH_DATA]
+      expect(mastery_path_data).to include({
+        selectedOption: nil,
+        courseId: @course.id,
+        moduleId: @mod.id,
+        itemId: @item.id.to_s
+      })
+      options = mastery_path_data[:options]
+      expect(options.length).to eq 2
+      expect(options[0][:setId]).to eq 1
+      expect(options[1][:setId]).to eq 2
+    end
+
+    it "should show choose page if matching rule is unlocked and has one unselected assignment set" do
+      user_session(@student)
+
+      ConditionalRelease::Service.stubs(:rules_for).returns([
+        {
+          trigger_assignment: @assg.id,
+          locked: false,
+          assignment_sets: [{ id: 1, assignments: []}],
+        }
+      ])
+
+      get 'choose_mastery_path', :course_id => @course.id, :id => @item.id
+      assert_response(:success)
+      mastery_path_data = controller.js_env[:CHOOSE_MASTERY_PATH_DATA]
+      expect(mastery_path_data).to include({
+        selectedOption: nil
+      })
+      expect(mastery_path_data[:options].length).to eq 1
+    end
+
+
+    it "should show choose page if matches a rule that is unlocked and has more than two assignment sets even if multiple rules are present" do
+      user_session(@student)
+      assg1, assg2 = create_assignments(@course.id, 2).map {|id| Assignment.find(id)}
+
+      ConditionalRelease::Service.stubs(:rules_for).returns([
+        {
+          trigger_assignment: @assg.id + 1,
+          locked: false,
+          assignment_sets: [
+            { id: 1, assignments: [{ assignment_id: 1, model: assg1 }] },
+            { id: 2, assignments: [{ assignment_id: 2, model: assg2 }] }
+          ]
+        },
+        {
+          trigger_assignment: @assg.id,
+          locked: false,
+          assignment_sets: [
+            { id: 3, assignments: [{ assignment_id: 2, model: assg2 }] },
+            { id: 4, assignments: [{ assignment_id: 1, model: assg1 }] }
+          ]
+        }
+      ])
+
+      get 'choose_mastery_path', :course_id => @course.id, :id => @item.id
+      assert_response(:success)
+      options = controller.js_env[:CHOOSE_MASTERY_PATH_DATA][:options]
+      expect(options.length).to eq 2
+      expect(options[0][:setId]).to eq 3
+      expect(options[1][:setId]).to eq 4
+    end
+  end
+
+  describe "GET item_redirect_mastery_paths" do
+    before :each do
+      course_with_teacher_logged_in active_all: true
+      @mod = @course.context_modules.create!
+    end
+
+    it "should redirect to assignment edit mastery paths page" do
+      ag = @course.assignment_groups.create!
+      assg = ag.assignments.create! context: @course
+      item = @mod.add_item type: 'assignment', id: assg.id
+
+      get 'item_redirect_mastery_paths', course_id: @course.id, id: item.id
+      assert_redirected_to controller: 'assignments', action: 'edit', id: assg.id, anchor: 'mastery-paths-editor'
+    end
+
+    it "should redirect to quiz edit mastery paths page" do
+      quiz = @course.quizzes.create!
+      item = @mod.add_item type: 'quiz', id: quiz.id
+
+      get 'item_redirect_mastery_paths', course_id: @course.id, id: item.id
+      assert_redirected_to controller: 'quizzes/quizzes', action: 'edit', id: quiz.id, anchor: 'mastery-paths-editor'
+    end
+
+    it "should redirect to discussion edit mastery paths page" do
+      topic = @course.discussion_topics.create!
+      item = @mod.add_item type: 'discussion_topic', id: topic.id
+
+      get 'item_redirect_mastery_paths', course_id: @course.id, id: item.id
+      assert_redirected_to controller: 'discussion_topics', action: 'edit', id: topic.id, anchor: 'mastery-paths-editor'
+    end
+
+    it "should 404 if module item is not a graded type" do
+      page = @course.wiki.wiki_pages.create title: "test"
+      item = @mod.add_item type: 'page', id: page.id
+
+      get 'item_redirect_mastery_paths', :course_id => @course.id, :id => item.id
+      assert_response :missing
     end
   end
 end

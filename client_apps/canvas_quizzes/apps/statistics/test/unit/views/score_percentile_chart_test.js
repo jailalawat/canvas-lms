@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2014 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 define(function(require) {
   var Subject = require('jsx!views/summary/score_percentile_chart');
   var tick;
@@ -38,6 +56,18 @@ define(function(require) {
 
     it('should render a bar for each percentile', function() {
       expect(findAll('rect.bar').length).toEqual(101);
+    });
+
+    it('should add a description each bar', function() {
+      setProps({
+        scores: {
+          1: 1,]
+          62: 2
+        }
+      });
+
+      var summaryText = find('#summary-statistics').innerText;
+      expect(summaryText).toContain('2 students in percentile 62');
     });
 
     it('bar height should be based on score frequency', function(done) {

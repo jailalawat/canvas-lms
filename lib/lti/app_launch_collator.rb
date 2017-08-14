@@ -1,4 +1,5 @@
-# Copyright (C) 2014 Instructure, Inc.
+#
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -71,6 +72,12 @@ module Lti
           if p.to_sym == :resource_selection || definition[:placements][p.to_sym][:message_type] == 'ContentItemSelection'
             definition[:placements][p.to_sym][:selection_width] = tool.extension_setting(:resource_selection, :selection_width)
             definition[:placements][p.to_sym][:selection_height] = tool.extension_setting(:resource_selection, :selection_height)
+          end
+
+          %i[launch_width launch_height].each do |property|
+            if tool.extension_setting(p, property)
+              definition[:placements][p.to_sym][property] = tool.extension_setting(p, property)
+            end
           end
         end
       end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -67,7 +67,8 @@ describe 'login' do
 
       delete logout_url
       expect(response).to be_redirect
-      expect(response.location).to match(%r{/cas/logout\?destination=})
+      # we send both url (CAS v2) and service (CAS v3) params
+      expect(response.location).to match(%r{/cas/logout\?url=.*service=})
     end
 
     it "should inform the user CAS validation denied" do
@@ -258,25 +259,13 @@ describe 'login' do
   end
 
   it "should redirect back for jobs controller" do
-    user_with_pseudonym(:password => 'qwerty', :active_all => 1)
+    user_with_pseudonym(:password => 'qwertyuiop', :active_all => 1)
     Account.site_admin.account_users.create!(user: @user)
 
     get jobs_url
     expect(response).to redirect_to login_url
 
-    post canvas_login_url, pseudonym_session: { unique_id: @pseudonym.unique_id, password: 'qwerty' }
+    post canvas_login_url, pseudonym_session: { unique_id: @pseudonym.unique_id, password: 'qwertyuiop' }
     expect(response).to redirect_to jobs_url
-  end
-
-  it "loads custom js 'raw' on mobile login screen", type: :request do
-    js_url = 'https://example.com/path/to/some/file.js'
-    Account.default.settings[:global_includes] = true
-    Account.default.settings[:global_javascript] = js_url
-    Account.default.save!
-
-    get '/login/canvas', {}, { 'HTTP_USER_AGENT' => 'iphone' }
-    # match /optimized/vendor/jquery-1.7.2.js?1440111591 or /optimized/vendor/jquery-1.7.2.js
-    assert_tag(tag: 'script', attributes: { src: /^\/optimized\/vendor\/jquery-1.7.2.js(\?\d+)*$/})
-    assert_tag(tag: 'script', attributes: { src: js_url})
   end
 end

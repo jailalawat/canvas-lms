@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_dependency 'importers'
 
 module Importers
@@ -54,20 +71,38 @@ module Importers
           question_bank = migration.context.assessment_question_banks.temp_record
           if bank_hash = data['assessment_question_banks'].detect{|qb_hash| qb_hash['migration_id'] == bank_mig_id}
             question_bank.title = bank_hash['title']
+            if question_bank.title && question_bank.title.length > ActiveRecord::Base.maximum_string_length
+              migration.add_warning(t("The title of the following question bank was truncated: \"%{title}\"", :title => question_bank.title))
+              question_bank.title = CanvasTextHelper.truncate_text(question_bank.title, :max_length => ActiveRecord::Base.maximum_string_length)
+            end
           end
           question_bank.title ||= default_title
           question_bank.migration_id = bank_mig_id
-          question_bank.save!
-          migration.add_imported_item(question_bank)
-          bank_map[question_bank.migration_id] = question_bank
+        elsif data['assessment_question_banks']
+          if bank_hash = data['assessment_question_banks'].detect{|qb_hash| qb_hash['migration_id'] == question_bank.migration_id}
+            question_bank.title = bank_hash['title'] # we should update the title i guess?
+          end
         end
 
         if question_bank.workflow_state == 'deleted'
           question_bank.workflow_state = 'active'
+        end
+
+        question_bank.mark_as_importing!(migration)
+        if question_bank.new_record?
+          question_bank.save!
+          migration.add_imported_item(question_bank)
+          bank_map[question_bank.migration_id] = question_bank
+        elsif question_bank.changed?
           question_bank.save!
         end
 
         begin
+          if migration.for_master_course_import?
+            # don't overwrite any existing assessment question content if the bank or any questions have been updated downstream
+            next if question['assessment_question_id'] && question_bank.edit_types_locked_for_overwrite_on_import.include?(:content)
+          end
+
           question = self.import_from_migration(question, migration.context, migration, question_bank)
           question_data[:aq_data][question['migration_id']] = question
         rescue
@@ -93,7 +128,7 @@ module Importers
       end
 
       if id = hash['assessment_question_id']
-        AssessmentQuestion.where(id: id).update_all(name: hash[:question_name], question_data: hash.to_yaml,
+        AssessmentQuestion.where(id: id).update_all(name: hash[:question_name], question_data: hash,
             workflow_state: 'active', created_at: Time.now.utc, updated_at: Time.now.utc,
             assessment_question_bank_id: bank.id)
       else
@@ -101,9 +136,11 @@ module Importers
           INSERT INTO #{AssessmentQuestion.quoted_table_name} (name, question_data, workflow_state, created_at, updated_at, assessment_question_bank_id, migration_id)
           VALUES (?,?,'active',?,?,?,?)
         SQL
-        id = AssessmentQuestion.connection.insert(query, "#{name} Create",
-          AssessmentQuestion.primary_key, nil, AssessmentQuestion.sequence_name)
-        hash['assessment_question_id'] = id
+        Shackles.activate(:master) do
+          id = AssessmentQuestion.connection.insert(query, "#{name} Create",
+            AssessmentQuestion.primary_key, nil, AssessmentQuestion.sequence_name)
+          hash['assessment_question_id'] = id
+        end
       end
 
       if import_warnings
@@ -118,6 +155,17 @@ module Importers
 
     def self.prep_for_import(hash, migration, item_type)
       return hash if hash[:prepped_for_import]
+
+      if hash[:is_cc_pattern_match]
+        migration.add_unique_warning(:cc_pattern_match,
+          t("This package includes the question type, Pattern Match, which is not compatible with Canvas. We have converted the question type to Fill in the Blank"))
+      end
+
+      if hash[:question_text] && hash[:question_text].length > 16.kilobytes
+        hash[:question_text] = t("The imported question text for this question was too long.")
+        migration.add_warning(t("The question text for the question \"%{question_name}\" was too long.",
+          :question_name => hash[:question_name]))
+      end
 
       [:question_text, :correct_comments_html, :incorrect_comments_html, :neutral_comments_html, :more_comments_html].each do |field|
         if hash[field].present?

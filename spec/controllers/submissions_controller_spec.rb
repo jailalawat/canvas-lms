@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -37,6 +37,27 @@ describe SubmissionsController do
       expect(assigns[:submission].assignment_id).to eql(@assignment.id)
       expect(assigns[:submission].submission_type).to eql("online_url")
       expect(assigns[:submission].url).to eql("http://url")
+    end
+
+    it 'should only emit one live event' do
+      expect(Canvas::LiveEvents).to receive(:submission_created).once
+      expect(Canvas::LiveEvents).not_to receive(:submission_updated)
+      course_with_student_logged_in(:active_all => true)
+      @assignment = @course.assignments.create!(:title => "some assignment", :submission_types => "online_url,online_upload")
+      post 'create', :course_id => @course.id, :assignment_id => @assignment.id, :submission => {:submission_type => "online_url", :url => "url"}
+    end
+
+    it "should not double-send notifications to a teacher" do
+      course_with_student_logged_in(:active_all => true)
+      @teacher = user_with_pseudonym(username: 'teacher@example.com', active_all: 1)
+      teacher_in_course(course: @course, user: @teacher, active_all: 1)
+      n = Notification.create!(name: 'Assignment Submitted', category: 'TestImmediately')
+
+      @assignment = @course.assignments.create!(:title => "some assignment", :submission_types => "online_url,online_upload")
+      post 'create', :course_id => @course.id, :assignment_id => @assignment.id, :submission => {:submission_type => "online_url", :url => "url"}
+      expect(response).to be_redirect
+      expect(@teacher.messages.count).to eq 1
+      expect(@teacher.messages.first.notification).to eq n
     end
 
     it "should allow submitting homework as attachments" do
@@ -139,6 +160,17 @@ describe SubmissionsController do
       expect(assigns[:submission].url).to eql("http://www.google.com")
     end
 
+    it 'must accept a basic_lti_launch url when any online submission type is allowed' do
+      course_with_student_logged_in(:active_all => true)
+      @assignment = @course.assignments.create!(:title => 'some assignment', :submission_types => 'online_url')
+      request.path = "/api/v1/courses/#{@course.id}/assignments/#{@assignment.id}/submissions"
+      post 'create', :course_id => @course.id, :assignment_id => @assignment.id, :submission => {:submission_type => 'basic_lti_launch', :url => 'http://www.google.com'}
+      expect(response).to be_redirect
+      expect(assigns[:submission]).not_to be_nil
+      expect(assigns[:submission].submission_type).to eq 'basic_lti_launch'
+      expect(assigns[:submission].url).to eq 'http://www.google.com'
+    end
+
     it "should redirect to the assignment when locked in submit-at-deadline situation" do
       enable_cache do
         now = Time.now.utc
@@ -151,7 +183,7 @@ describe SubmissionsController do
           )
 
           # cache permission as true (for 5 minutes)
-          expect(@assignment.grants_right?(@student, :submit)).to be_truthy
+          expect(@assignment.grants_right?(@student, {}, :submit)).to be_truthy
         end
 
         # travel past due date (which resets the Assignment#locked_for? cache)
@@ -224,11 +256,6 @@ describe SubmissionsController do
       expect(response).to be_redirect
       expect(flash[:error]).not_to be_nil
       expect(assigns[:submission]).to be_nil
-    end
-
-    it 'should build a pageview thats marked as participating' do
-      course_with_student_logged_in(:active_all => true)
-      @assignment = @course.assignments.create!(:title => "some assignment", :submission_types => "online_url")
     end
 
     context "group comments" do
@@ -405,6 +432,117 @@ describe SubmissionsController do
       expect(assigns[:submission].submission_comments[0].attachments.map{|a| a.display_name}).to be_include("txt.txt")
     end
 
+    describe 'allows a teacher to add draft comments to a submission' do
+      before(:each) do
+        course_with_teacher(active_all: true)
+        student_in_course
+        assignment = @course.assignments.create!(title: 'Assignment #1', submission_types: 'online_url,online_upload')
+
+        user_session(@teacher)
+        @test_params = {
+          course_id: @course.id,
+          assignment_id: assignment.id,
+          id: @student.id,
+          submission: {
+            comment: 'Comment #1',
+          }
+        }
+      end
+
+      it 'when draft_comment is true' do
+        test_params = @test_params
+        test_params[:submission][:draft_comment] = true
+
+        expect { put 'update', test_params }.to change { SubmissionComment.draft.count }.by(1)
+      end
+
+      it 'except when draft_comment is nil' do
+        test_params = @test_params
+        test_params[:submission].delete(:draft_comment)
+
+        expect { put 'update', test_params }.to change { SubmissionComment.count }.by(1)
+        expect { put 'update', test_params }.not_to change { SubmissionComment.draft.count }
+      end
+
+      it 'except when draft_comment is false' do
+        test_params = @test_params
+        test_params[:submission][:draft_comment] = false
+
+        expect { put 'update', test_params }.to change { SubmissionComment.count }.by(1)
+        expect { put 'update', test_params }.not_to change { SubmissionComment.draft.count }
+      end
+    end
+
+    describe "renders json" do
+      before do
+        course_with_student_and_submitted_homework
+        @submission.update!(score: 10)
+      end
+
+      let(:body) { JSON.parse(response.body)['submission'] }
+
+      it "renders json with scores for teachers" do
+        user_session(@teacher)
+        put 'update', {
+          course_id: @course.id,
+          assignment_id: @assignment.id,
+          id: @user.id,
+          submission: {student_entered_score: '2'}
+        }, format: :json
+        expect(body['id']).to eq @submission.id
+        expect(body['score']).to eq 10
+        expect(body['grade']).to eq '10'
+        expect(body['published_grade']).to eq '10'
+        expect(body['published_score']).to eq 10
+      end
+
+      it "renders json with scores for students" do
+        user_session(@student)
+        put 'update', {
+          course_id: @course.id,
+          assignment_id: @assignment.id,
+          id: @user.id,
+          submission: {student_entered_score: '2'}
+        }, format: :json
+        expect(body['id']).to eq @submission.id
+        expect(body['score']).to eq 10
+        expect(body['grade']).to eq '10'
+        expect(body['published_grade']).to eq '10'
+        expect(body['published_score']).to eq 10
+      end
+
+      it "renders json with scores for teachers on muted assignments" do
+        @assignment.update!(muted: true)
+        put 'update', {
+          course_id: @course.id,
+          assignment_id: @assignment.id,
+          id: @user.id,
+          submission: {student_entered_score: '2'}
+        }, format: :json
+        expect(body['id']).to eq @submission.id
+        expect(body['score']).to eq 10
+        expect(body['grade']).to eq '10'
+        expect(body['published_grade']).to eq '10'
+        expect(body['published_score']).to eq 10
+      end
+
+      it "renders json without scores for students on muted assignments" do
+        user_session(@student)
+        @assignment.update!(muted: true)
+        put 'update', {
+          course_id: @course.id,
+          assignment_id: @assignment.id,
+          id: @user.id,
+          submission: {student_entered_score: '2'}
+        }, format: :json
+        expect(body['id']).to eq @submission.id
+        expect(body['score']).to be nil
+        expect(body['grade']).to be nil
+        expect(body['published_grade']).to be nil
+        expect(body['published_score']).to be nil
+      end
+    end
+
     it "should allow setting 'student_entered_grade'" do
       course_with_student_logged_in(:active_all => true)
       @assignment = @course.assignments.create!(:title => "some assignment",
@@ -437,6 +575,25 @@ describe SubmissionsController do
       expect(@submission.reload.student_entered_score).to eq 2.0
     end
 
+    it 'changing student_entered_grade for a quiz does not change the workflow_state of a submission' do
+      course_with_student_logged_in(active_all: true)
+      assignment = @course.assignments.create!
+      assignment.workflow_state = :published
+      assignment.submission_types = :online_quiz
+      assignment.save!
+      quiz = Quizzes::Quiz.find_by(assignment_id: assignment)
+      quiz_submission = quiz.generate_submission(@user).complete!
+      quiz_submission.update_column(:workflow_state, :pending_review)
+      put(
+        :update,
+        course_id: @course.id,
+        assignment_id: assignment.id,
+        id: @user.id,
+        submission: { student_entered_score: 2 }
+      )
+      expect(quiz_submission.submission.reload).not_to be_pending_review
+    end
+
     context "moderated grading" do
       before :once do
         course_with_student(:active_all => true)
@@ -462,7 +619,7 @@ describe SubmissionsController do
       end
 
       it "should create a final provisional comment" do
-        @submission.find_or_create_provisional_grade!(scorer: @teacher)
+        @submission.find_or_create_provisional_grade!(@teacher)
         put 'update', :format => :json, :course_id => @course.id, :assignment_id => @assignment.id, :id => @user.id,
           :submission => {:comment => "provisional!", :provisional => true, :final => true}
 
@@ -500,63 +657,62 @@ describe SubmissionsController do
     end
   end
 
-  describe 'GET /submissions/:id param routing', type: :request do
-    before do
-      course_with_student_and_submitted_homework
-      @context = @course
-    end
-
-    describe "preview query param", type: :request do
-      it 'renders with submissions/previews#show if params is present and format is html' do
-        get "/courses/#{@context.id}/assignments/#{@assignment.id}/submissions/#{@student.id}?preview=1"
-        expect(request.params[:controller]).to eq 'submissions/previews'
-        expect(request.params[:action]).to eq 'show'
-      end
-
-      it 'renders with submissions#show if params is present and format is json' do
-        get "/courses/#{@context.id}/assignments/#{@assignment.id}/submissions/#{@student.id}?preview=1", format: :json
-        expect(request.params[:controller]).to eq 'submissions'
-        expect(request.params[:action]).to eq 'show'
-      end
-
-      it 'renders with action #show if params is not present' do
-        get "/courses/#{@context.id}/assignments/#{@assignment.id}/submissions/#{@student.id}"
-        expect(request.params[:controller]).to eq 'submissions'
-        expect(request.params[:action]).to eq 'show'
-      end
-    end
-
-    describe "download query param", type: :request do
-      it 'renders with action #download if params is present' do
-        get "/courses/#{@context.id}/assignments/#{@assignment.id}/submissions/#{@student.id}?download=12345"
-        expect(request.params[:controller]).to eq 'submissions/downloads'
-        expect(request.params[:action]).to eq 'show'
-      end
-
-      it 'renders with action #show if params is not present' do
-        get "/courses/#{@context.id}/assignments/#{@assignment.id}/submissions/#{@student.id}"
-        expect(request.params[:controller]).to eq 'submissions'
-        expect(request.params[:action]).to eq 'show'
-      end
-    end
-  end
-
   describe "GET show" do
     before do
       course_with_student_and_submitted_homework
       @context = @course
-      user_session(@teacher)
+      @submission.update!(score: 10)
     end
+
+    let(:body) { JSON.parse(response.body)['submission'] }
 
     it "renders show template" do
       get :show, course_id: @context.id, assignment_id: @assignment.id, id: @student.id
       expect(response).to render_template(:show)
     end
 
-    it "renders json" do
-      request.accept = Mime::JSON.to_s
+    it "renders json with scores for teachers" do
+      request.accept = Mime[:json].to_s
       get :show, course_id: @context.id, assignment_id: @assignment.id, id: @student.id, format: :json
-      expect(JSON.parse(response.body)['submission']['id']).to eq @submission.id
+      expect(body['id']).to eq @submission.id
+      expect(body['score']).to eq 10
+      expect(body['grade']).to eq '10'
+      expect(body['published_grade']).to eq '10'
+      expect(body['published_score']).to eq 10
+    end
+
+    it "renders json with scores for students" do
+      user_session(@student)
+      request.accept = Mime[:json].to_s
+      get :show, course_id: @context.id, assignment_id: @assignment.id, id: @student.id, format: :json
+      expect(body['id']).to eq @submission.id
+      expect(body['score']).to eq 10
+      expect(body['grade']).to eq '10'
+      expect(body['published_grade']).to eq '10'
+      expect(body['published_score']).to eq 10
+    end
+
+    it "renders json with scores for teachers on muted assignments" do
+      @assignment.update!(muted: true)
+      request.accept = Mime[:json].to_s
+      get :show, course_id: @context.id, assignment_id: @assignment.id, id: @student.id, format: :json
+      expect(body['id']).to eq @submission.id
+      expect(body['score']).to eq 10
+      expect(body['grade']).to eq '10'
+      expect(body['published_grade']).to eq '10'
+      expect(body['published_score']).to eq 10
+    end
+
+    it "renders json without scores for students on muted assignments" do
+      user_session(@student)
+      @assignment.update!(muted: true)
+      request.accept = Mime[:json].to_s
+      get :show, course_id: @context.id, assignment_id: @assignment.id, id: @student.id, format: :json
+      expect(body['id']).to eq @submission.id
+      expect(body['score']).to be nil
+      expect(body['grade']).to be nil
+      expect(body['published_grade']).to be nil
+      expect(body['published_score']).to be nil
     end
 
     context "with user id not present in course" do
@@ -572,15 +728,6 @@ describe SubmissionsController do
       it "should redirect to context assignment url" do
         get :show, course_id: @context.id, assignment_id: @assignment.id, id: @student.id
         expect(response).to redirect_to(course_assignment_url(@context, @assignment))
-      end
-    end
-
-    it "should not expose muted assignment's scores" do
-      get "show", :id => @submission.to_param, :assignment_id => @assignment.to_param, :course_id => @course.to_param
-      expect(response).to be_success
-
-      %w(score published_grade published_score grade).each do |secret_attr|
-        expect(assigns[:submission].send(secret_attr)).to be_nil
       end
     end
 
@@ -601,24 +748,91 @@ describe SubmissionsController do
     end
   end
 
-  describe 'GET turnitin_report' do
+ context 'originality report' do
+  let(:test_course) do
+    test_course = course_factory(active_course: true)
+    test_course.enroll_teacher(test_teacher, enrollment_state: 'active')
+    test_course.enroll_student(test_student, enrollment_state: 'active')
+    test_course
+  end
+
+  let(:test_teacher) { User.create }
+  let(:test_student) { User.create }
+  let(:assignment) { Assignment.create!(title: 'test assignment', context: test_course) }
+  let(:attachment) { attachment_model(filename: "submission.doc", context: test_student) }
+  let(:submission) { assignment.submit_homework(test_student, attachments: [attachment]) }
+  let!(:originality_report) do
+    OriginalityReport.create!(attachment: attachment,
+                              submission: submission,
+                              originality_score: 0.5,
+                              originality_report_url: 'http://www.instructure.com')
+  end
+
+
+  before :each do
+    user_session(test_teacher)
+  end
+
+
+  describe 'GET originality_report' do
+    it 'redirects to the originality report URL if it exists' do
+      get 'originality_report', course_id: assignment.context_id, assignment_id: assignment.id, submission_id: test_student.id, asset_string: attachment.asset_string
+      expect(response).to redirect_to originality_report.originality_report_url
+    end
+
 
     it 'returns 400 if submission_id is not integer' do
-      assignment = assignment_model
-      get 'turnitin_report', :course_id => assignment.context_id, :assignment_id => assignment.id, :submission_id => '{{ user_id }}', :asset_string => '123'
+      get 'originality_report', :course_id => assignment.context_id, :assignment_id => assignment.id, :submission_id => '{{ user_id }}', :asset_string => attachment.asset_string
       expect(response.response_code).to eq 400
     end
 
+    it "returns unauthorized for users who can't read submission" do
+      unauthorized_user = User.create
+      user_session(unauthorized_user)
+      get 'originality_report', course_id: assignment.context_id, assignment_id: assignment.id, submission_id: test_student.id, asset_string: attachment.asset_string
+      expect(response.status).to eq 401
+    end
+
+    it 'gives error if no url is present for the OriginalityReport' do
+      originality_report.update_attribute(:originality_report_url, nil)
+      get 'originality_report', course_id: assignment.context_id, assignment_id: assignment.id, submission_id: test_student.id, asset_string: attachment.asset_string
+      expect(flash[:notice]).to be_present
+    end
   end
 
   describe 'POST resubmit_to_turnitin' do
-
     it 'returns 400 if submission_id is not integer' do
       assignment = assignment_model
       post 'resubmit_to_turnitin', :course_id => assignment.context_id, :assignment_id => assignment.id, :submission_id => '{{ user_id }}'
       expect(response.response_code).to eq 400
     end
 
+    it "emits a 'plagiarism_resubmit' live event if originality report exists" do
+      expect(Canvas::LiveEvents).to receive(:plagiarism_resubmit)
+      post 'resubmit_to_turnitin', course_id: assignment.context_id, assignment_id: assignment.id, submission_id: test_student.id
+    end
+
+    it "emits a 'plagiarism_resubmit' live event if originality report does not exists" do
+      originality_report.destroy
+      expect(Canvas::LiveEvents).to receive(:plagiarism_resubmit)
+      post 'resubmit_to_turnitin', course_id: assignment.context_id, assignment_id: assignment.id, submission_id: test_student.id
+    end
+  end
+
+  describe 'POST resubmit_to_vericite' do
+    it "emits a 'plagiarism_resubmit' live event" do
+      expect(Canvas::LiveEvents).to receive(:plagiarism_resubmit)
+      post 'resubmit_to_vericite', course_id: assignment.context_id, assignment_id: assignment.id, submission_id: test_student.id
+    end
+  end
+ end
+
+  describe 'GET turnitin_report' do
+    it 'returns 400 if submission_id is not integer' do
+      assignment = assignment_model
+      get 'turnitin_report', :course_id => assignment.context_id, :assignment_id => assignment.id, :submission_id => '{{ user_id }}', :asset_string => '123'
+      expect(response.response_code).to eq 400
+    end
   end
 
   describe "copy_attachments_to_submissions_folder" do
@@ -652,7 +866,7 @@ describe SubmissionsController do
 
     it "leaves files in non user/group context alone" do
       assignment_model(context: @course)
-      weird_file = @assignment.attachments.create! name: 'blah', uploaded_data: default_uploaded_data
+      weird_file = @assignment.attachments.create! display_name: 'blah', uploaded_data: default_uploaded_data
       atts = SubmissionsController.copy_attachments_to_submissions_folder(@course, [weird_file])
       expect(atts).to eq [weird_file]
     end

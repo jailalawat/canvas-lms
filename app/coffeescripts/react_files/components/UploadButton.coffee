@@ -1,10 +1,29 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!upload_button'
   'react'
+  'react-dom'
+  'prop-types'
   'underscore'
   '../modules/customPropTypes'
   '../modules/FileOptionsCollection'
-], (I18n, React, _, customPropTypes, FileOptionsCollection) ->
+], (I18n, React, ReactDOM, PropTypes, _, customPropTypes, FileOptionsCollection) ->
 
   resolvedUserAction = false
 
@@ -13,22 +32,22 @@ define [
 
     propTypes:
       currentFolder: customPropTypes.folder # not required as we don't have it on the first render
-      contextId: React.PropTypes.oneOfType [React.PropTypes.string, React.PropTypes.number]
-      contextType: React.PropTypes.string
+      contextId: PropTypes.oneOfType [PropTypes.string, PropTypes.number]
+      contextType: PropTypes.string
 
     getInitialState: ->
       return FileOptionsCollection.getState()
 
     queueUploads: ->
-      @refs.form.getDOMNode().reset()
+      ReactDOM.findDOMNode(@refs.form).reset()
       FileOptionsCollection.queueUploads(@props.contextId, @props.contextType)
 
     handleAddFilesClick: ->
-      this.refs.addFileInput.getDOMNode().click()
+      ReactDOM.findDOMNode(this.refs.addFileInput).click()
 
     handleFilesInputChange: (e) ->
       resolvedUserAction = false
-      files = this.refs.addFileInput.getDOMNode().files
+      files = ReactDOM.findDOMNode(this.refs.addFileInput).files
       FileOptionsCollection.setFolder(@props.currentFolder)
       FileOptionsCollection.setOptionsFromFiles(files)
       @setState(FileOptionsCollection.getState())
@@ -44,7 +63,7 @@ define [
       @setState(FileOptionsCollection.getState())
 
     onClose: ->
-      @refs.form.getDOMNode().reset()
+      ReactDOM.findDOMNode(@refs.form).reset()
       if !resolvedUserAction
         # user dismissed zip or name conflict modal without resolving things
         # reset state to dump previously selected files

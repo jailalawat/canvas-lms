@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,6 +16,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 require_relative '../../../spec_helper.rb'
+require_dependency "api/html/link"
 
 module Api
   module Html
@@ -47,6 +48,42 @@ module Api
           Attachment.stubs(:where).with(id: "1").returns(stub(first: course_attachment))
           raw_link = "/files/1/download?verifier=123"
           expect(Link.new(raw_link).to_corrected_s).to eq "/courses/1/files/1/download?"
+        end
+
+        it 'scopes to the context if url includes the host' do
+          course_attachment = stub(context_type: "Course", context_id: 1)
+          Attachment.stubs(:where).with(id: "1").returns(stub(first: course_attachment))
+          host = 'account.instructure.com'
+          port = 443
+          raw_link = "https://#{host}/files/1/download?verifier=123"
+          expect(Link.new(raw_link, host: host, port: port).to_corrected_s).to eq "/courses/1/files/1/download?"
+        end
+
+        it 'strips the current host from absolute urls' do
+          course_attachment = stub(context_type: "Course", context_id: 1)
+          Attachment.stubs(:where).with(id: "1").returns(stub(first: course_attachment))
+          host = 'account.instructure.com'
+          port = 443
+          raw_link = "https://#{host}/courses/1/files/1/download?"
+          expect(Link.new(raw_link, host: host, port: port).to_corrected_s).to eq "/courses/1/files/1/download?"
+        end
+
+        it 'does not scope to the context if url includes a differnt host' do
+          course_attachment = stub(context_type: "Course", context_id: 1)
+          Attachment.stubs(:where).with(id: "1").returns(stub(first: course_attachment))
+          host = 'account.instructure.com'
+          port = 443
+          raw_link = "https://#{host}/files/1/download"
+          expect(Link.new(raw_link, host: 'other-host', port: port).to_corrected_s).to eq raw_link
+        end
+
+        it 'does not strip the current host if the ports do not match' do
+          course_attachment = stub(context_type: "Course", context_id: 1)
+          Attachment.stubs(:where).with(id: "1").returns(stub(first: course_attachment))
+          host = 'localhost'
+          port = 3000
+          raw_link = "https://#{host}:8080/some/other/file"
+          expect(Link.new(raw_link, host: host, port: port).to_corrected_s).to eq raw_link
         end
       end
     end

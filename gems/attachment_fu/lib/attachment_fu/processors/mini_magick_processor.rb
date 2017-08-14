@@ -1,11 +1,27 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'mini_magick'
 
 module AttachmentFu # :nodoc:
   module Processors
     module MiniMagickProcessor
-      def self.included(base)
-        base.send :extend, ClassMethods
-        base.alias_method_chain :process_attachment, :processing
+      def self.prepended(base)
+        base.singleton_class.include(ClassMethods)
       end
 
       module ClassMethods
@@ -25,8 +41,8 @@ module AttachmentFu # :nodoc:
       end
 
     protected
-      def process_attachment_with_processing
-        return unless process_attachment_without_processing
+      def process_attachment
+        return unless super
         if image? && !@resized
           with_image do |img|
             max_image_size = attachment_options[:thumbnail_max_image_size_pixels]
@@ -53,8 +69,8 @@ module AttachmentFu # :nodoc:
             img.format("png")
           end
 
-          if size.is_a?(Fixnum) || (size.is_a?(Array) && size.first.is_a?(Fixnum))
-            if size.is_a?(Fixnum)
+          if size.is_a?(Integer) || (size.is_a?(Array) && size.first.is_a?(Integer))
+            if size.is_a?(Integer)
               size = [size, size]
               commands.resize(size.join('x'))
             else

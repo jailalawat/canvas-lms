@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -24,20 +24,16 @@ describe Lti::LtiOutboundAdapter do
   let(:return_url) { '/return/url' }
   let(:user) { User.new }
   let(:resource_type) { :lti_launch_type }
-  let(:tool_url) { '/tool/launch/url' }
+  let(:tool_url) { 'http://www.tool.com/launch/url?firstname=rory' }
 
   let(:tool) {
     ContextExternalTool.new.tap do |tool|
       tool.stubs(:id).returns('tool_id')
-      tool.url = '/tool/launch/url'
+      tool.url = tool_url
     end
   }
 
-  let(:user) {
-    User.new.tap do |user|
-      user.stubs(:id).returns('user_id')
-    end
-  }
+  let(:user) { User.create! }
 
   let(:context) {
     Course.new.tap do |course|
@@ -174,6 +170,16 @@ describe Lti::LtiOutboundAdapter do
     end
   end
 
+  context "link_params" do
+    let(:link_params) {{ext: {lti_assignment_id: "1234"}}}
+
+    it "passes through the secure_parameters when provided" do
+      LtiOutbound::ToolLaunch.expects(:new).with { |options| options[:link_params] == link_params }
+      adapter.prepare_tool_launch(return_url, variable_expander, {link_params: link_params})
+    end
+
+  end
+
   describe "#launch_url" do
     it "returns the launch url from the prepared tool launch" do
       tool_launch = mock('tool launch', url: '/launch/url')
@@ -190,11 +196,33 @@ describe Lti::LtiOutboundAdapter do
 
   describe "#generate_post_payload" do
     it "calls generate on the tool launch" do
-      tool_launch = mock('tool launch', generate: {})
+      tool_launch = mock('tool launch')
+      tool_launch.expects(generate: {})
+      tool_launch.stubs(url: "http://example.com/launch")
       LtiOutbound::ToolLaunch.stubs(:new).returns(tool_launch)
       adapter.prepare_tool_launch(return_url, variable_expander)
+      adapter.generate_post_payload
+    end
 
-      expect(adapter.generate_post_payload).to eq({})
+    it "does not copy query params to the post body if oauth_compliant tool setting is enabled" do
+      allow(account).to receive(:all_account_users_for).with(user).and_return([])
+      tool.settings = {oauth_compliant: true}
+      adapter.prepare_tool_launch(return_url, variable_expander)
+      payload = adapter.generate_post_payload
+      expect(payload['firstname']).to be_nil
+    end
+
+    it "includes the 'ext_lti_assignment_id' if the optional assignment parameter is present" do
+      assignment.update_attributes(lti_context_id: SecureRandom.uuid)
+      adapter.prepare_tool_launch(return_url, variable_expander)
+      payload = adapter.generate_post_payload(assignment: assignment)
+      expect(payload['ext_lti_assignment_id']).to eq assignment.lti_context_id
+    end
+
+    it "does not include the 'ext_lti_assignment_id' if the optional assignment parameter is absent" do
+      adapter.prepare_tool_launch(return_url, variable_expander)
+      payload = adapter.generate_post_payload(assignment: assignment)
+      expect(payload.keys).not_to include 'ext_lti_assignment_id'
     end
 
     it "raises a not prepared error if the tool launch has not been prepared" do
@@ -206,10 +234,18 @@ describe Lti::LtiOutboundAdapter do
     let(:outcome_service_url) { '/outcome/service' }
     let(:legacy_outcome_service_url) { '/legacy/service' }
     let(:lti_turnitin_outcomes_placement_url) { 'turnitin/outcomes/placement' }
-    let(:tool_launch) { stub('tool launch', generate: {}) }
+    let(:tool_launch) { stub('tool launch', generate: {}, url: "http://example.com/launch") }
 
     before(:each) do
       LtiOutbound::ToolLaunch.stubs(:new).returns(tool_launch)
+    end
+
+    it "includes the 'ext_lti_assignment_id' parameter" do
+      assignment.update_attributes(lti_context_id: SecureRandom.uuid)
+      adapter.prepare_tool_launch(return_url, variable_expander)
+      tool_launch.expects(:for_assignment!).with(lti_assignment, outcome_service_url, legacy_outcome_service_url, lti_turnitin_outcomes_placement_url)
+      payload = adapter.generate_post_payload_for_assignment(assignment, outcome_service_url, legacy_outcome_service_url, lti_turnitin_outcomes_placement_url)
+      expect(payload['ext_lti_assignment_id']).to eq assignment.lti_context_id
     end
 
     it "creates an lti_assignment" do
@@ -223,7 +259,7 @@ describe Lti::LtiOutboundAdapter do
     it "generates the correct source_id for the assignment" do
       generated_sha = 'generated_sha'
       Canvas::Security.stubs(:hmac_sha1).returns(generated_sha)
-      source_id = "tool_id-course_id-assignment_id-user_id-#{generated_sha}"
+      source_id = "tool_id-course_id-assignment_id-#{user.id}-#{generated_sha}"
       tool_launch.stubs(:for_assignment!)
       assignment_creator = mock
       assignment_creator.stubs(:convert).returns(tool_launch)
@@ -244,7 +280,7 @@ describe Lti::LtiOutboundAdapter do
 
   describe "#generate_post_payload_for_homework_submission" do
     it "creates an lti_assignment" do
-      tool_launch = mock('tool launch', generate: {})
+      tool_launch = mock('tool launch', generate: {}, url: "http://example.com/launch")
       LtiOutbound::ToolLaunch.stubs(:new).returns(tool_launch)
       adapter.prepare_tool_launch(return_url, variable_expander)
 

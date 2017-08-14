@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,8 +20,6 @@ class LearningOutcomeQuestionResult < ActiveRecord::Base
   belongs_to :learning_outcome_result
   belongs_to :learning_outcome
   belongs_to :associated_asset, polymorphic: [:assessment_question]
-
-  strong_params
 
   simply_versioned
 

@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/assignments_common')
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/differentiated_assignments')
 
@@ -11,6 +28,8 @@ describe "interaction with differentiated assignments" do
       course_with_student_logged_in
       da_setup
       create_da_assignment
+      @teacher = User.create!
+      @course.enroll_teacher(@teacher)
     end
 
     context "Assignment Index" do
@@ -25,7 +44,7 @@ describe "interaction with differentiated assignments" do
         expect(f("#assignment_group_upcoming")).to include_text(@da_assignment.title)
       end
       it "should show assignments with a graded submission" do
-        @da_assignment.grade_student(@user, {:grade => 10})
+        @da_assignment.grade_student(@user, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/assignments"
         expect(f("#assignment_group_undated")).to include_text(@da_assignment.title)
       end
@@ -44,7 +63,7 @@ describe "interaction with differentiated assignments" do
         expect(driver.current_url).to match %r{/courses/\d+/assignments/#{@da_assignment.id}}
       end
       it "should show the assignment page with a graded submission" do
-        @da_assignment.grade_student(@user, {:grade => 10})
+        @da_assignment.grade_student(@user, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/assignments/#{@da_assignment.id}"
         expect(driver.current_url).to match %r{/courses/\d+/assignments/#{@da_assignment.id}}
       end
@@ -52,7 +71,7 @@ describe "interaction with differentiated assignments" do
         create_section_override_for_assignment(@da_assignment)
         @da_assignment.find_or_create_submission(@student)
         # destroy the override providing visibility to the current student
-        AssignmentOverride.find(@da_assignment.assignment_overrides.first!).destroy
+        AssignmentOverride.find(@da_assignment.assignment_overrides.first!.id).destroy
         get "/courses/#{@course.id}/assignments/#{@da_assignment.id}/submissions/#{@student.id}"
         # check the preview frame for the success banner and for your submission text
         in_frame('preview_frame') do
@@ -68,7 +87,7 @@ describe "interaction with differentiated assignments" do
           expect(f("#assignments")).to include_text(@da_assignment.title)
         end
         it "should show assignments with a graded submission" do
-          @da_assignment.grade_student(@student, {:grade => 10})
+          @da_assignment.grade_student(@student, grade: 10, grader: @teacher)
           get "/courses/#{@course.id}/grades"
           expect(f("#assignments")).to include_text(@da_assignment.title)
         end
@@ -85,6 +104,8 @@ describe "interaction with differentiated assignments" do
       observer_setup
       da_setup
       create_da_assignment
+      @teacher = User.create!
+      @course.enroll_teacher(@teacher)
     end
 
     context "Assignment Index" do
@@ -99,7 +120,7 @@ describe "interaction with differentiated assignments" do
         expect(f("#assignment_group_upcoming")).to include_text(@da_assignment.title)
       end
       it "should show assignments with a graded submission" do
-        @da_assignment.grade_student(@user, {:grade => 10})
+        @da_assignment.grade_student(@user, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/assignments"
         expect(f("#assignment_group_undated")).to include_text(@da_assignment.title)
       end
@@ -118,7 +139,7 @@ describe "interaction with differentiated assignments" do
         expect(driver.current_url).to match %r{/courses/\d+/assignments/#{@da_assignment.id}}
       end
       it "should show the assignment page with a graded submission" do
-        @da_assignment.grade_student(@student, {:grade => 10})
+        @da_assignment.grade_student(@student, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/assignments/#{@da_assignment.id}"
         expect(driver.current_url).to match %r{/courses/\d+/assignments/#{@da_assignment.id}}
       end
@@ -126,7 +147,7 @@ describe "interaction with differentiated assignments" do
         create_section_override_for_assignment(@da_assignment)
         @da_assignment.find_or_create_submission(@student)
         # destroy the override providing visibility to the current student
-        AssignmentOverride.find(@da_assignment.assignment_overrides.first!).destroy
+        AssignmentOverride.find(@da_assignment.assignment_overrides.first!.id).destroy
         get "/courses/#{@course.id}/assignments/#{@da_assignment.id}/submissions/#{@student.id}"
         # check the preview frame for the success banner and for your submission text
         in_frame('preview_frame') do
@@ -142,7 +163,7 @@ describe "interaction with differentiated assignments" do
         expect(f("#assignments")).to include_text(@da_assignment.title)
       end
       it "should show assignments with a graded submission" do
-        @da_assignment.grade_student(@student, {:grade => 10})
+        @da_assignment.grade_student(@student, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/grades"
         expect(f("#assignments")).to include_text(@da_assignment.title)
       end
@@ -161,20 +182,10 @@ describe "interaction with differentiated assignments" do
       create_da_assignment
     end
     it "should hide students from speedgrader if they don't have Differentiated assignment visibility or a graded submission" do
-      # this is all setup
-      @s1, @s2, @s3, @s4, @s5 = ["Not Displayed", "bob", "steve", "mary", "jeanie"].map do |name|
-        course_with_student(:course => @course)
-        @student.name = name
-        @student.tap(&:save)
-      end
-      [@s1, @s2, @s3].each do |student|
-        @course.enroll_user(student, 'StudentEnrollment', :enrollment_state => 'active', :section => @default_section)
-      end
-      [@s4, @s5].each do |student|
-        @course.enroll_user(student, 'StudentEnrollment', :enrollment_state => 'active', :section => @section1)
-      end
+      @s1, @s2, @s3 = create_users_in_course(@course, 3, return_type: :record, section_id: @default_section.id)
+      @s4, @s5 = create_users_in_course(@course, 2, return_type: :record, section_id: @section1.id)
       create_section_override_for_assignment(@da_assignment, course_section: @section1)
-      @da_assignment.grade_student(@s3, {:grade => 10})
+      @da_assignment.grade_student(@s3, grade: 10, grader: @teacher)
 
       # evaluate for our data
       get "/courses/#{@course.id}/gradebook/speed_grader?assignment_id=#{@da_assignment.id}"

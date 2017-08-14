@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'Backbone'
   'i18n!assignments'
@@ -8,11 +25,16 @@ define [
   'compiled/external_tools/ExternalToolCollection'
   'compiled/views/assignments/ExternalContentFileSubmissionView'
   'compiled/views/assignments/ExternalContentUrlSubmissionView'
+  'compiled/views/assignments/ExternalContentLtiLinkSubmissionView'
   'jquery.disableWhileLoading'
 ], ( Backbone, I18n, $, _, homeworkSubmissionTool, ExternalContentReturnView,
-     ExternalToolCollection, ExternalContentFileSubmissionView,  ExternalContentUrlSubmissionView) ->
+     ExternalToolCollection, ExternalContentFileSubmissionView,
+     ExternalContentUrlSubmissionView, ExternalContentLtiLinkSubmissionView) ->
 
   class HomeworkSubmissionLtiContainer
+    @homeworkSubmissionViewMap:
+      FileItem: ExternalContentFileSubmissionView
+      LtiLinkItem: ExternalContentLtiLinkSubmissionView
 
     constructor: (toolsFormSelector) ->
       @renderedViews = {}
@@ -83,14 +105,11 @@ define [
 
     createHomeworkSubmissionView: (tool, data) ->
       item = data.contentItems[0]
-      if item['@type'] == 'FileItem'
-        homeworkSubmissionView = new ExternalContentFileSubmissionView
-          externalTool: tool
-          model: new Backbone.Model(item)
-      else
-        homeworkSubmissionView = new ExternalContentUrlSubmissionView
-          externalTool: tool
-          model: new Backbone.Model(item)
+      viewClass = HomeworkSubmissionLtiContainer.homeworkSubmissionViewMap[item['@type']] || ExternalContentUrlSubmissionView
+
+      homeworkSubmissionView = new viewClass
+        externalTool: tool
+        model: new Backbone.Model(item)
 
       homeworkSubmissionView.on 'relaunchTool', (tool, model) ->
         @remove()

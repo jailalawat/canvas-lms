@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/discussions_common')
 
 describe "discussions" do
@@ -97,7 +114,7 @@ describe "discussions" do
           f('input[type=checkbox][name="assignment[set_assignment]"]').click
           f('#has_group_category').click
           close_visible_dialog
-          f('.btn-primary[type=submit]').click
+          f('#edit_discussion_form_buttons .btn-primary[type=submit]').click
           wait_for_ajaximations
           keep_trying_until do
             expect(driver.execute_script(
@@ -106,14 +123,14 @@ describe "discussions" do
           end
           errorBoxes = driver.execute_script("return $('.errorBox').filter('[id!=error_box_template]').toArray();")
           visBoxes, hidBoxes = errorBoxes.partition { |eb| eb.displayed? }
-          expect(visBoxes.first.text).to eq "Please select a group set for this assignment"
+          expect(visBoxes.first.text).to eq "Please create a group set"
         end
       end
 
       context "post to sis default setting" do
         before do
           @account = @course.root_account
-          @account.enable_feature!(:bulk_sis_grade_export)
+          @account.set_feature_flag! 'post_grades', 'on'
         end
 
         it "should default to post grades if account setting is enabled" do

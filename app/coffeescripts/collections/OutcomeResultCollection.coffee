@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'underscore'
@@ -6,12 +23,14 @@ define [
   'compiled/collections/WrappedCollection'
 ], ($, _, Backbone, Outcome, WrappedCollection) ->
   class OutcomeResultCollection extends WrappedCollection
-    comparator: 'submitted_or_assessed_at'
     key: 'outcome_results'
     model: Outcome
     @optionProperty 'outcome'
-    url: -> "/api/v1/courses/#{@course_id}/outcome_results?user_ids[]=#{@user_id}&outcome_ids[]=#{@outcome.id}&include[]=alignments"
+    url: -> "/api/v1/courses/#{@course_id}/outcome_results?user_ids[]=#{@user_id}&outcome_ids[]=#{@outcome.id}&include[]=alignments&per_page=100"
     loadAll: true
+
+    comparator: (model) ->
+      return -1 * model.get('submitted_or_assessed_at').getTime()
 
     initialize: ->
       super

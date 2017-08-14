@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,9 +23,10 @@ class AssignmentOverrideStudent < ActiveRecord::Base
   belongs_to :quiz, class_name: 'Quizzes::Quiz'
 
   after_save :destroy_override_if_needed
+  after_create :update_cached_due_dates
+  after_destroy :update_cached_due_dates
   after_destroy :destroy_override_if_needed
 
-  attr_accessible :user
   validates_presence_of :assignment_override, :user
   validates_uniqueness_of :user_id, :scope => [:assignment_id, :quiz_id],
     :message => 'already belongs to an assignment override'
@@ -43,7 +44,7 @@ class AssignmentOverrideStudent < ActiveRecord::Base
   end
 
   validate :user do |record|
-    if record.user && record.context_id && !record.user.student_enrollments.where(:course_id => record.context_id).exists?
+    if record.user && record.context_id && !record.user.student_enrollments.shard(record.shard).where(:course_id => record.context_id).exists?
       record.errors.add :user, "is not in the assignment's course"
     end
   end
@@ -80,6 +81,7 @@ class AssignmentOverrideStudent < ActiveRecord::Base
 
   def self.clean_up_for_assignment(assignment)
     return unless assignment.context_type == "Course"
+    return if assignment.new_record?
 
     valid_student_ids = Enrollment
       .where(course_id: assignment.context_id)
@@ -90,5 +92,11 @@ class AssignmentOverrideStudent < ActiveRecord::Base
       .where(assignment: assignment)
       .where.not(user_id: valid_student_ids)
       .each(&:destroy)
+  end
+
+  private
+
+  def update_cached_due_dates
+    DueDateCacher.recompute(assignment) if assignment.present?
   end
 end

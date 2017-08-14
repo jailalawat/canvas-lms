@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,11 +20,13 @@ class AssignmentOverride < ActiveRecord::Base
   include Workflow
   include TextHelper
 
+  NOOP_MASTERY_PATHS = 1
+
+  SET_TYPE_NOOP = 'Noop'.freeze
+
   simply_versioned :keep => 10
 
-  attr_accessible
-
-  attr_accessor :dont_touch_assignment
+  attr_accessor :dont_touch_assignment, :preloaded_student_ids, :changed_student_ids
 
   belongs_to :assignment
   belongs_to :quiz, class_name: 'Quizzes::Quiz'
@@ -32,7 +34,7 @@ class AssignmentOverride < ActiveRecord::Base
   has_many :assignment_override_students, :dependent => :destroy, :validate => false
   validates_presence_of :assignment_version, :if => :assignment
   validates_presence_of :title, :workflow_state
-  validates_inclusion_of :set_type, :in => %w(CourseSection Group ADHOC)
+  validates :set_type, inclusion: ['CourseSection', 'Group', 'ADHOC', SET_TYPE_NOOP]
   validates_length_of :title, :maximum => maximum_string_length, :allow_nil => true
 
   concrete_set = lambda{ |override| ['CourseSection', 'Group'].include?(override.set_type) }
@@ -79,12 +81,43 @@ class AssignmentOverride < ActiveRecord::Base
 
   after_save :update_cached_due_dates
   after_save :touch_assignment, :if => :assignment
+  after_save :update_grading_period_grades
 
   def set_not_empty?
     overridable = assignment? ? assignment : quiz
-    ['CourseSection', 'Group'].include?(self.set_type) ||
+    ['CourseSection', 'Group', SET_TYPE_NOOP].include?(self.set_type) ||
     (set.any? && overridable.context.current_enrollments.where(user_id: set).exists?)
   end
+
+  def update_grading_period_grades
+    return true unless due_at_overridden && due_at_changed? && !id_changed?
+
+    course = assignment&.context || quiz&.context || quiz&.assignment&.context
+    return true unless course&.grading_periods?
+
+    grading_period_was = GradingPeriod.for_date_in_course(date: due_at_was, course: course)
+    grading_period = GradingPeriod.for_date_in_course(date: due_at, course: course)
+    return true if grading_period_was&.id == grading_period&.id
+
+    students = applies_to_students.map(&:id)
+    return true if students.blank?
+
+    if grading_period_was
+      # recalculate just the old grading period's score
+      course.recompute_student_scores(students, grading_period_id: grading_period_was, update_course_score: false)
+    end
+    # recalculate the new grading period's score. If the grading period group is
+    # weighted, then we need to recalculate the overall course score too. (If
+    # grading period is nil, make sure we pass true for `update_course_score`
+    # so we can use a singleton job.)
+    course.recompute_student_scores(
+      students,
+      grading_period_id: grading_period,
+      update_course_score: !grading_period || grading_period.grading_period_group&.weighted?
+    )
+    true
+  end
+  private :update_grading_period_grades
 
   def update_cached_due_dates
     return unless assignment?
@@ -122,9 +155,19 @@ class AssignmentOverride < ActiveRecord::Base
   scope :active, -> { where(:workflow_state => 'active') }
 
   scope :visible_students_only, -> (visible_ids) do
-    select("assignment_overrides.*").
-    joins(:assignment_override_students).
-    where(
+    scope = select("assignment_overrides.*").
+      joins(:assignment_override_students).
+      distinct
+
+    if ActiveRecord::Relation === visible_ids
+      column = visible_ids.klass == User ? :id : visible_ids.select_values.first
+      scope = scope.primary_shard.activate {
+        scope.joins("INNER JOIN #{visible_ids.klass.quoted_table_name} ON assignment_override_students.user_id=#{visible_ids.klass.table_name}.#{column}")
+      }
+      next scope.merge(visible_ids.except(:select))
+    end
+
+    scope.where(
       assignment_override_students: { user_id: visible_ids },
     )
   end
@@ -146,6 +189,10 @@ class AssignmentOverride < ActiveRecord::Base
   end
   protected :default_values
 
+  def mastery_paths?
+    set_type == SET_TYPE_NOOP && set_id == NOOP_MASTERY_PATHS
+  end
+
   # override set read accessor and set_id read/write accessors so that reading
   # set/set_id or setting set_id while set_type=ADHOC doesn't try and find the
   # ADHOC model
@@ -156,13 +203,15 @@ class AssignmentOverride < ActiveRecord::Base
   def set
     if self.set_type == 'ADHOC'
       assignment_override_students.preload(:user).map(&:user)
+    elsif self.set_type == SET_TYPE_NOOP
+      nil
     else
       super
     end
   end
 
   def set_id=(id)
-    if self.set_type == 'ADHOC'
+    if ['ADHOC', SET_TYPE_NOOP].include? self.set_type
       write_attribute(:set_id, id)
     else
       super
@@ -192,27 +241,23 @@ class AssignmentOverride < ActiveRecord::Base
   end
 
   def visible_student_overrides(visible_student_ids)
-    assignment_override_students.any? do |aos|
-      visible_student_ids.include?(aos.user_id)
-    end
+    assignment_override_students.where(user_id: visible_student_ids).exists?
   end
 
-  def self.visible_users_for(overrides, user=nil)
-    return [] if overrides.empty? || user.nil?
+  def self.visible_enrollments_for(overrides, user=nil)
+    return Enrollment.none if overrides.empty? || user.nil?
     override = overrides.first
-    override.visible_users_for(user)
+    (override.assignment || override.quiz).context.enrollments_visible_to(user)
   end
 
-  def visible_users_for(user)
-    assignment_or_quiz = self.assignment || self.quiz
-    UserSearch.scope_for(assignment_or_quiz.context, user, {
-      force_users_visible_to: true
-    })
+  OVERRIDDEN_DATES = %i(due_at unlock_at lock_at).freeze
+  OVERRIDDEN_DATES.each do |field|
+    override field
   end
 
-  override :due_at
-  override :unlock_at
-  override :lock_at
+  def self.overridden_dates
+    OVERRIDDEN_DATES
+  end
 
   def due_at=(new_due_at)
     new_due_at = CanvasTime.fancy_midnight(new_due_at)
@@ -229,6 +274,12 @@ class AssignmentOverride < ActiveRecord::Base
 
   def lock_at=(new_lock_at)
     write_attribute(:lock_at, CanvasTime.fancy_midnight(new_lock_at))
+  end
+
+  def availability_expired?
+    lock_at_overridden &&
+      lock_at.present? &&
+      lock_at <= Time.zone.now
   end
 
   def as_hash
@@ -254,6 +305,8 @@ class AssignmentOverride < ActiveRecord::Base
       set.participating_students
     when 'Group'
       set.participants
+    else
+      []
     end
   end
 
@@ -271,10 +324,9 @@ class AssignmentOverride < ActiveRecord::Base
     self.assignment.context.available? &&
     self.assignment.published? &&
     self.assignment.created_at < 3.hours.ago &&
-    (!self.prior_version ||
-      self.workflow_state != self.prior_version.workflow_state ||
-      self.due_at_overridden != self.prior_version.due_at_overridden ||
-      self.due_at_overridden && !Assignment.due_dates_equal?(self.due_at, self.prior_version.due_at))
+    (workflow_state_changed? ||
+      due_at_overridden_changed? ||
+      due_at_overridden && !Assignment.due_dates_equal?(due_at, due_at_was))
   end
 
   def set_title_if_needed

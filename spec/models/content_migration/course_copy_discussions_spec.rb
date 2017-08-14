@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/course_copy_helper.rb')
 
 describe ContentMigration do
@@ -17,6 +34,8 @@ describe ContentMigration do
       topic = @copy_from.discussion_topics.create!(:title => "topic", :message => "<p>bloop</p>",
                                                    :pinned => true, :discussion_type => "threaded",
                                                    :require_initial_post => true)
+      todo_date = 1.day.from_now
+      topic.todo_date = todo_date
       topic.posted_at = 2.days.ago
       topic.position = 2
       topic.save!
@@ -31,7 +50,8 @@ describe ContentMigration do
 
       expect(new_topic.last_reply_at).to be_nil
       expect(new_topic.allow_rating).to eq false
-      expect(topic.posted_at.to_i).to eq new_topic.posted_at.to_i
+      expect(new_topic.posted_at).to be_nil
+      expect(new_topic.todo_date.to_i).to eq todo_date.to_i
     end
 
     it "copies rating settings" do
@@ -173,6 +193,25 @@ describe ContentMigration do
       run_course_copy
 
       expect(@copy_to.announcements.where(migration_id: mig_id(ann)).first).to be_nil
+    end
+
+    it "should implicitly copy files attached to topics" do
+      att = Attachment.create!(:filename => 'test.txt', :display_name => "testing.txt", :uploaded_data => StringIO.new('file'),
+        :folder => Folder.root_folders(@copy_from).first, :context => @copy_from)
+      topic = @copy_from.discussion_topics.new(:message => "howdy", :title => "title")
+      topic.attachment = att
+      topic.save!
+
+      @cm.copy_options = {:all_discussion_topics => "1"}
+      @cm.save!
+
+      run_course_copy
+
+      att_copy = @copy_to.attachments.where(migration_id: mig_id(att)).first
+      expect(att_copy).to be_present
+
+      topic_copy = @copy_to.discussion_topics.where(migration_id: mig_id(topic)).first
+      expect(topic_copy.attachment).to eq att_copy
     end
 
     it "should not copy deleted assignment attached to topic" do

@@ -1,8 +1,10 @@
 {{#if multipleDueDates}}
   <strong>{{#t "available"}}Available{{/t}}</strong>
 
-  <a title class="vdd_tooltip_link"
-     aria-labelledby="vdd_tooltip_{{selector}}"
+  {{#if allDates}}
+  <a title="tooltip"
+     class="vdd_tooltip_link"
+     aria-describedby="vdd_tooltip_{{selector}}"
      data-tooltip-selector="#vdd_tooltip_{{selector}}"
      {{#if linkHref}}href="{{linkHref}}"{{/if}}
      >{{#t "multiple_dates"}}Multiple Dates{{/t}}</a>
@@ -25,7 +27,9 @@
       {{/each}}
     </dl>
   </div>
-
+  {{else}}
+    {{#t "multiple_dates"}}Multiple Dates{{/t}}
+  {{/if}}
 {{else}}
   <span class="default-dates">
     {{#with defaultDates}}

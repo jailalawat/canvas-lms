@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,7 +23,7 @@ describe InfoController do
     it "should clear the cache on avatar update" do
       Account.default.tap { |a| a.enable_service(:avatars) }.save
       enable_cache do
-        user
+        user_factory
         get "/images/users/#{@user.id}"
         expect(response).to be_redirect
         expect(response['Location']).to match(%r{gravatar})

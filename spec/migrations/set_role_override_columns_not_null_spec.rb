@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,6 +22,10 @@ require 'db/migrate/20160122192633_set_role_override_columns_not_null'
 describe 'SetRoleOverrideColumnsNotNull' do
   before do
     SetRoleOverrideColumnsNotNull.down
+  end
+
+  after do
+    RoleOverride.reset_column_information
   end
 
   describe "up" do

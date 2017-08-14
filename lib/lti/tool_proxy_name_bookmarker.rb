@@ -1,4 +1,5 @@
-# Copyright (C) 2014 Instructure, Inc.
+#
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,7 +24,7 @@ module Lti
     def self.validate(bookmark)
       bookmark.is_a?(Array) && bookmark.size == 2 &&
         bookmark[0].is_a?(String) &&
-        bookmark[1].is_a?(Fixnum)
+        bookmark[1].is_a?(Integer)
     end
 
     def self.restrict_scope(scope, pager)

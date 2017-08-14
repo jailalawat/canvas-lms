@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,7 +19,6 @@
 module Lti
   class ResourceHandler < ActiveRecord::Base
 
-    attr_accessible :resource_type_code, :name, :description, :icon_info, :tool_proxy
     attr_readonly :created_at
 
     belongs_to :tool_proxy, class_name: 'Lti::ToolProxy'
@@ -28,7 +27,40 @@ module Lti
 
     serialize :icon_info
 
-    validates_presence_of :resource_type_code, :name, :tool_proxy
+    validates :resource_type_code, :name, :tool_proxy, presence: true
 
+    def find_message_by_type(message_type)
+      message_handlers.by_message_types(message_type).first
+    end
+
+    def self.by_product_family(product_family, context)
+      tool_proxies = ToolProxy.find_active_proxies_for_context(context)
+      tool_proxies = tool_proxies.where(product_family: product_family)
+      tool_proxies.map { |tp| tp.resources.to_a.flatten }.flatten
+    end
+
+
+    def self.by_resource_codes(vendor_code:, product_code:, resource_type_code:, context:)
+      product_family = ProductFamily.find_by(vendor_code: vendor_code,
+                                             product_code: product_code)
+      possible_handlers = ResourceHandler.by_product_family(product_family, context)
+      possible_handlers.select { |rh| rh.resource_type_code == resource_type_code}
+    end
+
+    def find_or_create_tool_setting(context: nil, resource_url: nil, link_fragment: nil)
+      context ||= tool_proxy.context
+      mh = message_handlers.find_by(message_type: MessageHandler::BASIC_LTI_LAUNCH_REQUEST)
+      resource_link_id = mh.build_resource_link_id(context: context, link_fragment: link_fragment)
+
+      tool_setting = Lti::ToolSetting.find_by(resource_link_id: resource_link_id)
+      tool_setting ||= ToolSetting.new
+      tool_setting.update_attributes(resource_link_id: resource_link_id,
+                                     context: context,
+                                     product_code: tool_proxy.product_family.product_code,
+                                     vendor_code: tool_proxy.product_family.vendor_code,
+                                     resource_type_code: resource_type_code,
+                                     resource_url: resource_url)
+      tool_setting
+    end
   end
 end

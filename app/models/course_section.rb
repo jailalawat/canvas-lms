@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,12 +19,10 @@
 class CourseSection < ActiveRecord::Base
   include Workflow
 
-  attr_protected :sis_source_id, :sis_batch_id, :course_id,
-      :root_account_id, :enrollment_term_id, :integration_id
-
   belongs_to :course
   belongs_to :nonxlist_course, :class_name => 'Course'
   belongs_to :root_account, :class_name => 'Account'
+  belongs_to :enrollment_term
   has_many :enrollments, -> { preload(:user).where("enrollments.workflow_state<>'deleted'") }, dependent: :destroy
   has_many :all_enrollments, :class_name => 'Enrollment'
   has_many :students, :through => :student_enrollments, :source => :user
@@ -34,22 +32,33 @@ class CourseSection < ActiveRecord::Base
   has_many :admin_enrollments, -> { where(type: ['TaEnrollment', 'TeacherEnrollment', 'DesignerEnrollment']) }, class_name: 'Enrollment'
   has_many :users, :through => :enrollments
   has_many :course_account_associations
-  has_many :calendar_events, :as => :context
+  has_many :calendar_events, :as => :context, :inverse_of => :context
   has_many :assignment_overrides, :as => :set, :dependent => :destroy
 
   before_validation :infer_defaults, :verify_unique_sis_source_id
   validates_presence_of :course_id, :root_account_id, :workflow_state
   validates_length_of :sis_source_id, :maximum => maximum_string_length, :allow_nil => true, :allow_blank => false
   validates_length_of :name, :maximum => maximum_string_length, :allow_nil => false, :allow_blank => false
+  validate :validate_section_dates
 
   has_many :sis_post_grades_statuses
 
   before_save :maybe_touch_all_enrollments
   after_save :update_account_associations_if_changed
   after_save :delete_enrollments_later_if_deleted
+  after_save :update_enrollment_states_if_necessary
 
   include StickySisFields
   are_sis_sticky :course_id, :name, :start_at, :end_at, :restrict_enrollments_to_section_dates
+
+  def validate_section_dates
+    if start_at.present? && end_at.present? && end_at < start_at
+      self.errors.add(:end_at, t("End date cannot be before start date"))
+      false
+    else
+      true
+    end
+  end
 
   def maybe_touch_all_enrollments
     self.touch_all_enrollments if self.start_at_changed? || self.end_at_changed? || self.restrict_enrollments_to_section_dates_changed? || self.course_id_changed?
@@ -69,17 +78,35 @@ class CourseSection < ActiveRecord::Base
     User.observing_students_in_course(participating_students.map(&:id), course.id)
   end
 
+  def participating_observers_by_date
+    User.observing_students_in_course(participating_students_by_date.map(&:id), course.id)
+  end
+
   def participating_students
     course.participating_students.where(:enrollments => { :course_section_id => self })
+  end
+
+  def participating_students_by_date
+    course.participating_students_by_date.where(:enrollments => { :course_section_id => self })
   end
 
   def participating_admins
     course.participating_admins.where("enrollments.course_section_id = ? OR NOT COALESCE(enrollments.limit_privileges_to_course_section, ?)", self, false)
   end
 
-  def participants(include_observers=false)
-    ps = participating_students + participating_admins
-    ps += participating_observers if include_observers
+  def participating_admins_by_date
+    course.participating_admins.where("enrollments.course_section_id = ? OR NOT COALESCE(enrollments.limit_privileges_to_course_section, ?)", self, false)
+  end
+
+  def participants(opts={})
+    ps = nil
+    if opts[:by_date]
+      ps = participating_students_by_date + participating_admins_by_date
+      ps += participating_observers_by_date if opts[:include_observers]
+    else
+      ps = participating_students + participating_admins
+      ps += participating_observers if opts[:include_observers]
+    end
     ps
   end
 
@@ -152,6 +179,7 @@ class CourseSection < ActiveRecord::Base
     return true unless scope.exists?
 
     self.errors.add(:sis_source_id, t('sis_id_taken', "SIS ID \"%{sis_id}\" is already in use", :sis_id => self.sis_source_id))
+    throw :abort unless CANVAS_RAILS4_2
     false
   end
 
@@ -201,19 +229,25 @@ class CourseSection < ActiveRecord::Base
     assignment_overrides.active.destroy_all
     user_ids = self.all_enrollments.map(&:user_id).uniq
 
-    old_course_is_unrelated = old_course.id != self.course_id && old_course.id != self.nonxlist_course_id
+    all_attrs = { course_id: course.id }
     if self.root_account_id_changed?
-      self.save!
-      self.all_enrollments.update_all :course_id => course, :root_account_id => self.root_account_id
-    else
-      self.save!
-      self.all_enrollments.update_all :course_id => course
+      all_attrs[:root_account_id] = self.root_account_id
     end
+    self.save!
+    self.all_enrollments.update_all all_attrs
+    Assignment.joins(:submissions)
+      .where(context: [old_course, self.course])
+      .where(submissions: { user_id: user_ids }).touch_all
+    EnrollmentState.send_later_if_production(:invalidate_states_for_course_or_section, self)
     User.send_later_if_production(:update_account_associations, user_ids) if old_course.account_id != course.account_id && !User.skip_updating_account_associations?
     if old_course.id != self.course_id && old_course.id != self.nonxlist_course_id
       old_course.send_later_if_production(:update_account_associations) unless Course.skip_updating_account_associations?
     end
-    Enrollment.send_now_or_later(opts.include?(:run_jobs_immediately) ? :now : :later, :recompute_final_score, user_ids, course.id)
+    if opts.include?(:run_jobs_immediately)
+      course.recompute_student_scores_without_send_later(user_ids)
+    else
+      course.recompute_student_scores(user_ids)
+    end
   end
 
   def crosslist_to_course(course, *opts)
@@ -244,7 +278,7 @@ class CourseSection < ActiveRecord::Base
   end
 
   def deletable?
-    self.enrollments.not_fake.count == 0
+    !self.enrollments.where.not(:workflow_state => 'rejected').not_fake.exists?
   end
 
   def enroll_user(user, type, state='invited')
@@ -270,5 +304,11 @@ class CourseSection < ActiveRecord::Base
 
   def common_to_users?(users)
     users.all?{ |user| self.student_enrollments.active.for_user(user).count > 0 }
+  end
+
+  def update_enrollment_states_if_necessary
+    if self.restrict_enrollments_to_section_dates_changed? || (self.restrict_enrollments_to_section_dates? && (changes.keys & %w{start_at end_at}).any?)
+      EnrollmentState.send_later_if_production(:invalidate_states_for_course_or_section, self)
+    end
   end
 end

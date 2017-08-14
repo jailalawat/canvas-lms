@@ -1,4 +1,5 @@
-# Copyright (C) 2014 Instructure, Inc.
+#
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -15,10 +16,13 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper.rb')
+require_relative '../../spec_helper'
+require_relative '../../lti_spec_helper'
+require_dependency "lti/app_collator"
 
 module Lti
-  describe AppCollator, :include_lti_spec_helpers do
+  describe AppCollator do
+    include LtiSpecHelper
 
     subject { described_class.new(account, mock_reregistration_url_builder)}
     let(:account) { Account.create }
@@ -27,7 +31,7 @@ module Lti
     context 'pagination' do
       it 'paginates correctly' do
         3.times do |_|
-          tp = create_tool_proxy(account: account, name: 'aaa')
+          tp = create_tool_proxy(context: account, name: 'aaa')
           tp.bindings.create(context: account)
         end
         3.times { |_| new_valid_external_tool(account) }

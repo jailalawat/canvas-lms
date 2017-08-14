@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper.rb')
 
 describe Quizzes::QuizQuestionBuilder do
@@ -67,6 +84,29 @@ describe Quizzes::QuizQuestionBuilder do
           to eq(questions.map { |q| q[:id] }.sort)
       end
 
+      it 'should duplicate questions to fill the group' do
+        aq = assessment_question_model(bank: @bank, name: 'Group Question 1')
+
+        @group = @quiz.quiz_groups.create!({
+                                               name: "question group a",
+                                               pick_count: 5,
+                                               question_points: 5.0,
+                                               assessment_question_bank_id: @bank.id
+                                           })
+
+        # it should pick 2 questions from that bank
+        expect(questions.count).to eq(5)
+
+        # verify the correct questions were pulled:
+        expect(questions.map { |q| q[:assessment_question_id] }).to eq [aq.id] * 5
+
+        # it generates quiz questions for every AQ it pulls out of the bank:
+        expect(@quiz.quiz_questions.count).to eq(5)
+        expect(@quiz.quiz_questions.generated.count).to eq(5)
+        expect(@quiz.quiz_questions.pluck(:id).sort).
+            to eq(questions.map { |q| q[:id] }.sort)
+      end
+
       it "should duplicate questions from a bank" do
         assessment_question_model(bank: @bank)
 
@@ -130,9 +170,9 @@ describe Quizzes::QuizQuestionBuilder do
           expect(questions.count).to eq(1)
           expect(aqs.map(&:id)).to include(questions[0][:assessment_question_id])
 
-          expect(@quiz.quiz_questions.generated.count).to eq(1)
-          expect(aqs.map(&:id)).not_to include(questions[0][:id]),
-            "it links to QuizQuestion objects and not the AssessmentQuestion objects from the bank"
+          quiz_questions = @quiz.quiz_questions.generated.to_a
+          expect(quiz_questions.count).to eq(1)
+          expect(quiz_questions.first.id).to eq questions[0][:id]
         end
 
         context 'when the pick count is higher than the available questions' do

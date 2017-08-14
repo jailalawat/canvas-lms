@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,28 +22,33 @@ describe AccountAuthorizationConfig::Google do
   it 'rejects non-matching hd' do
     ap = AccountAuthorizationConfig::Google.new
     ap.hosted_domain = 'instructure.com'
-    JWT.expects(:decode).returns([{'hd' => 'school.edu', 'sub' => '123'}])
-    token = stub('token', params: {})
+    Canvas::Security.expects(:decode_jwt).returns({'hd' => 'school.edu', 'sub' => '123'})
+    userinfo = stub('userinfo', parsed: {})
+    token = stub('token', params: {}, options: {}, get: userinfo)
 
-    expect { ap.unique_id(token) }.to raise_error
+    expect { ap.unique_id(token) }.to raise_error('Non-matching hosted domain: "school.edu"')
   end
 
   it 'rejects missing hd' do
     ap = AccountAuthorizationConfig::Google.new
     ap.hosted_domain = 'instructure.com'
-    JWT.expects(:decode).returns([{'sub' => '123'}])
-    token = stub('token', params: {})
+    Canvas::Security.expects(:decode_jwt).returns({'sub' => '123'})
+    token = stub('token', params: {}, options: {})
 
-    expect { ap.unique_id(token) }.to raise_error
+    expect { ap.unique_id(token) }.to raise_error('Non-matching hosted domain: nil')
   end
 
   it "accepts when hosted domain isn't required" do
     ap = AccountAuthorizationConfig::Google.new
-    # TODO: use JSON::JWT in AccountAuthorizationConfig::Google
-    JWT.expects(:decode).once.returns([{'sub' => '123'}])
-    JSON::JWT.expects(:decode).once.returns({'sub' => '123'})
-    token = stub('token', params: {})
+    Canvas::Security.expects(:decode_jwt).once.returns({'sub' => '123'})
+    token = stub('token', params: {}, options: {})
 
     expect(ap.unique_id(token)).to eq '123'
+  end
+
+  it "it sets hosted domain to nil if empty string" do
+    ap = AccountAuthorizationConfig::Google.new
+    ap.hosted_domain = ''
+    expect(ap.hosted_domain).to be_nil
   end
 end

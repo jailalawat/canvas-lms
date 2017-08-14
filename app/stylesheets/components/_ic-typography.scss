@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2012 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 /// This is the beginning of fixing typography usage in Canvas. We originally were pulling in a bunch of
 /// bootstrap styles, of which, we'd like to phase out in multiple iterations.
 /// Below is the combination of overwrites and bootstrap styles that were originally in Canvas.
@@ -7,18 +25,60 @@
 /// There's a lot here we don't want, and a lot more we need to re-work, but not all in one go.
 
 
-@import "base/environment"; // pulls in global typography variables set in base/_variables
-
 ///////==============
 /// Global Settings
 ///////==============
 
+
+@font-face {
+  font-family: 'LatoWeb';
+  src: url('/fonts/lato/latin/LatoLatin-Regular.woff2') format('woff2'),
+       url('/fonts/lato/latin/LatoLatin-Regular.woff') format('woff'),
+       url('/fonts/lato/latin/LatoLatin-Regular.ttf') format('truetype');
+  font-style: normal;
+  font-weight: normal;
+}
+
+@font-face {
+  font-family: 'LatoWeb';
+  src: url('/fonts/lato/latin/LatoLatin-Italic.woff2') format('woff2'),
+       url('/fonts/lato/latin/LatoLatin-Italic.woff') format('woff'),
+       url('/fonts/lato/latin/LatoLatin-Italic.ttf') format('truetype');
+  font-style: italic;
+  font-weight: normal;
+}
+
+@font-face {
+  font-family: 'LatoWeb';
+  src: url('/fonts/lato/latin/LatoLatin-Bold.woff2') format('woff2'),
+       url('/fonts/lato/latin/LatoLatin-Bold.woff') format('woff'),
+       url('/fonts/lato/latin/LatoLatin-Bold.ttf') format('truetype');
+  font-style: normal;
+  font-weight: bold;
+}
+
+@font-face {
+  font-family: 'LatoWeb';
+  src: url('/fonts/lato/latin/LatoLatin-Light.woff2') format('woff2'),
+       url('/fonts/lato/latin/LatoLatin-Light.woff') format('woff'),
+       url('/fonts/lato/latin/LatoLatin-Light.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 300;
+}
+
+html {
+  font-family: $ic-font-family-fallback;
+  &.lato-font-loaded {
+    font-family: $ic-font-family;
+  }
+}
+
 body {
+  @include fontSize($ic-font-size);
+  font-weight: normal;
   margin: 0;
   line-height: $ic-line-height;
-  @include fontSize($ic-font-size);
-  font-family: $ic-font-family;
-  color: $ic-color-dark;
+  color: $ic-font-color-dark;
 }
 
 p {
@@ -80,8 +140,6 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
-h1, h2, h3 { line-height: $ic-line-height * 2; }
-
 h1 { font-size: $ic-font-size * 2.75; } // ~38px
 h2 { font-size: $ic-font-size * 2.25; } // ~32px
 h3 { font-size: $ic-font-size * 1.75; } // ~24px
@@ -101,10 +159,7 @@ h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 {
 }
 h1, h2, .h1, .h2 {
   font-size: 1.8em;
-  @if $use_new_styles {
-    font-weight: 300;
-    line-height: $ic-line-height;
-  }
+  line-height: $ic-line-height;
 }
 h3, .h3 {
   font-size: 1.5em;
@@ -136,6 +191,17 @@ a {
     &:focus, &:hover { text-decoration: underline; }
   }
 
+}
+////////=============
+/// Underline All Links Feature Flag
+////////=============
+.Underline-All-Links__enabled {
+  a:not(.Button, .btn, .ui-button) {
+    text-decoration: underline;
+    &:focus, &:hover { text-decoration: none; }
+    @include ic-focus-base;
+    &:focus { @include ic-focus-variant($color: $ic-link-color, $offset: -1px); }
+  }
 }
 
 // make links in .alert be same color as alert text but bold

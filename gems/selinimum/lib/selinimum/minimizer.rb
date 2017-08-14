@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require "set"
 require_relative "errors"
 
@@ -13,6 +30,8 @@ module Selinimum
 
     def filter(commit_files, spec_files)
       commit_files = Set.new(commit_files)
+      detectors.each { |detector| detector.commit_files = commit_files }
+
       if commit_files.any? { |file| !can_maybe_find_dependents?(file) }
         warn "SELINIMUM: some changed files are too global-y, testing all the things :("
         return spec_files

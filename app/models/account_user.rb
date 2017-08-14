@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,14 +22,13 @@ class AccountUser < ActiveRecord::Base
   belongs_to :role
   include Role::AssociationHelper
 
-  has_many :role_overrides, :as => :context
+  has_many :role_overrides, :as => :context, :inverse_of => :context
   has_a_broadcast_policy
   before_validation :infer_defaults
   after_save :touch_user
   after_destroy :touch_user
   after_save :update_account_associations_if_changed
   after_destroy :update_account_associations_later
-  attr_accessible :account, :user, :role
 
   validate :valid_role?
 

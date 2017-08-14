@@ -1,4 +1,5 @@
-# Copyright (C) 2014 Instructure, Inc.
+#
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -33,13 +34,17 @@ module Lti
       )
     end
 
-    def app_definitions(collection)
+    def app_definitions(collection, opts={})
       collection.map do |o|
         case o
-          when ContextExternalTool
-            external_tool_definition(o)
-          when ToolProxy
-            tool_proxy_definition(o)
+        when ContextExternalTool
+          hash = external_tool_definition(o)
+          if opts[:master_course_status]
+            hash.merge!(o.master_course_api_restriction_data(opts[:master_course_status]))
+          end
+          hash
+        when ToolProxy
+          tool_proxy_definition(o)
         end
       end
     end

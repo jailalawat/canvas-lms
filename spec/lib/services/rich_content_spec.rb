@@ -1,12 +1,32 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative "../../spec_helper"
+require_dependency "services/rich_content"
 
 module Services
   describe RichContent do
     before do
-      Canvas::DynamicSettings.stubs(:find).with("rich-content-service").returns({
-        "app-host" => "rce-app",
-        "cdn-host" => "rce-cdn"
-      })
+      allow(Canvas::DynamicSettings).to receive(:find)
+        .with('rich-content-service', use_env: false)
+        .and_return({
+          "app-host" => "rce-app",
+          "cdn-host" => "rce-cdn"
+        })
     end
 
     describe ".env_for" do
@@ -24,8 +44,9 @@ module Services
       end
 
       it "populates hosts with an error signal when consul is down" do
-        Canvas::DynamicSettings.stubs(:find).with("rich-content-service").
-          raises(Faraday::ConnectionFailed, "can't talk to consul")
+        allow(Canvas::DynamicSettings).to receive(:find)
+          .with('rich-content-service', use_env: false)
+          .and_raise(Imperium::UnableToConnectError, "can't talk to consul")
         root_account = stub("root_account", feature_enabled?: true)
         env = described_class.env_for(root_account)
         expect(env[:RICH_CONTENT_SERVICE_ENABLED]).to be_truthy
@@ -34,7 +55,7 @@ module Services
       end
 
       it "logs errors for later consideration" do
-        Canvas::DynamicSettings.stubs(:find).with("rich-content-service").
+        Canvas::DynamicSettings.stubs(:find).with("rich-content-service", use_env: false).
           raises(Canvas::DynamicSettings::ConsulError, "can't talk to consul")
         root_account = stub("root_account", feature_enabled?: true)
         Canvas::Errors.expects(:capture_exception).with do |type, e|
@@ -44,13 +65,17 @@ module Services
         described_class.env_for(root_account)
       end
 
-      it "includes a JWT for the domain and user's global id" do
+      it "includes a generated JWT for the domain, user, context, and workflwos" do
         root_account = stub("root_account", feature_enabled?: true)
         user = stub("user", global_id: 'global id')
         domain = stub("domain")
+        ctx = stub("ctx", grants_any_right?: true)
         jwt = stub("jwt")
-        Canvas::Security::ServicesJwt.stubs(:generate).with(sub: user.global_id, domain: domain).returns(jwt)
-        env = described_class.env_for(root_account, user: user, domain: domain)
+        Canvas::Security::ServicesJwt.stubs(:for_user).with(domain, user, all_of(
+          has_entry(workflows: [:rich_content, :ui]),
+          has_entry(context: ctx)
+        )).returns(jwt)
+        env = described_class.env_for(root_account, user: user, domain: domain, context: ctx)
         expect(env[:JWT]).to eql(jwt)
       end
 
@@ -60,9 +85,11 @@ module Services
         masq_user = stub("masq_user", global_id: 'other global id')
         domain = stub("domain")
         jwt = stub("jwt")
-        Canvas::Security::ServicesJwt.stubs(:generate).
-          with(sub: user.global_id, domain: domain, masq_sub: masq_user.global_id).
-          returns(jwt)
+        Canvas::Security::ServicesJwt.stubs(:for_user).with(
+          domain,
+          user,
+          has_entry(real_user: masq_user),
+        ).returns(jwt)
         env = described_class.env_for(root_account,
           user: user, domain: domain, real_user: masq_user)
         expect(env[:JWT]).to eql(jwt)

@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2014 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 
 //============================
@@ -108,7 +126,6 @@ $ic-wizard-color-dark-neutral: $ic-color-dark;
   border-left: 4px solid transparent;
   background: url("/images/wizard-todo-unchecked.svg") no-repeat $ic-sp 50%;
   background-size: 18px 18px;
-  font-weight: 300;
 
   @if $use_high_contrast {
     color: $ic-color-light;
@@ -163,7 +180,7 @@ $ic-wizard-color-dark-neutral: $ic-color-dark;
   @include fontSize(36px);
   text-align: center;
   color: $ic-color-light;
-  font-weight: 700;
+  font-weight: bold;
   margin: 0;
   @include breakpoint(mini-tablet) {
     @include fontSize(48px);
@@ -284,7 +301,6 @@ $ic-wizard-color-dark-neutral: $ic-color-dark;
 }
 
 .ic-wizard-box__message-text {
-  font-weight: 300;
   margin-bottom: 0;
 
   @include breakpoint(desktop) {
@@ -296,4 +312,3 @@ $ic-wizard-color-dark-neutral: $ic-color-dark;
 
 // Styles for specific React Components
 @import "pages/course_wizard/CourseWizard";
-

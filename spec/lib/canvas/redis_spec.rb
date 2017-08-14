@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -159,6 +159,123 @@ describe "Canvas::Redis" do
       it "should not fail raw redis commands" do
         expect(Canvas.redis.setnx('my_key', 5)).to eq nil
       end
+    end
+  end
+
+  describe "json logging" do
+    let(:key) { 'mykey' }
+    let(:key2) { 'mykey2' }
+    let(:val) { 'myvalue' }
+    before(:once) { Setting.set('redis_log_style', 'json') }
+    # cache to avoid capturing a log line for db lookup
+    before(:each) { Canvas::Redis.log_style }
+
+    def json_logline(get = :shift)
+      # drop the non-json logging at the start of the line
+      JSON.parse(Rails.logger.captured_messages.send(get).match(/\{.*/)[0])
+    end
+
+    it "should log information on the redis request" do
+      Rails.logger.capture_messages do
+        Canvas.redis.set(key, val)
+        message = json_logline
+        expect(message["message"]).to eq("redis_request")
+        expect(message["command"]).to eq("set")
+        expect(message["key"]).to eq("mykey")
+        expect(message["request_size"]).to eq((key+val).size)
+        expect(message["response_size"]).to eq(2) # "OK"
+        expect(message["host"]).not_to be_nil
+        expect(message["request_time_ms"]).to be_a(Float)
+      end
+    end
+
+    it "should not log the lua eval code" do
+      Rails.logger.capture_messages do
+        Canvas.redis.eval('local a = 1')
+        message = json_logline
+        expect(message["key"]).to be_nil
+      end
+    end
+
+    it "should log error on redis error response" do
+      Rails.logger.capture_messages do
+        expect { Canvas.redis.eval('totes not lua') }.to raise_error(Redis::CommandError)
+        message = json_logline
+        expect(message["response_size"]).to eq(0)
+        expect(message["error"]).to be_a(String)
+      end
+    end
+
+    context "rails caching" do
+      let(:cache) do
+        ActiveSupport::Cache::RedisStore.new([]).tap do |cache|
+          cache.instance_variable_set(:@data, Canvas.redis.__getobj__)
+        end
+      end
+
+      it "should log the cache fetch block generation time" do
+        begin
+          Timecop.safe_mode = false
+          Timecop.freeze
+          Rails.logger.capture_messages do
+            # make sure this works with fetching nested fetches
+            cache.fetch(key, force: true) do
+              val = "a1"
+              val << cache.fetch(key2, force: true) do
+                Timecop.travel(Time.zone.now + 1.second)
+                "b1"
+              end
+              Timecop.travel(Time.zone.now + 2.seconds)
+              val << "a2"
+            end
+            outer_message = json_logline(:pop)
+            expect(outer_message["command"]).to eq("set")
+            expect(outer_message["key"]).to be_ends_with(key)
+            expect(outer_message["request_time_ms"]).to be_a(Float)
+            # 3000 (3s) == 2s outer fetch + 1s inner fetch
+            expect(outer_message["generate_time_ms"]).to be_within(500).of(3000)
+
+            inner_message = json_logline(:pop)
+            expect(inner_message["command"]).to eq("set")
+            expect(inner_message["key"]).to be_ends_with(key2)
+            expect(inner_message["request_time_ms"]).to be_a(Float)
+            expect(inner_message["generate_time_ms"]).to be_within(500).of(1000)
+          end
+        ensure
+          Timecop.return
+          Timecop.safe_mode = true
+        end
+      end
+
+      it "should log zero response size on cache miss" do
+        cache.delete(key)
+        Rails.logger.capture_messages do
+          expect(cache.read(key)).to be_nil
+          message = json_logline(:pop)
+          expect(message["command"]).to eq("get")
+          expect(message["response_size"]).to eq(0)
+        end
+      end
+    end
+  end
+
+  it "should log compactly by default on the redis request" do
+    # cache to avoid capturing a log line for db lookup
+    Canvas::Redis.log_style
+    Rails.logger.capture_messages do
+      Canvas.redis.set('mykey', 'myvalue')
+      msg = Rails.logger.captured_messages.first
+      expect(msg).to match(/Redis \(\d+\.\d+ms\) set mykey \[.*\]/)
+    end
+  end
+
+  it "should allow disabling redis logging" do
+    Setting.set('redis_log_style', 'off')
+    # cache to avoid capturing a log line for db lookup
+    Canvas::Redis.log_style
+    Rails.logger.capture_messages do
+      Canvas.redis.set('mykey', 'myvalue')
+      expect(Rails.logger.captured_messages).to be_empty
     end
   end
 

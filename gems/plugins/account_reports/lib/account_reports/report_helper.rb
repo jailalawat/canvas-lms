@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -228,13 +228,47 @@ module AccountReports::ReportHelper
     Shackles.activate(:master) { send_report(file) }
   end
 
-  def generate_and_run_report(headers)
-    file = AccountReports.generate_file(@account_report)
-    CSV.open(file, "w") do |csv|
-      csv << headers
+  def generate_and_run_report(headers = nil, extention = 'csv')
+    file = AccountReports.generate_file(@account_report, extention)
+    ExtendedCSV.open(file, "w") do |csv|
+      csv.instance_variable_set(:@account_report, @account_report)
+      csv << headers unless headers.nil?
       Shackles.activate(:slave) { yield csv }
+      @account_report.update_attribute(:current_line, csv.lineno)
     end
     file
+  end
+
+  class ExtendedCSV < CSV
+    def <<(row)
+      if @lineno % 1000 == 0
+        report = self.instance_variable_get(:@account_report).reload
+        Shackles.activate(:master) do
+          report.update_attribute(:current_line, @lineno)
+          report.update_attribute(:progress, (@lineno.to_f/report.total_lines)*100) if report.total_lines
+        end
+        if report.workflow_state == 'deleted'
+          report.workflow_state = 'aborted'
+          report.save!
+          raise 'aborted'
+        end
+      end
+      super(row)
+    end
+  end
+
+  def read_csv_in_chunks(filename, chunk_size = 1000)
+    CSV.open(filename) do |csv|
+      rows = []
+      while (!(row = csv.readline).nil?)
+        rows << row
+        if rows.size == chunk_size
+          yield rows
+          rows = []
+        end
+      end
+      yield rows unless rows.empty?
+    end
   end
 
   def add_extra_text(text)
@@ -242,6 +276,9 @@ module AccountReports::ReportHelper
       @account_report.parameters["extra_text"] << " #{text}"
     else
       @account_report.parameters["extra_text"] = text
+    end
+    Shackles.activate(:master) do
+      @account_report.save!
     end
   end
 

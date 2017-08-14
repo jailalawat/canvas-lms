@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,7 +17,7 @@
 #
 
 class QuestionBanksController < ApplicationController
-  before_filter :require_context, :except => :bookmark
+  before_action :require_context, :except => :bookmark
   add_crumb(proc { t('#crumbs.question_banks', "Question Banks") }, :except => :bookmark) { |c| c.send :named_context_url, c.instance_variable_get("@context"), :context_question_banks_url }
 
   include Api::V1::Outcome
@@ -63,6 +63,7 @@ class QuestionBanksController < ApplicationController
       :CONTEXT_URL_ROOT => polymorphic_path([@context]),
       :ROOT_OUTCOME_GROUP => outcome_group_json(@context.root_outcome_group, @current_user, session)
     })
+    rce_js_env(:highrisk)
 
     add_crumb(@bank.title)
     if authorized_action(@bank, @current_user, :read)
@@ -89,7 +90,7 @@ class QuestionBanksController < ApplicationController
             "INSERT INTO #{AssessmentQuestion.quoted_table_name} (#{(%w{assessment_question_bank_id created_at updated_at} + attributes).join(', ')})" +
             @questions.select(([@new_bank.id, now, now] + attributes).join(', ')).to_sql)
       else
-        @questions.update_all(:assessment_question_bank_id => @new_bank)
+        @questions.update_all(:assessment_question_bank_id => @new_bank.id)
       end
 
       [ @bank, @new_bank ].each(&:touch)
@@ -100,7 +101,7 @@ class QuestionBanksController < ApplicationController
 
   def create
     if authorized_action(@context.assessment_question_banks.temp_record, @current_user, :create)
-      @bank = @context.assessment_question_banks.build(params[:assessment_question_bank])
+      @bank = @context.assessment_question_banks.build(bank_params)
       respond_to do |format|
         if @bank.save
           @bank.bookmark_for(@current_user)
@@ -129,7 +130,7 @@ class QuestionBanksController < ApplicationController
   def update
     @bank = @context.assessment_question_banks.find(params[:id])
     if authorized_action(@bank, @current_user, :update)
-      if @bank.update_attributes(params[:assessment_question_bank])
+      if @bank.update_attributes(bank_params)
         @bank.reload
         render :json => @bank.as_json(:include => {:learning_outcome_alignments => {:include => {:learning_outcome => {:include_root => false}}}})
       else
@@ -144,5 +145,11 @@ class QuestionBanksController < ApplicationController
       @bank.destroy
       render :json => @bank
     end
+  end
+
+  private
+
+  def bank_params
+    params.require(:assessment_question_bank).permit(:title, :alignments => strong_anything)
   end
 end

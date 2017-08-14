@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 # Defines periodic jobs run by DelayedJobs.
 #
 # Scheduling is done by rufus-scheduler
@@ -9,13 +26,24 @@
 # Periodic jobs default to low priority. You can override this in the arguments
 # passed to Delayed::Periodic.cron
 
-def with_each_shard_by_database(klass, method, *args)
-  Shard.with_each_shard do
-    klass.send_later_enqueue_args(method, {
-      strand: "#{klass}.#{method}:#{Shard.current.database_server.id}",
-      max_attempts: 1
-    }, *args)
+class PeriodicJobs
+  def self.with_each_shard_by_database_in_region(klass, method, *args)
+    Shard.with_each_shard(Shard.in_current_region) do
+      klass.send_later_enqueue_args(method, {
+          strand: "#{klass}.#{method}:#{Shard.current.database_server.id}",
+          max_attempts: 1
+      }, *args)
+    end
   end
+end
+
+def with_each_shard_by_database(klass, method, *args)
+  DatabaseServer.send_in_each_region(PeriodicJobs,
+                                     :with_each_shard_by_database_in_region,
+                                     {
+                                       singleton: "periodic:region: #{klass}.#{method}",
+                                       max_attempts: 1,
+                                     }, klass, method, *args)
 end
 
 Rails.configuration.after_initialize do
@@ -45,7 +73,7 @@ Rails.configuration.after_initialize do
     with_each_shard_by_database(SummaryMessageConsolidator, :process)
   end
 
-  Delayed::Periodic.cron 'CrocodocDocument.update_process_states', '*/5 * * * *' do
+  Delayed::Periodic.cron 'CrocodocDocument.update_process_states', '*/10 * * * *' do
     if Canvas::Crocodoc.config
       with_each_shard_by_database(CrocodocDocument, :update_process_states)
     end
@@ -95,11 +123,11 @@ Rails.configuration.after_initialize do
     end
   end
 
-  Delayed::Periodic.cron 'Alerts::DelayedAlertSender.process', '30 11 * * *', :priority => Delayed::LOW_PRIORITY do
+  Delayed::Periodic.cron 'Alerts::DelayedAlertSender.process', '30 11 * * *', priority: Delayed::LOW_PRIORITY do
     with_each_shard_by_database(Alerts::DelayedAlertSender, :process)
   end
 
-  Delayed::Periodic.cron 'Attachment.do_notifications', '*/10 * * * *', :priority => Delayed::LOW_PRIORITY do
+  Delayed::Periodic.cron 'Attachment.do_notifications', '*/10 * * * *', priority: Delayed::LOW_PRIORITY do
     with_each_shard_by_database(Attachment, :do_notifications)
   end
 
@@ -146,5 +174,13 @@ Rails.configuration.after_initialize do
                                   :refresh_providers,
                                   singleton: 'AccountAuthorizationConfig::SAML::InCommon.refresh_providers')
     end
+  end
+
+  Delayed::Periodic.cron 'EnrollmentState.recalculate_expired_states', '*/5 * * * *', priority: Delayed::LOW_PRIORITY do
+    with_each_shard_by_database(EnrollmentState, :recalculate_expired_states)
+  end
+
+  Delayed::Periodic.cron 'MissingPolicyApplicator.apply_missing_deductions', '*/5 * * * *', priority: Delayed::LOW_PRIORITY do
+    with_each_shard_by_database(MissingPolicyApplicator, :apply_missing_deductions)
   end
 end

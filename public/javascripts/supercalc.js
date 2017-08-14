@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,19 +12,17 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'i18n!calculator',
-  'jquery' /* $ */,
-  'calcCmd',
-  'str/htmlEscape',
-  'jquery.instructure_misc_helpers' /* /\$\.raw/ */,
-  'jquery.instructure_misc_plugins' /* showIf */,
-  'jqueryui/sortable' /* /\.sortable/ */
-], function(I18n, $, calcCmd, htmlEscape) {
+import I18n from 'i18n!calculator'
+import $ from 'jquery'
+import calcCmd from 'calcCmd'
+import htmlEscape from './str/htmlEscape'
+import './jquery.instructure_misc_helpers' /* /\$\.raw/ */
+import './jquery.instructure_misc_plugins' /* showIf */
+import 'jqueryui/sortable'
 
   var generateFinds = function($table) {
     var finds = {};
@@ -66,6 +64,7 @@ define([
                       "</table>");
 
       $entryBox.attr('aria-labelledby', 'headings.formula');
+      $entryBox.css('width', '220px');
       $(this).data('table', $table);
       $entryBox.before($table);
       $table.find("tfoot tr:last td:first").append($entryBox);
@@ -159,4 +158,3 @@ define([
       });
     }
   };
-});

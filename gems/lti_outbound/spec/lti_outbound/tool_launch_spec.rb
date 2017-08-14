@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -87,18 +87,18 @@ describe LtiOutbound::ToolLaunch do
   end
 
   let(:controller) do
-    request_mock = mock('request')
-    request_mock.stub(:host).returns('/my/url')
-    request_mock.stub(:scheme).returns('https')
-    controller = mock('controller')
-    controller.stub(:request).returns(request_mock)
-    controller.stub(:logged_in_user).returns(@user)
+    request_mock = double('request')
+    allow(request_mock).to receive(:host).returns('/my/url')
+    allow(request_mock).to receive(:scheme).returns('https')
+    controller = double('controller')
+    allow(controller).to receive(:request).returns(request_mock)
+    allow(controller).to receive(:logged_in_user).returns(@user)
     controller
   end
 
   let(:variable_expander) do
-    m = mock('variable_expander')
-    m.stub(:expand_variables!){ |hash| hash }
+    m = double('variable_expander')
+    allow(m).to receive(:expand_variables!){ |hash| hash }
     m
   end
 
@@ -115,41 +115,47 @@ describe LtiOutbound::ToolLaunch do
   end
 
   describe '#generate' do
+    let(:expected_hash) do
+      {
+        'lti_message_type' => "basic-lti-launch-request",
+        'lti_version' => "LTI-1p0",
+        'resource_link_id' => "123456",
+        'resource_link_title' => "tool_name",
+        'user_id' => "user_opaque_identifier",
+        'roles' => "Instructor",
+        'ext_roles' => "$Canvas.xuser.allRoles",
+        'custom_canvas_enrollment_state' => "$Canvas.enrollment.enrollmentState",
+        'lis_person_name_given' => "first_name",
+        'lis_person_name_family' => "last_name",
+        'lis_person_name_full' => "user_name",
+        'lis_person_contact_email_primary' => "nobody@example.com",
+        'user_image' => "avatar_url",
+        'custom_canvas_user_id' => "$Canvas.user.id",
+        'lis_person_sourcedid' => "$Person.sourcedId",
+        'custom_canvas_user_login_id' => "$Canvas.user.loginId",
+        'custom_canvas_course_id' => "$Canvas.course.id",
+        'custom_canvas_workflow_state' => "$Canvas.course.workflowState",
+        'lis_course_offering_sourcedid' => "$CourseSection.sourcedId",
+        'custom_canvas_api_domain' => "$Canvas.api.domain",
+        'context_id' => "course_opaque_identifier",
+        'context_title' => "course_name",
+        'context_label' => "course_code",
+        'launch_presentation_locale' => :en,
+        'launch_presentation_document_target' => "iframe",
+        'launch_presentation_return_url' => "http://www.google.com",
+        'tool_consumer_instance_guid' => "root_account_lti_guid",
+        'tool_consumer_instance_name' => "root_account_name",
+        'tool_consumer_instance_contact_email' => "outgoing_email_address",
+        'tool_consumer_info_product_family_code' => "canvas",
+        'tool_consumer_info_version' => "cloud",
+        'oauth_callback' => "about:blank"
+     }
+    end
+
     it 'generates correct parameters' do
       I18n.config.available_locales_set << :en
-      I18n.stub(:localizer).and_return(-> { :en })
-
-      hash = tool_launch.generate
-
-      expect(hash['lti_message_type']).to eq 'basic-lti-launch-request'
-      expect(hash['lti_version']).to eq 'LTI-1p0'
-      expect(hash['resource_link_id']).to eq '123456'
-      expect(hash['resource_link_title']).to eq 'tool_name'
-      expect(hash['user_id']).to eq 'user_opaque_identifier'
-      expect(hash['user_image']).to eq 'avatar_url'
-      expect(hash['roles']).to eq 'Instructor'
-      expect(hash['context_id']).to eq 'course_opaque_identifier'
-      expect(hash['context_title']).to eq 'course_name'
-      expect(hash['context_label']).to eq 'course_code'
-      expect(hash['custom_canvas_user_id']).to eq '$Canvas.user.id'
-      expect(hash['custom_canvas_user_login_id']).to eq '$Canvas.user.loginId'
-      expect(hash['custom_canvas_course_id']).to eq '$Canvas.course.id'
-      expect(hash['custom_canvas_api_domain']).to eq '$Canvas.api.domain'
-      expect(hash['lis_course_offering_sourcedid']).to eq '$CourseSection.sourcedId'
-      expect(hash['lis_person_contact_email_primary']).to eq 'nobody@example.com'
-      expect(hash['lis_person_name_full']).to eq 'user_name'
-      expect(hash['lis_person_name_family']).to eq 'last_name'
-      expect(hash['lis_person_name_given']).to eq 'first_name'
-      expect(hash['lis_person_sourcedid']).to eq '$Person.sourcedId'
-      expect(hash['launch_presentation_locale']).to eq 'en' #was I18n.default_locale.to_s
-      expect(hash['launch_presentation_document_target']).to eq 'iframe'
-      expect(hash['launch_presentation_return_url']).to eq 'http://www.google.com'
-      expect(hash['tool_consumer_instance_guid']).to eq 'root_account_lti_guid'
-      expect(hash['tool_consumer_instance_name']).to eq 'root_account_name'
-      expect(hash['tool_consumer_instance_contact_email']).to eq 'outgoing_email_address'
-      expect(hash['tool_consumer_info_product_family_code']).to eq 'canvas'
-      expect(hash['tool_consumer_info_version']).to eq 'cloud'
-      expect(hash['oauth_callback']).to eq 'about:blank'
+      allow(I18n).to receive(:localizer).and_return(-> { :en })
+      expect(tool_launch.generate).to eq expected_hash
     end
 
     it 'allows resource_link_title to be overrriden' do
@@ -193,10 +199,10 @@ describe LtiOutbound::ToolLaunch do
 
     it 'sets the locale if I18n.localizer exists' do
       I18n.config.available_locales_set << :es
-      I18n.stub(:localizer).and_return(-> { :es })
+      allow(I18n).to receive(:localizer).and_return(-> { :es })
       hash = tool_launch.generate
 
-      expect(hash['launch_presentation_locale']).to eq 'es'
+      expect(hash['launch_presentation_locale']).to eq :es
     end
 
     it 'adds account info in launch data for account navigation' do
@@ -230,19 +236,6 @@ describe LtiOutbound::ToolLaunch do
       expect(hash['tool_consumer_instance_guid']).to eq 'root_account_lti_guid' #was hash['tool_consumer_instance_guid']).to eq sub_account.root_account.lti_guid
     end
 
-    it 'includes URI query parameters' do
-      hash = LtiOutbound::ToolLaunch.new(:url => 'http://www.yahoo.com?paramater_a=value_a&parameter_b=value_b',
-                                         :tool => tool,
-                                         :user => user,
-                                         :account => account,
-                                         :context => course,
-                                         :link_code => '123456',
-                                         :return_url => 'http://www.google.com',
-                                         :variable_expander => variable_expander).generate
-      expect(hash['paramater_a']).to eq 'value_a'
-      expect(hash['parameter_b']).to eq 'value_b'
-    end
-
     it 'does not allow overwriting other parameters from the URI query string' do
       hash = LtiOutbound::ToolLaunch.new(:url => 'http://www.yahoo.com?user_id=ATTEMPT_TO_SET_DATA&oauth_callback=ATTEMPT_TO_SET_DATA',
                                          :tool => tool,
@@ -269,9 +262,48 @@ describe LtiOutbound::ToolLaunch do
       expect(hash['custom_bob']).to eql('bob')
       expect(hash['custom_fred']).to eql('fred')
       expect(hash['custom_john']).to eql('john')
-      expect(hash['custom___taa____']).to eql('123')
+      expect(hash['custom___taa____']).to eql(123)
       expect(hash).to_not have_key '@$TAA$#$#'
       expect(hash).to_not have_key 'john'
+    end
+
+    context "link_params" do
+      let(:link_params) do
+        {
+          custom: {
+            'custom_param' => 123
+          },
+          ext:{
+            'ext_param' => 123,
+          }
+        }
+      end
+
+      let(:tool_launch) do
+        LtiOutbound::ToolLaunch.new(
+          url: 'http://www.yahoo.com',
+          tool: tool,
+          user: user,
+          account: account,
+          context: course,
+          link_code: '123456',
+          return_url: 'http://www.google.com',
+          outgoing_email_address: 'outgoing_email_address',
+          variable_expander: variable_expander,
+          link_params: link_params
+        )
+      end
+
+      it 'includes custom fields from link_params' do
+        hash = tool_launch.generate
+        expect(hash).to include({'custom_param' => 123})
+      end
+
+      it 'includes ext fields from link_params' do
+        hash = tool_launch.generate
+        expect(hash).to include({'ext_param' => 123})
+      end
+
     end
 
     it 'does not include name and email if anonymous' do
@@ -310,6 +342,14 @@ describe LtiOutbound::ToolLaunch do
       expect(hash['lis_person_contact_email_primary']).to eq 'nobody@example.com'
     end
 
+    it 'includes role_scope_mentor if user is observer and privacy level is public' do
+      tool.privacy_level = LtiOutbound::LTITool::PRIVACY_LEVEL_PUBLIC
+      user.current_roles = [LtiOutbound::LTIRoles::ContextNotNamespaced::OBSERVER.split(',').last]
+      user.current_observee_ids = ['1', '2', '3']
+      hash = tool_launch.generate
+      expect(hash['role_scope_mentor']).to eq '1,2,3'
+    end
+
     it 'gets the correct width and height based on resource type' do
       tool.settings = {editor_button: {:selection_width => 1000, :selection_height => 300, :icon_url => 'www.example.com/icon', :url => 'www.example.com'}}
       hash = LtiOutbound::ToolLaunch.new(:url => 'http://www.yahoo.com',
@@ -321,8 +361,8 @@ describe LtiOutbound::ToolLaunch do
                                          :return_url => 'http://www.yahoo.com',
                                          :resource_type => 'editor_button',
                                          :variable_expander => variable_expander).generate
-      expect(hash['launch_presentation_width']).to eq '1000'
-      expect(hash['launch_presentation_height']).to eq '300'
+      expect(hash['launch_presentation_width']).to eq 1000
+      expect(hash['launch_presentation_height']).to eq 300
     end
 
     it 'does not copy query params to POST body if disable_lti_post_only feature flag is set' do
@@ -394,109 +434,4 @@ describe LtiOutbound::ToolLaunch do
     end
   end
 
-  #TODO: do not test private methods
-  describe '.generate_params' do
-    def explicit_signature_settings(timestamp, nonce)
-      LtiOutbound::ToolLaunch.instance_variable_set(:'@timestamp', timestamp)
-      LtiOutbound::ToolLaunch.instance_variable_set(:'@nonce', nonce)
-    end
-
-    it 'generate a correct signature' do
-      explicit_signature_settings('1251600739', 'c8350c0e47782d16d2fa48b2090c1d8f')
-
-      hash = LtiOutbound::ToolLaunch.send(:generate_params, {
-                                                              :resource_link_id => '120988f929-274612',
-                                                              :user_id => '292832126',
-                                                              :roles => 'Instructor',
-                                                              :lis_person_name_full => 'Jane Q. Public',
-                                                              :lis_person_contact_email_primary => 'user@school.edu',
-                                                              :lis_person_sourced_id => 'school.edu:user',
-                                                              :context_id => '456434513',
-                                                              :context_title => 'Design of Personal Environments',
-                                                              :context_label => 'SI182',
-                                                              :lti_version => 'LTI-1p0',
-                                                              :lti_message_type => 'basic-lti-launch-request',
-                                                              :tool_consumer_instance_guid => 'lmsng.school.edu',
-                                                              :tool_consumer_instance_description => 'University of School (LMSng)',
-                                                              :lti_submit => 'Launch Endpoint with LTI Data'
-                                                          }, 'http://dr-chuck.com/ims/php-simple/tool.php', '12345', 'secret')
-
-      expect(hash['oauth_signature']).to eql('l1ZTsn1HjGXzqeaTQMPbjrqvjLU=')
-    end
-
-    it 'generate a correct signature with URL query parameters' do
-      explicit_signature_settings('1251600739', 'c8350c0e47782d16d2fa48b2090c1d8f')
-      hash = LtiOutbound::ToolLaunch.send(:generate_params, {
-                                                              :resource_link_id => '120988f929-274612',
-                                                              :user_id => '292832126',
-                                                              :roles => 'Instructor',
-                                                              :lis_person_name_full => 'Jane Q. Public',
-                                                              :lis_person_contact_email_primary => 'user@school.edu',
-                                                              :lis_person_sourced_id => 'school.edu:user',
-                                                              :context_id => '456434513',
-                                                              :context_title => 'Design of Personal Environments',
-                                                              :context_label => 'SI182',
-                                                              :lti_version => 'LTI-1p0',
-                                                              :lti_message_type => 'basic-lti-launch-request',
-                                                              :tool_consumer_instance_guid => 'lmsng.school.edu',
-                                                              :tool_consumer_instance_description => 'University of School (LMSng)',
-                                                              :lti_submit => 'Launch Endpoint with LTI Data'
-                                                          }, 'http://dr-chuck.com/ims/php-simple/tool.php?a=1&b=2&c=3%20%26a', '12345', 'secret')
-      expect(hash['oauth_signature']).to eql('k/+aMdax1Jm5kuGF6DG/ptN5VfY=')
-      expect(hash['c']).to eq '3 &a'
-    end
-
-    it 'generate a correct signature with a non-standard port' do
-      #signatures generated using http://oauth.googlecode.com/svn/code/javascript/example/signature.html
-      explicit_signature_settings('1251600739', 'c8350c0e47782d16d2fa48b2090c1d8f')
-      hash = LtiOutbound::ToolLaunch.send(:generate_params, {
-                                                          }, 'http://dr-chuck.com:123/ims/php-simple/tool.php', '12345', 'secret')
-      expect(hash['oauth_signature']).to eql('ghEdPHwN4iJmsM3Nr4AndDx2Kx8=')
-
-      hash = LtiOutbound::ToolLaunch.send(:generate_params, {
-                                                          }, 'http://dr-chuck.com/ims/php-simple/tool.php', '12345', 'secret')
-      expect(hash['oauth_signature']).to eql('WoSpvCr2HEsLzao6Do0eukxwAsk=')
-
-      hash = LtiOutbound::ToolLaunch.send(:generate_params, {
-                                                          }, 'http://dr-chuck.com:80/ims/php-simple/tool.php', '12345', 'secret')
-      expect(hash['oauth_signature']).to eql('WoSpvCr2HEsLzao6Do0eukxwAsk=')
-
-      hash = LtiOutbound::ToolLaunch.send(:generate_params, {
-                                                          }, 'http://dr-chuck.com:443/ims/php-simple/tool.php', '12345', 'secret')
-      expect(hash['oauth_signature']).to eql('KqAV7eIS/+iWIDpvCyDfY8ZpmT4=')
-
-      hash = LtiOutbound::ToolLaunch.send(:generate_params, {
-                                                          }, 'https://dr-chuck.com/ims/php-simple/tool.php', '12345', 'secret')
-      expect(hash['oauth_signature']).to eql('wFRB/1ZXi/91dop6GwahfboWPvQ=')
-
-      hash = LtiOutbound::ToolLaunch.send(:generate_params, {
-                                                          }, 'https://dr-chuck.com:443/ims/php-simple/tool.php', '12345', 'secret')
-      expect(hash['oauth_signature']).to eql('wFRB/1ZXi/91dop6GwahfboWPvQ=')
-
-      hash = LtiOutbound::ToolLaunch.send(:generate_params, {
-                                                          }, 'https://dr-chuck.com:80/ims/php-simple/tool.php', '12345', 'secret')
-      expect(hash['oauth_signature']).to eql('X8Aq2HXSHnr6u/6z/G9zI5aDoR0=')
-    end
-
-    it 'does not copy query params to POST body if disable_lti_post_only feature flag is set' do
-      hash = LtiOutbound::ToolLaunch.send(:generate_params, {
-                                                              :resource_link_id => '120988f929-274612',
-                                                              :user_id => '292832126',
-                                                              :roles => 'Instructor',
-                                                              :lis_person_name_full => 'Jane Q. Public',
-                                                              :lis_person_contact_email_primary => 'user@school.edu',
-                                                              :lis_person_sourced_id => 'school.edu:user',
-                                                              :context_id => '456434513',
-                                                              :context_title => 'Design of Personal Environments',
-                                                              :context_label => 'SI182',
-                                                              :lti_version => 'LTI-1p0',
-                                                              :lti_message_type => 'basic-lti-launch-request',
-                                                              :tool_consumer_instance_guid => 'lmsng.school.edu',
-                                                              :tool_consumer_instance_description => 'University of School (LMSng)',
-                                                              :lti_submit => 'Launch Endpoint with LTI Data'
-                                                          }, 'http://www.instructure.com?first=weston&last=dransfield', 'key', 'secret',
-                                                            disable_lti_post_only: true)
-      expect(hash.key?('first')).to eq false
-    end
-  end
 end

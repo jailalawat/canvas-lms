@@ -21,7 +21,7 @@ require File.expand_path(File.dirname(__FILE__) + '/../../sharding_spec_helper')
 
 describe ConversationsController, type: :request do
   before :once do
-    @other = user(active_all: true)
+    @other = user_factory(active_all: true)
 
     course_with_teacher(:active_course => true, :active_enrollment => true, :user => user_with_pseudonym(:active_user => true))
     @course.update_attribute(:name, "the course")
@@ -111,6 +111,19 @@ describe ConversationsController, type: :request do
           "context_code" => @c1.conversation.context_code,
         }
       ]
+    end
+
+    it "should properly respond to include[]=participant_avatars" do
+      conversation(@bob, :workflow_state => 'read')
+
+      json = api_call(:get, "/api/v1/conversations.json",
+              { :controller => 'conversations', :action => 'index',
+                :format => 'json', :include => ["participant_avatars"] })
+      json.each do |conversation|
+        conversation["participants"].each do |user|
+          expect(user).to have_key "avatar_url"
+        end
+      end
     end
 
     it "should stringify audience ids if requested" do
@@ -529,6 +542,42 @@ describe ConversationsController, type: :request do
           assert_status(400)
         end
 
+        it "should allow an admin to send a message in course context" do
+          account_admin_user active_all: true
+          json = api_call(:post, "/api/v1/conversations",
+                  { :controller => 'conversations', :action => 'create', :format => 'json' },
+                  { :recipients => [@bob.id], :body => "test", :context_code => @course.asset_string })
+          conv = Conversation.find(json.first['id'])
+          expect(conv.context).to eq @course
+        end
+
+        it "should always have the right tags when sending a bulk message in course context" do
+          other_course = Account.default.courses.create!(:workflow_state => 'available')
+          other_course.enroll_teacher(@user).accept!
+          other_course.enroll_student(@bob).accept!
+          # if they happen to be in another course it shouldn't use those tags - otherwise it will show up in the "sent" for other courses
+          @course.account.role_overrides.where(permission: 'send_messages_all', role: teacher_role).update_all(enabled: true)
+
+          json = api_call(:post, "/api/v1/conversations",
+            { :controller => 'conversations', :action => 'create', :format => 'json' },
+            { :recipients => [@course.asset_string], :body => "test", :context_code => @course.asset_string,
+              :bulk_message => "1", :group_conversation => "1"}
+          )
+
+          @user.all_conversations.sent.each do |cp|
+            expect(cp.tags).to eq [@course.asset_string]
+          end
+        end
+
+        it "allows users to send messages to themselves" do
+          json = api_call(:post, "/api/v1/conversations",
+            { :controller => 'conversations', :action => 'create', :format => 'json' },
+            { :recipients => [@user.id], :body => "hello, me", :context_code => @course.asset_string }
+          )
+          expect(response).to be_success
+          expect(json[0]['messages'][0]['participating_user_ids']).to eq([@user.id])
+        end
+
         it "should allow site admin to set any account context" do
           site_admin_user(name: "site admin", active_all: true)
           json = api_call(:post, "/api/v1/conversations",
@@ -694,6 +743,14 @@ describe ConversationsController, type: :request do
           [@billy, @joe].each {|u| expect(u.conversations.first.conversation.context).to eql(@course)}
         end
 
+        it "constraints the length of the subject of a conversation batch" do
+          json = api_call(:post, "/api/v1/conversations",
+              { :controller => 'conversations', :action => 'create', :format => 'json' },
+              { :recipients => [@bob.id, @joe.id, @billy.id], :subject => 'Z' * 300, :body => "test",
+                :context_code => "course_#{@course.id}" }, {}, { :expected_status => 400 })
+          expect(json['errors']['subject']).to be_present
+        end
+
         it "should create/update bulk private conversations asynchronously" do
           json = api_call(:post, "/api/v1/conversations",
                   { :controller => 'conversations', :action => 'create', :format => 'json' },
@@ -780,26 +837,28 @@ describe ConversationsController, type: :request do
             "messages" => [
               {
                 "id" => conversation.messages.first.id, "created_at" => conversation.messages.first.created_at.to_json[1, 20], "body" => "test", "author_id" => @me.id, "generated" => false, "media_comment" => nil, "attachments" => [], "participating_user_ids" => [@me.id, @billy.id].sort,
-                "forwarded_messages" => [
-                  {
-                          "id" => forwarded_message.id, "created_at" => forwarded_message.created_at.to_json[1, 20], "body" => "test", "author_id" => @bob.id, "generated" => false, "media_comment" => nil, "forwarded_messages" => [],
-                          "attachments" => [{'filename' => attachment.filename,
-                                             'url' => "http://www.example.com/files/#{attachment.id}/download?download_frd=1&verifier=#{attachment.uuid}",
-                                             'content-type' => 'image/png',
-                                             'display_name' => 'test my file? hai!&.png',
-                                             'id' => attachment.id,
-                                             'folder_id' => attachment.folder_id,
-                                             'size' => attachment.size,
-                                             'unlock_at' => nil,
-                                             'locked' => false,
-                                             'hidden' => false,
-                                             'lock_at' => nil,
-                                             'locked_for_user' => false,
-                                             'hidden_for_user' => false,
-                                             'created_at' => attachment.created_at.as_json,
-                                             'updated_at' => attachment.updated_at.as_json,
-                                             'modified_at' => attachment.updated_at.as_json,
-                                             'thumbnail_url' => attachment.thumbnail_url }], "participating_user_ids" => [@me.id, @bob.id].sort
+                "forwarded_messages" => [{
+                  "id" => forwarded_message.id, "created_at" => forwarded_message.created_at.to_json[1, 20], "body" => "test", "author_id" => @bob.id, "generated" => false, "media_comment" => nil, "forwarded_messages" => [],
+                  "attachments" => [{
+                    'filename' => attachment.filename,
+                    'url' => "http://www.example.com/files/#{attachment.id}/download?download_frd=1&verifier=#{attachment.uuid}",
+                    'content-type' => 'image/png',
+                    'display_name' => 'test my file? hai!&.png',
+                    'id' => attachment.id,
+                    'folder_id' => attachment.folder_id,
+                    'size' => attachment.size,
+                    'unlock_at' => nil,
+                    'locked' => false,
+                    'hidden' => false,
+                    'lock_at' => nil,
+                    'locked_for_user' => false,
+                    'hidden_for_user' => false,
+                    'created_at' => attachment.created_at.as_json,
+                    'updated_at' => attachment.updated_at.as_json,
+                    'modified_at' => attachment.modified_at.as_json,
+                    'thumbnail_url' => attachment.thumbnail_url,
+                    'mime_class' => attachment.mime_class,
+                    'media_entry_id' => attachment.media_entry_id }], "participating_user_ids" => [@me.id, @bob.id].sort
                   }
                 ]
               }
@@ -807,6 +866,25 @@ describe ConversationsController, type: :request do
           }
         ]
         expect(json).to eq expected
+      end
+
+      context "cross-shard message forwarding" do
+        specs_require_sharding
+
+        it "should not asplode" do
+          @shard1.activate do
+            course_with_teacher(:active_course => true, :active_enrollment => true, :user => @me)
+            @bob = student_in_course(:name => "bob")
+
+            @message = conversation(@me, :sender => @bob).messages.first
+          end
+
+          json = api_call(:post, "/api/v1/conversations/#{@conversation.conversation_id}/add_message",
+            { :controller => 'conversations', :action => 'add_message', :id => @conversation.conversation_id.to_s, :format => 'json' },
+            { :body => "wut wut", :included_messages => [@message.id]})
+
+          expect(json['last_message']).to eq "wut wut"
+        end
       end
 
       it "should set subject" do
@@ -904,7 +982,8 @@ describe ConversationsController, type: :request do
 
   context "conversation" do
     it "should return the conversation" do
-      conversation = conversation(@bob)
+      conversation = conversation(@bob, :context_type => "Course", :context_id => @course.id)
+
       attachment = @me.conversation_attachments_folder.attachments.create!(:context => @me, :filename => 'test.txt', :display_name => "test.txt", :uploaded_data => StringIO.new('test'))
       media_object = MediaObject.new
       media_object.media_id = '0_12345678'
@@ -981,7 +1060,9 @@ describe ConversationsController, type: :request do
                 'created_at' => attachment.created_at.as_json,
                 'updated_at' => attachment.updated_at.as_json,
                 'thumbnail_url' => attachment.thumbnail_url,
-                'modified_at' => attachment.updated_at.as_json
+                'modified_at' => attachment.modified_at.as_json,
+                'mime_class' => attachment.mime_class,
+                'media_entry_id' => attachment.media_entry_id
               }
             ],
             "participating_user_ids" => [@me.id, @bob.id].sort
@@ -992,6 +1073,31 @@ describe ConversationsController, type: :request do
         "context_name" => conversation.context_name,
         "context_code" => conversation.conversation.context_code,
       })
+    end
+
+    it "should indicate if conversation permissions for the context are missing" do
+      @user = @billy
+      conversation = conversation(@bob, :sender => @billy, :context_type => "Course", :context_id => @course.id)
+
+      @course.account.role_overrides.create!(:permission => :send_messages, :role => student_role, :enabled => false)
+
+      json = api_call(:get, "/api/v1/conversations/#{conversation.conversation_id}",
+        { :controller => 'conversations', :action => 'show', :id => conversation.conversation_id.to_s, :format => 'json' })
+
+      expect(json["cannot_reply"]).to eq true
+    end
+
+    it "should not explode on account group conversations" do
+      @user = @billy
+      group
+      @group.add_user(@bob)
+      @group.add_user(@billy)
+      conversation = conversation(@bob, :sender => @billy, :context_type => "Group", :context_id => @group.id)
+
+      json = api_call(:get, "/api/v1/conversations/#{conversation.conversation_id}",
+        { :controller => 'conversations', :action => 'show', :id => conversation.conversation_id.to_s, :format => 'json' })
+
+      expect(json["cannot_reply"]).to_not be_truthy
     end
 
     it "should still include attachment verifiers when using session auth" do
@@ -1967,6 +2073,168 @@ describe ConversationsController, type: :request do
       json = api_call(:get, '/api/v1/conversations/unread_count.json',
                       {:controller => 'conversations', :action => 'unread_count', :format => 'json'})
       expect(json).to eql({'unread_count' => '1'})
+    end
+  end
+
+  context 'deleted_conversations' do
+    before :once do
+      @me = nil
+      @c1 = conversation(@bob)
+      @c1.remove_messages(:all)
+
+      @c2 = conversation(@billy)
+      @c2.remove_messages(:all)
+
+      account_admin_user(:account => Account.site_admin)
+    end
+
+    it 'returns a list of deleted conversation messages' do
+      json = api_call(:get, "/api/v1/conversations/deleted",
+              { :controller => 'conversations', :action => 'deleted_index', :format => 'json',
+                :user_id => @bob.id })
+
+      expect(json.count).to eql 1
+      expect(json[0]).to include(
+        "attachments",
+        "body",
+        "author_id",
+        "conversation_id",
+        "created_at",
+        "deleted_at",
+        "forwarded_messages",
+        "generated",
+        "id",
+        "media_comment",
+        "participating_user_ids",
+        "user_id"
+      )
+    end
+
+    it 'returns a paginated response with proper link headers' do
+      json = api_call(:get, "/api/v1/conversations/deleted",
+              { :controller => 'conversations', :action => 'deleted_index', :format => 'json',
+                :user_id => @bob.id })
+
+      links = response.headers['Link'].split(",")
+      expect(links.all?{ |l| l =~ /api\/v1\/conversations\/deleted/ }).to be_truthy
+      expect(links.find{ |l| l.match(/rel="current"/)}).to match /page=1&per_page=10>/
+      expect(links.find{ |l| l.match(/rel="first"/)}).to match /page=1&per_page=10>/
+      expect(links.find{ |l| l.match(/rel="last"/)}).to match /page=1&per_page=10>/
+    end
+
+    it 'can respond with multiple users data' do
+      json = api_call(:get, "/api/v1/conversations/deleted",
+              { :controller => 'conversations', :action => 'deleted_index', :format => 'json',
+                :user_id => [@bob.id, @billy.id]})
+
+      expect(json.count).to eql 2
+    end
+
+    it 'will only get the provided conversation id' do
+      json = api_call(:get, "/api/v1/conversations/deleted",
+              { :controller => 'conversations', :action => 'deleted_index', :format => 'json',
+                :user_id => [@bob.id, @billy.id], :conversation_id => @c1.conversation_id })
+
+      expect(json.count).to eql 1
+    end
+
+    it 'can filter based on the deletion date' do
+      json = api_call(:get, "/api/v1/conversations/deleted",
+              { :controller => 'conversations', :action => 'deleted_index', :format => 'json',
+                :user_id => @bob.id, :deleted_before => 1.hour.from_now })
+      expect(json.count).to eql 1
+
+      json = api_call(:get, "/api/v1/conversations/deleted",
+              { :controller => 'conversations', :action => 'deleted_index', :format => 'json',
+                :user_id => @bob.id, :deleted_before => 1.hour.ago })
+      expect(json.count).to eql 0
+
+      json = api_call(:get, "/api/v1/conversations/deleted",
+              { :controller => 'conversations', :action => 'deleted_index', :format => 'json',
+                :user_id => @bob.id, :deleted_after => 1.hour.ago })
+      expect(json.count).to eql 1
+
+      json = api_call(:get, "/api/v1/conversations/deleted",
+              { :controller => 'conversations', :action => 'deleted_index', :format => 'json',
+                :user_id => @bob.id, :deleted_after => 1.hour.from_now })
+      expect(json.count).to eql 0
+    end
+  end
+
+  context 'restore_message' do
+    before :once do
+      @me = nil
+      @c1 = conversation(@bob)
+
+      account_admin_user(:account => Account.site_admin)
+    end
+
+    before :each do
+      @c1.remove_messages(:all)
+      @c1.message_count = 0
+      @c1.last_message_at = nil
+      @c1.save!
+    end
+
+    it 'returns an error when the conversation_message_id is not provided' do
+      @c1.all_messages.first()
+
+      raw_api_call(:put, "/api/v1/conversations/restore",
+              { :controller => "conversations", :action => "restore_message", :format => "json",
+                :user_id => @bob.id, :conversation_id => @c1.conversation_id })
+
+      expect(response.status).to eql 400
+    end
+
+    it 'returns an error when the user_id is not provided' do
+      @c1.all_messages.first()
+
+      raw_api_call(:put, "/api/v1/conversations/restore",
+              { :controller => "conversations", :action => "restore_message", :format => "json",
+                :conversation_id => @c1.conversation_id, :conversation_message_id => message.id })
+
+      expect(response.status).to eql 400
+    end
+
+    it 'returns an error when the conversation_id is not provided' do
+      @c1.all_messages.first()
+
+      raw_api_call(:put, "/api/v1/conversations/restore",
+              { :controller => "conversations", :action => "restore_message", :format => "json",
+                :user_id => @bob.id, :conversation_message_id => message.id })
+
+      expect(response.status).to eql 400
+    end
+
+    it 'restores the message' do
+      message = @c1.all_messages.first()
+
+      json = api_call(:put, "/api/v1/conversations/restore",
+              { :controller => "conversations", :action => "restore_message", :format => "json",
+                :user_id => @bob.id, :message_id => message.id, :conversation_id => @c1.conversation_id })
+
+      expect(response.status).to eql 200
+
+      cmp = ConversationMessageParticipant.where(:user_id => @bob.id).where(:conversation_message_id => message.id).first()
+      expect(cmp.workflow_state).to eql "active"
+      expect(cmp.deleted_at).to eql nil
+    end
+
+    it 'updates the message count and last_message_at on the conversation' do
+      expect(@c1.message_count).to eql 0
+      expect(@c1.last_message_at).to eql nil
+
+      message = @c1.all_messages.first()
+
+      json = api_call(:put, "/api/v1/conversations/restore",
+              { :controller => "conversations", :action => "restore_message", :format => "json",
+                :user_id => @bob.id, :message_id => message.id, :conversation_id => @c1.conversation_id })
+
+      expect(response.status).to eql 200
+
+      @c1.reload()
+      expect(@c1.message_count).to eql 1
+      expect(@c1.last_message_at).to eql message.created_at
     end
   end
 

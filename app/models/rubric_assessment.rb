@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,7 +23,6 @@ class RubricAssessment < ActiveRecord::Base
   include TextHelper
   include HtmlTextHelper
 
-  attr_accessible :rubric, :rubric_association, :user, :score, :data, :assessor, :artifact, :assessment_type
   belongs_to :rubric
   belongs_to :rubric_association
   belongs_to :user
@@ -175,6 +174,15 @@ class RubricAssessment < ActiveRecord::Base
     can :create and can :read and can :update
 
     given {|user| user && self.user_id == user.id }
+    can :read
+
+    given { |user|
+      user &&
+      self.user &&
+      self.rubric_association &&
+      self.rubric_association.context.is_a?(Course) &&
+      self.rubric_association.context.observer_enrollments.where(user_id: user, associated_user: self.user, workflow_state: 'active').exists?
+    }
     can :read
 
     given {|user, session| self.rubric_association && self.rubric_association.grants_right?(user, session, :manage) }

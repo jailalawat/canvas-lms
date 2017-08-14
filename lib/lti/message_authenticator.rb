@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2016 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,39 +17,45 @@
 #
 module Lti
   class MessageAuthenticator
-    attr_reader :message
-
     CACHE_KEY_PREFIX = 'lti_nonce_'
     NONCE_EXPIRATION = 10.minutes
 
     def initialize(launch_url, params)
-      @message = IMS::LTI::Models::Messages::Message.generate(params)
-      @version = @message.lti_version
-      @message.launch_url = launch_url
+      @params = params.with_indifferent_access
+      @launch_url = launch_url
+      @version = @params[:lti_version]
+      @nonce = @params[:oauth_nonce]
+      @oauth_consumer_key = @params[:oauth_consumer_key]
     end
 
     def valid?
       @valid ||= begin
-        valid = message.valid_signature?(shared_secret)
-        valid &&= message.oauth_timestamp.to_i > NONCE_EXPIRATION.ago.to_i
-        valid &&= !Rails.cache.exist?(cache_key)
-        Rails.cache.write(cache_key, message.oauth_consumer_key, expires_in: NONCE_EXPIRATION) if valid
+        valid = lti_message_authenticator.valid_signature?
+        valid &&= Security::check_and_store_nonce(cache_key, @params[:oauth_timestamp], NONCE_EXPIRATION)
         valid
       end
     end
 
+    def message
+      lti_message_authenticator.message
+    end
+
     private
+
+    def lti_message_authenticator
+      @lti_message_authenticator ||= IMS::LTI::Services::MessageAuthenticator.new(@launch_url, @params, shared_secret)
+    end
 
     def shared_secret
       @shared_secret ||=
         if @version.strip == 'LTI-1p0'
-          tool = ContextExternalTool.where(consumer_key: message.oauth_consumer_key).first
+          tool = ContextExternalTool.where(consumer_key: @params[:oauth_consumer_key]).first
           tool && tool.shared_secret
         end
     end
 
     def cache_key
-      CACHE_KEY_PREFIX+@message.oauth_nonce
+      "#{CACHE_KEY_PREFIX}_#{@oauth_consumer_key}_#{@nonce}"
     end
 
   end

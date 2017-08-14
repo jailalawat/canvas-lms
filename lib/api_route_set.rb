@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -81,6 +81,10 @@ class ApiRouteSet
 
   def delete(path, opts = {})
     route(:delete, path, opts)
+  end
+
+  def patch(path, opts = {})
+    route(:patch, path, opts)
   end
 
   def resources(resource_name, opts = {}, &block)

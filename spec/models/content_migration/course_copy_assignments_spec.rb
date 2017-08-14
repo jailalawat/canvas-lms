@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/course_copy_helper.rb')
 
 describe ContentMigration do
@@ -31,6 +48,23 @@ describe ContentMigration do
       expect(to_assign.learning_outcome_alignments.map(&:learning_outcome_id)).to eq [lo.id].sort
     end
 
+    it "should not overwrite assignment points possible on import" do
+      @course = @copy_from
+      outcome_with_rubric
+      from_assign = @copy_from.assignments.create! title: 'some assignment'
+      @rubric.associate_with(from_assign, @copy_from, purpose: 'grading', use_for_grading: true)
+      from_assign.update_attribute(:points_possible, 1)
+
+      run_course_copy
+
+      to_assign = @copy_to.assignments.where(migration_id: mig_id(from_assign)).first!
+      expect(to_assign.points_possible).to eq 1
+      expect(to_assign.rubric.rubric_associations.for_grading.first.use_for_grading).to be_truthy
+
+      run_course_copy
+      expect(to_assign.reload.points_possible).to eq 1
+    end
+
     it "should copy rubric outcomes in selective copy" do
       @course = @copy_from
       outcome_with_rubric
@@ -57,6 +91,22 @@ describe ContentMigration do
       to_assign = @copy_to.assignments.where(migration_id: mig_id(from_assign)).first!
       to_outcomes = to_assign.rubric.learning_outcome_alignments.map(&:learning_outcome).map(&:migration_id)
       expect(to_outcomes).to eql [mig_id(@outcome)]
+    end
+
+    it "should link account rubric outcomes (even if in a group) in selective copy" do
+      @course = @copy_from
+      outcome_group_model(:context => @copy_from)
+      outcome_with_rubric(:outcome_context => @copy_from.account)
+      from_assign = @copy_from.assignments.create! title: 'some assignment'
+      @rubric.associate_with(from_assign, @copy_from, purpose: 'grading')
+
+      @cm.copy_options = {:assignments => {mig_id(from_assign) => true}}
+
+      run_course_copy
+
+      to_assign = @copy_to.assignments.where(migration_id: mig_id(from_assign)).first!
+      to_outcomes = to_assign.rubric.learning_outcome_alignments.map(&:learning_outcome)
+      expect(to_outcomes).to eql [@outcome]
     end
 
     it "should link assignments to assignment groups when copying all assignments" do
@@ -119,6 +169,13 @@ describe ContentMigration do
     it "should copy assignment attributes" do
       assignment_model(:course => @copy_from, :points_possible => 40, :submission_types => 'file_upload', :grading_type => 'points')
       @assignment.turnitin_enabled = true
+      @assignment.vericite_enabled = true
+      @assignment.vericite_settings = {
+          :originality_report_visibility => "after_grading",
+          :exclude_quoted => '1',
+          :exclude_self_plag => '0',
+          :store_in_index => '1'
+      }
       @assignment.peer_reviews = true
       @assignment.peer_review_count = 2
       @assignment.automatic_peer_reviews = true
@@ -126,20 +183,46 @@ describe ContentMigration do
       @assignment.allowed_extensions = ["doc", "xls"]
       @assignment.position = 2
       @assignment.muted = true
+      @assignment.omit_from_final_grade = true
+      @assignment.only_visible_to_overrides = true
 
       @assignment.save!
 
-      attrs = [:turnitin_enabled, :peer_reviews,
+      @copy_to.any_instantiation.expects(:turnitin_enabled?).at_least(1).returns(true)
+      @copy_to.any_instantiation.expects(:vericite_enabled?).at_least(1).returns(true)
+
+      attrs = [:turnitin_enabled, :vericite_enabled, :turnitin_settings, :peer_reviews,
           :automatic_peer_reviews, :anonymous_peer_reviews,
           :grade_group_students_individually, :allowed_extensions,
-          :position, :peer_review_count, :muted]
+          :position, :peer_review_count, :muted, :omit_from_final_grade]
 
       run_course_copy
 
       new_assignment = @copy_to.assignments.where(migration_id: mig_id(@assignment)).first
       attrs.each do |attr|
-        expect(@assignment[attr]).to eq new_assignment[attr]
+        if @assignment[attr].class == Hash
+          expect(@assignment[attr].stringify_keys).to eq new_assignment[attr].stringify_keys
+        else
+          expect(@assignment[attr]).to eq new_assignment[attr]
+        end
       end
+      expect(new_assignment.only_visible_to_overrides).to be_falsey
+    end
+
+    it "shouldn't copy turnitin/vericite_enabled if it's not enabled on the copyee's account" do
+      assignment_model(:course => @copy_from, :points_possible => 40, :submission_types => 'file_upload', :grading_type => 'points')
+      @assignment.turnitin_enabled = true
+      @assignment.vericite_enabled = true
+      @assignment.save!
+
+      @copy_to.any_instantiation.expects(:turnitin_enabled?).at_least(1).returns(false)
+      @copy_to.any_instantiation.expects(:vericite_enabled?).at_least(1).returns(false)
+
+      run_course_copy
+
+      new_assignment = @copy_to.assignments.where(migration_id: mig_id(@assignment)).first
+      expect(new_assignment[:turnitin_enabled]).to be_falsey
+      expect(new_assignment[:vericite_enabled]).to be_falsey
     end
 
     it "should copy group assignment setting" do
@@ -348,8 +431,8 @@ describe ContentMigration do
         run_course_copy(warnings)
 
         asmnt_2 = @copy_to.assignments.where(migration_id: mig_id(@asmnt)).first
-        expect(asmnt_2.freeze_on_copy).to be_nil
-        expect(asmnt_2.copied).to be_nil
+        expect(asmnt_2.freeze_on_copy).to be false
+        expect(asmnt_2.copied).to be false
       end
     end
 
@@ -480,6 +563,40 @@ describe ContentMigration do
         expect(@copy_to.assignments.count).to eql 1
         expect(@copy_to.assignments.first.grading_standard).to be_nil
         expect(unrelated_grading_standard.reload.title).not_to eql gs.title
+      end
+    end
+
+    describe "assignment overrides" do
+      before :once do
+        @assignment = @copy_from.assignments.create!(title: 'ovrdn')
+      end
+
+      it "should copy only noop overrides" do
+        assignment_override_model(assignment: @assignment, set_type: 'ADHOC')
+        assignment_override_model(assignment: @assignment, set_type: 'Noop',
+          set_id: 1, title: 'Tag 1')
+        assignment_override_model(assignment: @assignment, set_type: 'Noop',
+          set_id: nil, title: 'Tag 2')
+        @assignment.only_visible_to_overrides = true
+        @assignment.save!
+        run_course_copy
+        to_assignment = @copy_to.assignments.first
+        expect(to_assignment.only_visible_to_overrides).to be_truthy
+        expect(to_assignment.assignment_overrides.length).to eq 2
+        expect(to_assignment.assignment_overrides.detect{ |o| o.set_id == 1 }.title).to eq 'Tag 1'
+        expect(to_assignment.assignment_overrides.detect{ |o| o.set_id.nil? }.title).to eq 'Tag 2'
+      end
+
+      it "should copy dates" do
+        due_at = 1.hour.from_now.round
+        assignment_override_model(assignment: @assignment, set_type: 'Noop',
+          set_id: 1, title: 'Tag 1', due_at: due_at)
+        run_course_copy
+        to_override = @copy_to.assignments.first.assignment_overrides.first
+        expect(to_override.title).to eq 'Tag 1'
+        expect(to_override.due_at).to eq due_at
+        expect(to_override.due_at_overridden).to eq true
+        expect(to_override.unlock_at_overridden).to eq false
       end
     end
   end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,14 +20,14 @@ define [
   'jquery'
   'underscore'
   'timezone'
-  'vendor/timezone/America/Denver'
-  'vendor/timezone/America/New_York'
+  'timezone/America/Denver'
+  'timezone/America/New_York'
   'compiled/behaviors/SyllabusBehaviors'
   'compiled/collections/SyllabusCollection'
   'compiled/collections/SyllabusCalendarEventsCollection'
   'compiled/collections/SyllabusAppointmentGroupsCollection'
   'compiled/views/courses/SyllabusView'
-  'spec/javascripts/compiled/views/SyllabusViewPrerendered'
+  './SyllabusViewPrerendered.coffee'
   'helpers/fakeENV'
   'helpers/jquery.simulate'
 ], ($, _, tz, denver, newYork, SyllabusBehaviors, SyllabusCollection, SyllabusCalendarEventsCollection, SyllabusAppointmentGroupsCollection, SyllabusView, SyllabusViewPrerendered, fakeENV) ->
@@ -75,7 +75,7 @@ define [
     server.respondWith /\/api\/v1\/appointment_groups($|\?)/, appointment_groups_endpoint
     server
 
-  module 'Syllabus',
+  QUnit.module 'Syllabus',
     setup: ->
       fakeENV.setup(TIMEZONE: 'America/Denver', CONTEXT_TIMEZONE: 'America/New_York')
       # Setup stubs/mocks
@@ -93,7 +93,7 @@ define [
       @jumpToToday = $(SyllabusViewPrerendered.jumpToToday)
       @jumpToToday.appendTo $fixtures
 
-      @miniMonth = $(SyllabusViewPrerendered.miniMonth)
+      @miniMonth = $(SyllabusViewPrerendered.miniMonth())
       @miniMonth.appendTo $fixtures
 
       @syllabusContainer = $(SyllabusViewPrerendered.syllabusContainer)
@@ -369,14 +369,14 @@ define [
     nonEventMiniDay = $('#mini_day_2012_01_17')
     equal nonEventMiniDay.length, 1, 'non-event day hover - found'
 
-    nonEventMiniDay.simulate 'mouseover'
+    nonEventMiniDay.children('.day_wrapper').simulate 'mouseover'
     deepEqual $('.mini_calendar_day.related').toArray(), nonEventMiniDay.toArray(), 'non-event day hover - highlighted'
 
     # hover event date
     eventMiniDay = $('#mini_day_2012_01_30')
     equal eventMiniDay.length, 1, 'event day hover - event day found'
 
-    eventMiniDay.simulate 'mouseover'
+    eventMiniDay.children('.day_wrapper').simulate 'mouseover'
     deepEqual $('.mini_calendar_day.related').toArray(), eventMiniDay.toArray(), 'event day hover - event day highlighted'
 
     expected = $('.events_2012_01_30')
@@ -385,7 +385,7 @@ define [
     deepEqual actual.toArray(), expected.toArray(), 'event day hover - syllabus event highlighted'
 
     # unhover the event date
-    eventMiniDay.simulate 'mouseout'
+    eventMiniDay.children('.day_wrapper').simulate 'mouseout'
 
     expected = []
     actual = $('.mini_calendar_day.related')
@@ -399,7 +399,7 @@ define [
     prevMonthLink = $('.prev_month_link')
     equal prevMonthLink.length, 1, 'previous month - link found'
 
-    prevMonthLink.simulate 'mousedown'
+    prevMonthLink.simulate 'click'
 
     equal parseInt($('.month_number').text()), 12, 'previous month - month changed to December'
     equal parseInt($('.year_number').text()), 2011, 'previous month - year changed to 2011'
@@ -413,8 +413,8 @@ define [
     nextMonthLink = $('.next_month_link')
     equal nextMonthLink.length, 1, 'next month - link found'
 
-    nextMonthLink.simulate 'mousedown'
-    nextMonthLink.simulate 'mousedown'
+    nextMonthLink.simulate 'click'
+    nextMonthLink.simulate 'click'
 
     equal parseInt($('.month_number').text()), 2, 'next month - month changed to February'
     equal parseInt($('.year_number').text()), 2012, 'next month - year changed to 2012'

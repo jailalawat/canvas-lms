@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'underscore'
@@ -107,7 +124,16 @@ define [
       false
 
     addEventToCache: (event) =>
-      contextCode = event.contextCode()
+      if event.old_context_code
+        delete @cache.contexts[event.old_context_code].events[event.id]
+        delete event.old_context_code
+
+      # Split by comma, for the odd case where #contextCode() returns a comma seprated list
+      possibleContexts = event.contextCode().split(',')
+      okayContexts = possibleContexts.filter((cCode) =>
+        !!@cache.contexts[cCode]
+      )
+      contextCode = okayContexts[0]
       contextInfo = @cache.contexts[contextCode]
 
       contextInfo.events[event.id] = event
@@ -145,6 +171,7 @@ define [
     getEventsFromCache: (start, end, contexts) =>
       events = []
       for context in contexts
+        continue if context.match /^appointment_group_/
         events = events.concat(@getEventsFromCacheForContext start, end, context)
       events
 
@@ -304,13 +331,13 @@ define [
         # upper bound, just as we treated end earlier. (this is so that it can
         # be an inclusive lower bound on the next request)
 
-        newEvents = []
-
+        rendered = new Set
         upperBounds = []
         for key, requestResult of requestResults
           dates = []
           for event in requestResult.events
-            newEvents.push(event)
+            @addEventToCache event
+            rendered.add event.id
             if requestResult.next && event.originalStart
               dates.push(event.originalStart)
           if !_.isEmpty(dates)
@@ -324,30 +351,32 @@ define [
           nextPageDate = fcUtil.clone(_.min(upperBounds))
           end = fcUtil.unwrap(nextPageDate)
 
-        list = @getEventsFromCache(start, end, contexts)
-        datacb(list) if datacb? && list.length > 0
-
-        for event in newEvents
-          @addEventToCache event
-          if @eventInRange(event, start, end)
-            list.push(event)
-
         for context in contexts
           contextInfo = @cache.contexts[context]
+          contextInfo = (@cache.contexts[context] = {fetchedRanges: []}) unless contextInfo
           if contextInfo
             if start
               contextInfo.fetchedRanges.push([start, end])
             else
               contextInfo.fetchedUndated = true
 
+        list = @getEventsFromCache(start, end, contexts)
+        if datacb? && list.length > 0
+          renderFromCache = list.filter (x) -> not rendered.has x.id
+          datacb(renderFromCache) if renderFromCache.length > 0
         list.nextPageDate = nextPageDate
         list.requestID = options.requestID
         donecb list
 
       @startFetch [
         [ '/api/v1/calendar_events', params ]
-        [ '/api/v1/calendar_events', $.extend({type: 'assignment'}, params) ]
+        [ '/api/v1/calendar_events', @assignmentParams(params) ]
       ], dataCB, doneCB, options
+
+    assignmentParams: (params) ->
+      p = $.extend({type: 'assignment'}, params)
+      p.context_codes = p.context_codes.filter (context) -> not context.match /^appointment_group_/
+      p
 
     getParticipants: (appointmentGroup, registrationStatus, cb) =>
       if @inFlightRequest['default']

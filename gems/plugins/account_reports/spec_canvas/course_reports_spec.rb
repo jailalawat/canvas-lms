@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,7 +21,7 @@ require File.expand_path(File.dirname(__FILE__) + '/report_spec_helper')
 describe "Course Account Reports" do
   include ReportSpecHelper
 
-  before(:each) do
+  before(:once) do
 
     Notification.where(name: "Report Generated").first_or_create
     Notification.where(name: "Report Generation Failed").first_or_create
@@ -145,7 +145,7 @@ describe "Course Account Reports" do
     end
   end
   describe "Unused Course report" do
-    before(:each) do
+    before(:once) do
       @type = 'unused_courses_csv'
 
       @course6 = Course.create(:name => 'Theology 101', :course_code => 'THE01',
@@ -222,7 +222,7 @@ describe "Course Account Reports" do
   end
 
   describe "course storage report" do
-    before(:each) do
+    before(:once) do
       @report = 'course_storage_csv'
       a = attachment_obj_with_context(@course1)
       a.update_attribute(:size, 1.226.megabyte)
@@ -236,24 +236,29 @@ describe "Course Account Reports" do
       a.update_attribute(:size, 4.6521.megabyte)
       a = attachment_obj_with_context(@course5)
       a.update_attribute(:size, 80.megabyte)
+      child = attachment_obj_with_context(@course1)
+      child.update_attribute(:size, 80.megabyte)
+      child.root_attachment_id = a.id
+      child.save!
     end
 
     it 'should add up storage for courses' do
-      parsed = read_report(@report, {account: @account, order: [1, 2], header: true})
+      parsed = read_report(@report, {account: @account, order: "skip", header: true})
       expect(parsed.length).to eq 5
       headers = parsed.shift
       expect(headers.length).to eq parsed[0].length
-
-      expect(parsed[0]).to eq [@course1.id.to_s, 'SIS_COURSE_ID_1', 'ENG101',
+      expect(parsed).to match_array [
+                              [@course1.id.to_s, 'SIS_COURSE_ID_1', 'ENG101',
                                'English 101', @sub_account.id.to_s, 'sub1',
-                               'Math', '1.23']
-      expect(parsed[1]).to eq [@course3.id.to_s, 'SIS_COURSE_ID_3', 'SCI101',
+                               'Math', '1.23', '81.23'],
+                              [@course3.id.to_s, 'SIS_COURSE_ID_3', 'SCI101',
                                'Science 101', @account.id.to_s, nil,
-                               @account.name, '0.0']
-      expect(parsed[2]).to eq [@course5.id.to_s, nil, 'Tal101', 'talking 101',
-                               @account.id.to_s, nil, @account.name, '92.0']
-      expect(parsed[3]).to eq [@course4.id.to_s, nil, 'self', 'self help',
-                               @account.id.to_s, nil, @account.name, '4.65']
+                               @account.name, '0.0', '0.0'],
+                              [@course5.id.to_s, nil, 'Tal101', 'talking 101',
+                               @account.id.to_s, nil, @account.name, '92.0', '92.0'],
+                              [@course4.id.to_s, nil, 'self', 'self help',
+                               @account.id.to_s, nil, @account.name, '4.65', '4.65']
+      ]
     end
 
     it 'should add up storage for courses in sub account' do
@@ -261,7 +266,7 @@ describe "Course Account Reports" do
       expect(parsed.length).to eq 1
       expect(parsed[0]).to eq [@course1.id.to_s, 'SIS_COURSE_ID_1', 'ENG101',
                                'English 101', @sub_account.id.to_s, 'sub1',
-                               'Math', '1.23']
+                               'Math', '1.23', '81.23']
     end
   end
 

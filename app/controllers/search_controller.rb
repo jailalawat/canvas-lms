@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,8 +22,8 @@ class SearchController < ApplicationController
   include SearchHelper
   include Api::V1::Conversation
 
-  before_filter :require_user, :except => [:all_courses]
-  before_filter :get_context, except: :recipients
+  before_action :require_user, :except => [:all_courses]
+  before_action :get_context, except: :recipients
 
   def rubrics
     contexts = @current_user.management_contexts rescue []
@@ -110,10 +110,14 @@ class SearchController < ApplicationController
         params[:user_id] = api_find(User, params[:user_id]).id
       end
 
+      # null out the context param if it's invalid, but leave it as is
+      # otherwise (to preserve e.g. `_students` suffix)
+      search_context = AddressBook.load_context(params[:context])
+      params[:context] = nil unless search_context
+
       permissions = params[:permissions] || []
       permissions << :send_messages if params[:messageable_only]
-      load_all_contexts :context => get_admin_search_context(params[:context]),
-                        :permissions => permissions
+      load_all_contexts :context => search_context, :permissions => permissions
 
       types = (params[:types] || [] + [params[:type]]).compact
       types |= [:course, :section, :group] if types.delete('context')
@@ -130,10 +134,14 @@ class SearchController < ApplicationController
 
       recipients = []
       if params[:user_id]
-        recipient = @current_user.load_messageable_user(params[:user_id], :conversation_id => params[:from_conversation_id], :admin_context => @admin_context)
-        recipients << recipient if recipient
+        known = @current_user.address_book.known_user(
+          params[:user_id],
+          context: params[:context],
+          conversation_id: params[:from_conversation_id])
+        recipients << known if known
       elsif params[:context] || params[:search]
         collections = []
+        exclude_users, exclude_contexts = AddressBook.partition_recipients(exclude)
 
         if types[:context]
           collections << ['contexts', search_messageable_contexts(
@@ -142,19 +150,18 @@ class SearchController < ApplicationController
             :synthetic_contexts => params[:synthetic_contexts],
             :include_inactive => params[:include_inactive],
             :messageable_only => params[:messageable_only],
-            :exclude_ids => MessageableUser.context_recipients(exclude),
+            :exclude_ids => exclude_contexts,
             :search_all_contexts => params[:search_all_contexts],
             :types => types[:context]
           )]
         end
 
         if types[:user] && !@skip_users
-          collections << ['participants', @current_user.search_messageable_users(
-            :search => params[:search],
-            :context => params[:context],
-            :admin_context => @admin_context,
-            :exclude_ids => MessageableUser.individual_recipients(exclude),
-            :strict_checks => !params[:skip_visibility_checks]
+          collections << ['participants', @current_user.address_book.search_users(
+            search: params[:search],
+            exclude_ids: exclude_users,
+            context: params[:context],
+            weak_checks: params[:skip_visibility_checks]
           )]
         end
 
@@ -187,7 +194,7 @@ class SearchController < ApplicationController
       .order('created_at')
     @search = params[:search]
     if @search.present?
-      @courses = @courses.where(@courses.wildcard('name', @search))
+      @courses = @courses.where(@courses.wildcard('name', @search.to_s))
     end
     @public_only = params[:public_only]
     if @public_only
@@ -199,7 +206,8 @@ class SearchController < ApplicationController
     end
     pagination_args = {}
     pagination_args[:per_page] = 12 unless request.format == :json
-    ret = Api.paginate(@courses, self, '/search/all_courses/', pagination_args, {enhanced_return: true})
+    base_url = api_request? ? api_v1_search_all_courses_url : '/search/all_courses/'
+    ret = Api.paginate(@courses, self, base_url, pagination_args, {enhanced_return: true})
     @courses = ret[:collection]
 
     if request.format == :json
@@ -211,7 +219,8 @@ class SearchController < ApplicationController
     @contentHTML = render_to_string(partial: "all_courses_inner")
 
     if request.xhr?
-      return render :text => @contentHTML
+      set_no_cache_headers
+      return render :html => @contentHTML
     end
   end
 
@@ -231,7 +240,7 @@ class SearchController < ApplicationController
     end
 
     def validate(bookmark)
-      bookmark.is_a?(Fixnum)
+      bookmark.is_a?(Integer)
     end
 
     def self.wrap(collection)
@@ -322,7 +331,7 @@ class SearchController < ApplicationController
         :name => context[:name],
         :avatar_url => avatar_url,
         :type => :context,
-        :user_count => @current_user.count_messageable_users_in_context(asset_string),
+        :user_count => @current_user.address_book.count_in_context(asset_string),
         :permissions => context[:permissions] || {}
       }
       if context[:type] == :section
@@ -356,13 +365,17 @@ class SearchController < ApplicationController
   end
 
   def synthetic_contexts_for(course, context)
+    # context is a string identifying a subset of the course
     @skip_users = true
     # TODO: move the aggregation entirely into the DB. we only select a little
     # bit of data per user, but this still isn't ideal
-    users = @current_user.messageable_users_in_context(context)
+    users = @current_user.address_book.known_in_context(context)
     enrollment_counts = {:all => users.size}
     users.each do |user|
-      user.common_courses[course[:id]].uniq.each do |role|
+      common_courses = @current_user.address_book.common_courses(user)
+      next unless common_courses.key?(course[:id])
+      roles = common_courses[course[:id]].uniq
+      roles.each do |role|
         enrollment_counts[role] ||= 0
         enrollment_counts[role] += 1
       end
@@ -375,25 +388,6 @@ class SearchController < ApplicationController
     result << synthetic_context.merge({:id => "#{context}_students", :name => t(:enrollments_students, "Students"), :user_count => enrollment_counts['StudentEnrollment']}) if enrollment_counts['StudentEnrollment'].to_i > 0
     result << synthetic_context.merge({:id => "#{context}_observers", :name => t(:enrollments_observers, "Observers"), :user_count => enrollment_counts['ObserverEnrollment']}) if enrollment_counts['ObserverEnrollment'].to_i > 0
     result
-  end
-
-  def get_admin_search_context(asset_string)
-    return unless asset_string
-    return unless asset_string =~ (/\A((\w+)_(\d+))/)
-    asset_string = $1
-    asset_type = $2.to_sym
-    asset_id = $3
-    context = nil
-    case asset_type
-    when :course, :group
-      return unless context = Context.find_by_asset_string(asset_string)
-    when :section
-      return unless context = CourseSection.find(asset_id)
-    else
-      return
-    end
-    return unless context.grants_right?(@current_user, :read_as_admin)
-    @admin_context = context
   end
 
   def context_state_ranks

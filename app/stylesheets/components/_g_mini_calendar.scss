@@ -1,26 +1,35 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 
 .mini_month {
-  @if $use_new_styles { 
-    padding: $ic-sp 0 0;
-    margin-bottom: $ic-sp*2;
-  }
-  @else { padding: 10px 0 0; }
+  padding: $ic-sp 0 0;
+  margin-bottom: $ic-sp*2;
 }
 
 .mini-cal-header {
   text-align: center;
-  @if $use_new_styles {
-    padding: $ic-sp $ic-sp/2;
-    font-weight: 500;
-    border: 1px solid $ic-border-light;
-    color: $ic-font-color--subdued;
-  }
-  @else {
-    font-family: georgia, serif;
-    @include fontSize($ic-font-size--small);
-    padding: 0 8px;
-  }
+  padding: $ic-sp $ic-sp/2;
+  font-weight: bold;
+  border: 1px solid $ic-border-light;
+  color: $ic-font-color--subdued;
+
   img {
     vertical-align: middle;
   }
@@ -34,13 +43,9 @@
 
 .mini_calendar {
   width: 100%;
-  @if $use_new_styles {
-    border: 1px solid $ic-border-light;
-    border-top: none;
-  }
-  @else {
-    background-color: #e6e7e8; 
-  }
+  border: 1px solid $ic-border-light;
+  border-top: none;
+
   .day {
     padding: 0;
     height: 21px;
@@ -48,20 +53,35 @@
     text-align: center;
     cursor: pointer;
     width: 14%;
-    @if $use_new_styles {
-      @include fontSize($ic-font-size--xsmall);
-      border-radius: $baseBorderRadius;
-      &.has_event { background-color: darken($lightBackground, 4%); }
-      &.today { background-color: $ic-bg-light-alert; }
+    @include fontSize($ic-font-size--xsmall);
+    border-radius: $baseBorderRadius;
+    &.has_event { background-color: darken($lightBackground, 4%); }
+    &.today { background-color: $ic-bg-light-alert; }
+    .event_link_text, .today_text, .previous_month_text, .next_month_text {
+      display: none;
     }
-    @else {
-      font-size: 0.8em;
-      &.has_event { background-color: #ccc; }
-      &.today { background-color: #F1F1DD; }
-    }
-    
     &.other_month { color: #888; }
     &:hover, &.related, &.drop_target { background-image: url("/images/4_percent_opacity.png"); }
     &.drop_target { background-color: #aaa; }
+  }
+  .day.today {
+      .today_text {
+          display: block;
+      }
+  }
+  .day.previous_month {
+      .previous_month_text {
+          display: block;
+      }
+  }
+  .day.next_month {
+      .next_month_text {
+          display: block;
+      }
+  }
+  .day.has_event {
+    .event_link_text {
+      display: block;
+    }
   }
 }

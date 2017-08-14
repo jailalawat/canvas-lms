@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,7 +20,7 @@ require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
 
 describe AssessmentQuestion do
   before :once do
-    course
+    course_factory
     @bank = @course.assessment_question_banks.create!(:title=>'Test Bank')
   end
 
@@ -33,7 +33,7 @@ describe AssessmentQuestion do
       :context => course
     )
   end
-  
+
   it "should create a new instance given valid attributes" do
     assessment_question_model(bank: AssessmentQuestionBank.create!(context: Course.create!))
   end
@@ -136,19 +136,19 @@ describe AssessmentQuestion do
         expect(match).to eq "/assessment_questions/#{@question.id}/files/#{a.id}/download\?verifier=#{a.uuid}"
       end
     end
-    
+
     # the original data hash should not have changed during the link translation
     serialized_data_after = Marshal.dump(data)
     expect(serialized_data_before).to eq serialized_data_after
   end
-  
+
   it "should not modify the question_data hash in place when translating links" do
-    
+
   end
-  
+
   it "should not drop non-string/array/hash data types when translate links" do
     bank = @course.assessment_question_banks.create!(:title=>'Test Bank')
-    
+
     data = {
             :name => 'mc question',
             :question_type => 'multiple_choice_question',
@@ -172,7 +172,7 @@ describe AssessmentQuestion do
     expect(question.question_data[:answers][0][:id]).not_to be_nil
     expect(question.question_data[:assessment_question_id]).to eq question.id
   end
-  
+
   it "should always return a HashWithIndifferentAccess and allow editing" do
     data = {
             :name => 'mc question',
@@ -186,47 +186,50 @@ describe AssessmentQuestion do
 
     question = @bank.assessment_questions.create!(:question_data => data)
     expect(question.question_data.class).to eq HashWithIndifferentAccess
-    
+
     question.question_data = data
     expect(question.question_data.class).to eq HashWithIndifferentAccess
-    
+
     data = question.question_data
     data[:name] = "new name"
-    
+
     expect(question.question_data[:name]).to eq "new name"
     expect(data.object_id).to eq question.question_data.object_id
   end
 
-  describe '#find_or_create_quiz_question' do
+  describe '.find_or_create_quiz_questions' do
     let(:assessment_question){assessment_question_model(bank: AssessmentQuestionBank.create!(context: Course.create!))}
     let(:quiz){quiz_model}
 
     it 'should create a quiz_question when one does not exist' do
       expect do
-        assessment_question.find_or_create_quiz_question(quiz.id)
-      end.to change{AssessmentQuestion.count}.by(1)
+        AssessmentQuestion.find_or_create_quiz_questions([assessment_question], quiz.id, nil)
+      end.to change{Quizzes::QuizQuestion.count}.by(1)
     end
 
     it 'should find an existing quiz_question' do
-      qq = assessment_question.find_or_create_quiz_question(quiz.id)
+      qq = AssessmentQuestion.find_or_create_quiz_questions([assessment_question], quiz.id, nil).first
 
       expect do
-        qq2 = assessment_question.find_or_create_quiz_question(quiz.id)
+        qq2 = AssessmentQuestion.find_or_create_quiz_questions([assessment_question], quiz.id, nil).first
         expect(qq2.id).to eql(qq.id)
       end.to_not change{AssessmentQuestion.count}
     end
 
     it 'should find and update an out of date quiz_question' do
-      qq = assessment_question.find_or_create_quiz_question(quiz.id)
+      aq = assessment_question
+      qq = AssessmentQuestion.find_or_create_quiz_questions([aq], quiz.id, nil).first
 
-      assessment_question.name = 'changed'
-      assessment_question.with_versioning(&:save!)
+      aq = AssessmentQuestion.find(aq.id)
+      aq.name = 'changed'
+      aq.with_versioning(&:save!)
 
-      expect(qq.assessment_question_version).to_not eql(assessment_question.version_number)
+      expect(qq.assessment_question_version).to_not eql(aq.version_number)
 
-      qq2 = assessment_question.find_or_create_quiz_question(quiz.id)
+      qq2 = AssessmentQuestion.find_or_create_quiz_questions([aq], quiz.id, nil).first
+      aq = AssessmentQuestion.find(aq.id)
       expect(qq.assessment_question_version).to_not eql(qq2.assessment_question_version)
-      expect(qq2.assessment_question_version).to eql(assessment_question.version_number)
+      expect(qq2.assessment_question_version).to eql(aq.version_number)
     end
 
     it "grabs the first match by ID order" do
@@ -234,7 +237,8 @@ describe AssessmentQuestion do
       questions = []
       3.times { questions << assessment_question.create_quiz_question(quiz.id) }
       smallest_id_question = questions.sort_by(&:id).first
-      expect(assessment_question.find_or_create_quiz_question(quiz.id).id).to eq(smallest_id_question.id)
+      qq = AssessmentQuestion.find_or_create_quiz_questions([assessment_question], quiz.id, nil).first
+      expect(qq.id).to eq(smallest_id_question.id)
     end
   end
 end

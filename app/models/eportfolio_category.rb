@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,7 +17,6 @@
 #
 
 class EportfolioCategory < ActiveRecord::Base
-  attr_accessible :name
   attr_readonly :eportfolio_id
 
   has_many :eportfolio_entries, -> { order(:position) }, dependent: :destroy

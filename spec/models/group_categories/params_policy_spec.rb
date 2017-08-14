@@ -1,10 +1,28 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../../spec_helper'
 require_relative '../../support/boolean_translator'
+require_dependency "group_categories/params_policy"
 
 module GroupCategories
 
   MockGroupCategory = Struct.new(:name, :self_signup,
-    :auto_leader, :group_limit, :create_group_count, :assign_unassigned_members)
+    :auto_leader, :group_limit, :create_group_count, :assign_unassigned_members, :group_by_section)
 
   describe ParamsPolicy do
 

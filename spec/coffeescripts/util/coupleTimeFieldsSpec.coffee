@@ -1,8 +1,28 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
+  'timezone/Europe/London'
+  'timezone'
   'compiled/util/coupleTimeFields'
   'compiled/widget/DatetimeField'
   'jquery'
-], (coupleTimeFields, DatetimeField, $) ->
+  'helpers/fakeENV'
+], (london, tz, coupleTimeFields, DatetimeField, $, fakeENV) ->
 
   # make sure this is on today date but without seconds/milliseconds, so we
   # don't get screwed by dates shifting and seconds truncated during
@@ -17,7 +37,7 @@ define [
   tomorrow = new Date(fixed)
   tomorrow.setDate(tomorrow.getDate() + 1)
 
-  module 'initial coupling',
+  QUnit.module 'initial coupling',
     setup: ->
       @$start = $('<input type="text">')
       @$end = $('<input type="text">')
@@ -75,7 +95,7 @@ define [
     equal @start.datetime.getDate(), tomorrow.getDate()
     equal @end.datetime.getDate(), tomorrow.getDate()
 
-  module 'post coupling',
+  QUnit.module 'post coupling',
     setup: ->
       @$start = $('<input type="text">')
       @$end = $('<input type="text">')
@@ -145,7 +165,35 @@ define [
     @$end.trigger('blur')
     equal @$start.val(), '7'
 
-  module 'with date field',
+  test 'does not switch time fields if in order by user profile timezone, even if out of order in local timezone', ->
+    snapshot = tz.snapshot()
+
+    # set local timezone to UTC
+    tz.changeZone(london, 'Europe/London')
+
+    # set user profile timezone to EST (UTC-4)
+    fakeENV.setup(TIMEZONE: 'America/Detroit')
+
+    # 1am in profile timezone, or 9pm in local timezone
+    @$start.val('1:00 AM')
+    @start.setFromValue()
+
+    # 5pm in profile timezone, or 1pm in local timezone
+    @$end.val('5:00 PM')
+    @end.setFromValue()
+
+    # store current end datetime
+    endTime = +@end.datetime
+
+    @$start.trigger('blur')
+
+    tz.restore(snapshot)
+    fakeENV.teardown()
+
+    # check that the end datetime has not been changed
+    equal +@end.datetime, endTime
+
+  QUnit.module 'with date field',
     setup: ->
       @$start = $('<input type="text">')
       @$end = $('<input type="text">')
@@ -154,7 +202,7 @@ define [
       @end = new DatetimeField(@$end, timeOnly: true)
       @date = new DatetimeField(@$date, dateOnly: true)
       coupleTimeFields(@$start, @$end, @$date)
- 
+
   test 'interprets time as occurring on date', ->
     @date.setDate(tomorrow)
     @$date.trigger('blur')

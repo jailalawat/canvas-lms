@@ -1,18 +1,35 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 class EpubExport < ActiveRecord::Base
   include CC::Exporter::Epub::Exportable
   include LocaleSelection
   include Workflow
 
-  strong_params
-
   belongs_to :content_export
   belongs_to :course
   belongs_to :user
-  has_many :attachments, -> { order('created_at DESC') }, dependent: :destroy, as: :context, class_name: 'Attachment'
-  has_one :epub_attachment, -> { where(content_type: 'application/epub+zip').order('created_at DESC') }, as: :context, class_name: 'Attachment'
-  has_one :zip_attachment, -> { where(content_type: 'application/zip').order('created_at DESC') }, as: :context, class_name: 'Attachment'
-  has_one :job_progress, as: :context, class_name: 'Progress'
+  has_many :attachments, -> { order('created_at DESC') }, dependent: :destroy, as: :context, inverse_of: :context, class_name: 'Attachment'
+  has_one :epub_attachment, -> { where(content_type: 'application/epub+zip').order('created_at DESC') }, as: :context, inverse_of: :context, class_name: 'Attachment'
+  has_one :zip_attachment, -> { where(content_type: 'application/zip').order('created_at DESC') }, as: :context, inverse_of: :context, class_name: 'Attachment'
+  has_one :job_progress, as: :context, inverse_of: :context, class_name: 'Progress'
   validates :course_id, :workflow_state, presence: true
+  has_a_broadcast_policy
+  alias_attribute :context, :course # context is needed for the content export notification
 
   PERCENTAGE_COMPLETE = {
     created: 0,
@@ -37,8 +54,22 @@ class EpubExport < ActiveRecord::Base
     state :deleted
   end
 
+  set_broadcast_policy do |p|
+    p.dispatch :content_export_finished
+    p.to { [user] }
+    p.whenever do |record|
+      record.changed_state(:generated)
+    end
+
+    p.dispatch :content_export_failed
+    p.to { [user] }
+    p.whenever do |record|
+      record.changed_state(:failed)
+    end
+  end
+
   after_create do
-    create_job_progress(completion: 0, tag: 'epub_export')
+    create_job_progress(completion: 0, tag: self.class.to_s.underscore)
   end
 
   delegate :download_url, to: :attachment, allow_nil: true

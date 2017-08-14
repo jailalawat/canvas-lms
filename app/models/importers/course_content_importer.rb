@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_dependency 'importers'
 
 module Importers
@@ -148,8 +165,14 @@ module Importers
         self.import_syllabus_from_migration(course, syllabus_body, migration) if syllabus_body
       end
 
+      course.save! if course.changed?
+
       migration.resolve_content_links!
       migration.update_import_progress(95)
+
+      if data['external_content']
+        Canvas::Migration::ExternalContent::Migrator.send_imported_content(migration, data['external_content'])
+      end
 
       begin
         #Adjust dates
@@ -177,6 +200,7 @@ module Importers
             event.saved_by = :after_migration
             event.delayed_post_at = shift_date(event.delayed_post_at, shift_options)
             event.lock_at = shift_date(event.lock_at, shift_options)
+            event.todo_date = shift_date(event.todo_date, shift_options)
             event.save_without_broadcasting
           end
 
@@ -184,6 +208,7 @@ module Importers
             event.reload
             event.start_at = shift_date(event.start_at, shift_options)
             event.end_at = shift_date(event.end_at, shift_options)
+            event.all_day_date = shift_date(event.all_day_date.to_datetime, shift_options).try(:to_date) if event.all_day_date
             event.save_without_broadcasting
           end
 
@@ -198,9 +223,24 @@ module Importers
             event.save
           end
 
+          migration.imported_migration_items_by_class(AssignmentOverride).each do |event|
+            AssignmentOverride.overridden_dates.each do |field|
+              date = event.send(field)
+              next unless date
+              event.send("#{field}=", shift_date(date, shift_options))
+            end
+            event.save_without_broadcasting
+          end
+
           migration.imported_migration_items_by_class(ContextModule).each do |event|
             event.unlock_at = shift_date(event.unlock_at, shift_options)
             event.save
+          end
+
+          migration.imported_migration_items_by_class(WikiPage).each do |event|
+            event.reload
+            event.todo_date = shift_date(event.todo_date, shift_options)
+            event.save_without_broadcasting
           end
 
           course.set_course_dates_if_blank(shift_options)
@@ -217,7 +257,10 @@ module Importers
       end
       migration.progress=100
       migration.migration_settings ||= {}
-      migration.migration_settings[:imported_assets] = migration.imported_migration_items.map(&:asset_string)
+
+      imported_asset_hash = {}
+      migration.imported_migration_items_hash.each{|k, assets| imported_asset_hash[k] = assets.values.map(&:id).join(',') if assets.present?}
+      migration.migration_settings[:imported_assets] = imported_asset_hash
       migration.workflow_state = :imported
       migration.save
       ActiveRecord::Base.skip_touch_context(false)
@@ -232,6 +275,9 @@ module Importers
     end
 
     def self.import_syllabus_from_migration(course, syllabus_body, migration)
+      if migration.for_master_course_import?
+        course.updating_master_template_id = migration.master_course_subscription.master_template_id
+      end
       course.syllabus_body = migration.convert_html(syllabus_body, :syllabus, nil, :syllabus)
     end
 
@@ -265,6 +311,16 @@ module Importers
       atts = Course.clonable_attributes
       atts -= Canvas::Migration::MigratorHelper::COURSE_NO_COPY_ATTS
       course.settings_will_change! unless atts.empty?
+
+      # superhax to force new wiki front page if home view changed
+      if settings['default_view'] && settings['default_view'] != course.default_view && data[:wikis]
+        if page_hash = data[:wikis].detect{|h| h[:front_page]}
+          if page = migration.find_imported_migration_item(WikiPage, page_hash[:migration_id])
+            page.set_as_front_page!
+          end
+        end
+      end
+
       settings.slice(*atts.map(&:to_s)).each do |key, val|
         course.send("#{key}=", val)
       end
@@ -282,6 +338,15 @@ module Importers
           else
             migration.add_warning(t(:account_grading_standard_warning,"Couldn't find account grading standard for the course." ))
           end
+        end
+      end
+      if image_url = settings[:image_url]
+        course.image_url = image_url
+        course.image_id = nil
+      elsif image_ref = settings[:image_identifier_ref]
+        if image_att = course.attachments.where(:migration_id => image_ref).first
+          course.image_id = image_att.id
+          course.image_url = nil
         end
       end
       if settings[:lock_all_announcements]

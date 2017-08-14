@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,7 +17,6 @@
 #
 
 class FeatureFlag < ActiveRecord::Base
-  attr_accessible :feature, :state
   belongs_to :context, polymorphic: [:account, :course, :user]
 
   validate :valid_state, :feature_applies
@@ -52,10 +51,14 @@ class FeatureFlag < ActiveRecord::Base
   end
 
   def clear_cache
-    self.class.connection.after_transaction_commit { MultiCache.delete(self.context.feature_flag_cache_key(feature)) } if self.context
+    if self.context
+      self.class.connection.after_transaction_commit { MultiCache.delete(self.context.feature_flag_cache_key(feature)) }
+      self.context.touch if Feature.definitions[feature].try(:touch_context)
+    end
   end
 
-private
+  private
+
   def valid_state
     errors.add(:state, "is not valid in context") unless %w(off on).include?(state) || context.is_a?(Account) && state == 'allowed'
   end

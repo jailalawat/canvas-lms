@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -83,7 +83,7 @@ module Context
 
   def rubric_contexts(user)
     context_codes = [self.asset_string]
-    context_codes << ([user] + user.management_contexts).uniq.map(&:asset_string) if user
+    context_codes.concat(([user] + user.management_contexts).uniq.map(&:asset_string)) if user
     context = self
     while context && context.respond_to?(:account) || context.respond_to?(:parent_account)
       context = context.respond_to?(:account) ? context.account : context.parent_account
@@ -144,7 +144,7 @@ module Context
     result = {}
     ids_by_type.each do |type, ids|
       klass = Object.const_get(type, false)
-      klass.where(:id => ids).select([:id, :name]).map {|c| result[[type, c.id]] = c.name}
+      klass.where(:id => ids).pluck(:id, :name).map {|id, name| result[[type, id]] = name}
     end
     result
   end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -32,5 +32,20 @@ describe CanvasSanitize do
   it "doesnt strip data-* attributes by default" do
     cleaned = Sanitize.clean("<p data-item-id='1234'>Item1234</p>", CanvasSanitize::SANITIZE)
     expect(cleaned).to eq("<p data-item-id=\"1234\">Item1234</p>")
+  end
+
+  it "does not strip track elements" do
+    cleaned = Sanitize.clean("<track src=\"http://google.com\"></track>", CanvasSanitize::SANITIZE)
+    expect(cleaned).to eq("<track src=\"http://google.com\"></track>")
+  end
+
+  it "sanitizes javascript protocol in mathml" do
+    cleaned = Sanitize.clean("<math href=\"javascript:alert(1)\">CLICKME</math>", CanvasSanitize::SANITIZE)
+    expect(cleaned).to eq("<math>CLICKME</math>")
+  end
+
+  it "allows abbr elements" do
+    cleaned = Sanitize.clean("<abbr title=\"Internationalization\">I18N</abbr>", CanvasSanitize::SANITIZE)
+    expect(cleaned).to eq("<abbr title=\"Internationalization\">I18N</abbr>")
   end
 end

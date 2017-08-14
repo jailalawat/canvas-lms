@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2015 Instructure, Inc.
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,17 +12,15 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'jquery', /* $ */
-  'str/htmlEscape',
-  'vendor/ui.selectmenu' /* /\.selectmenu/ */
-], function($, htmlEscape) {
+import $ from 'jquery'
+import htmlEscape from './str/htmlEscape'
+import 'vendor/ui.selectmenu'
 
-  var speedgraderSelectMenu = function(optionsHtml, delimiter){
+export default function speedgraderSelectMenu (optionsHtml, delimiter){
     this.html = "<select id='students_selectmenu'>" + optionsHtml + "</select>";
 
     this.option_index = 0;
@@ -101,6 +99,13 @@ define([
       });
       this.$el.change(onChange);
       this.accessibilityFixes(this.$el.parent());
+      this.replaceDropdownIcon(this.$el.parent());
+    };
+
+    this.replaceDropdownIcon = function(container){
+      var $span = $(container).find("span.ui-selectmenu-icon");
+      $span.removeClass("ui-icon");
+      $("<i class='icon-mini-arrow-down'></i>").appendTo($span);
     };
 
     this.jquerySelectMenu = function(){
@@ -135,10 +140,7 @@ define([
       return this.getIconHtml(htmlEscape(parts[2])) +
         '<span class="ui-selectmenu-item-header">' +
         htmlEscape(parts[0]) +
-        '</span><span class="ui-selectmenu-item-footer">' +
-        htmlEscape(parts[1]) + '</span>';
+        '</span>';
     };
   };
 
-  return speedgraderSelectMenu;
-});

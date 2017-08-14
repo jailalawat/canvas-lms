@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,20 +12,19 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-define([
-  'INST' /* INST */,
-  'i18n!instructure',
-  'jquery' /* jQuery, $ */,
-  'underscore',
-  'str/htmlEscape' /* htmlEscape, /\$\.h/ */,
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.google-analytics' /* trackEvent */,
-  'jquery.instructure_misc_helpers' /*  /\$\.uniq/, capitalize */,
-  'jquery.loadingImg' /* loadingImage */
-], function(INST, I18n, $, _, htmlEscape) {
+
+import INST from './INST'
+import I18n from 'i18n!instructure'
+import $ from 'jquery'
+import _ from 'underscore'
+import htmlEscape from './str/htmlEscape'
+import './jquery.ajaxJSON'
+import './jquery.google-analytics' /* trackEvent */
+import './jquery.instructure_misc_helpers' /*  /\$\.uniq/, capitalize */
+import './jquery.loadingImg'
 
   // first element in array is if scribd can handle it, second is if google can.
   var previewableMimeTypes = {
@@ -119,7 +118,7 @@ define([
         });
       } else if (!INST.disableGooglePreviews && (!opts.mimeType || $.isPreviewable(opts.mimeType, 'google')) && opts.attachment_id || opts.public_url){
         // else if it's something google docs preview can handle and we can get a public url to this document.
-        function loadGooglePreview(){
+        var loadGooglePreview = function () {
           // this handles both ssl and plain http.
           var googleDocPreviewUrl = '//docs.google.com/viewer?' + $.param({
             embedded: true,
@@ -162,5 +161,3 @@ define([
       }
     });
   };
-
-});

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,7 +20,7 @@ module Api::V1::DeveloperKey
   include Api::V1::Json
 
   DEVELOPER_KEY_JSON_ATTRS = %w(
-    name created_at email user_id user_name icon_url workflow_state
+    name created_at email user_id user_name icon_url notes workflow_state
   ).freeze
 
   def developer_keys_json(keys, user, session, context=nil)
@@ -33,6 +33,10 @@ module Api::V1::DeveloperKey
       if context.grants_right?(user, session, :manage_developer_keys) || user.try(:id) == key.user_id
         hash['api_key'] = key.api_key
         hash['redirect_uri'] = key.redirect_uri
+        hash['redirect_uris'] = key.redirect_uris.join("\n")
+        hash['notes'] = key.notes
+        hash['access_token_count'] = key.access_token_count
+        hash['last_used_at'] = key.last_used_at
       end
       hash['account_name'] = key.account_name
       hash['id'] = key.global_id

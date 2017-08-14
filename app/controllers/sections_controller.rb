@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -82,8 +82,8 @@
 #     }
 #
 class SectionsController < ApplicationController
-  before_filter :require_context
-  before_filter :require_section, :except => [:index, :create]
+  before_action :require_context
+  before_action :require_section, :except => [:index, :create]
 
   include Api::V1::Section
 
@@ -95,9 +95,9 @@ class SectionsController < ApplicationController
   #     available if you have permission to view users or grades in the course
   #   - "avatar_url": Include the avatar URLs for students returned.
   #   - "enrollments": If 'students' is also included, return the section
-  #      enrollment for each student
+  #     enrollment for each student
   #   - "total_students": Returns the total amount of active and invited students
-  #      for the course section
+  #     for the course section
   #   - "passback_status": Include the grade passback status.
   #
   # @returns [Section]
@@ -109,8 +109,13 @@ class SectionsController < ApplicationController
 
       includes = Array(params[:include])
 
-      render :json => sections_json(@context.active_course_sections,
-                                    @current_user, session, includes)
+      sections = @context.active_course_sections.order(CourseSection.best_unicode_collation_key('name'))
+
+      unless params[:all].present?
+        sections = Api.paginate(sections, self, api_v1_course_sections_url)
+      end
+      
+      render :json => sections_json(sections, @current_user, session, includes)
     end
   end
 
@@ -146,7 +151,7 @@ class SectionsController < ApplicationController
         @section = @context.course_sections.where(:sis_source_id => sis_section_id, :workflow_state => 'deleted').first
         @section.workflow_state = 'active' if @section
       end
-      @section ||= @context.course_sections.build(params[:course_section])
+      @section ||= @context.course_sections.build(course_section_params)
       @section.sis_source_id = sis_section_id if can_manage_sis
 
       respond_to do |format|
@@ -260,7 +265,7 @@ class SectionsController < ApplicationController
         end
       end
       respond_to do |format|
-        if @section.update_attributes(params[:course_section])
+        if @section.update_attributes(course_section_params)
           @context.touch
           flash[:notice] = t('section_updated', "Section successfully updated!")
           format.html { redirect_to course_section_url(@context, @section) }
@@ -277,6 +282,16 @@ class SectionsController < ApplicationController
   # @API Get section information
   # Gets details about a specific section
   #
+  # @argument include[] [String, "students"|"avatar_url"|"enrollments"|"total_students"|"passback_status"]
+  #   - "students": Associations to include with the group. Note: this is only
+  #     available if you have permission to view users or grades in the course
+  #   - "avatar_url": Include the avatar URLs for students returned.
+  #   - "enrollments": If 'students' is also included, return the section
+  #     enrollment for each student
+  #   - "total_students": Returns the total amount of active and invited students
+  #     for the course section
+  #   - "passback_status": Include the grade passback status.
+  #
   # @returns Section
   def show
     if authorized_action(@section, @current_user, :read)
@@ -287,13 +302,17 @@ class SectionsController < ApplicationController
           @completed_enrollments_count = @section.enrollments.not_fake.where(:workflow_state => 'completed').count
           @pending_enrollments_count = @section.enrollments.not_fake.where(:workflow_state => %w{invited pending}).count
           @student_enrollments_count = @section.enrollments.not_fake.where(:type => 'StudentEnrollment').count
+          can_manage_students = @context.grants_right?(@current_user, session, :manage_students) || @context.grants_right?(@current_user, session, :manage_admin_users)
           js_env(
             :PERMISSIONS => {
-              :manage_students => @context.grants_right?(@current_user, session, :manage_students) || @context.grants_right?(@current_user, session, :manage_admin_users),
+              :manage_students => can_manage_students,
               :manage_account_settings => @context.account.grants_right?(@current_user, session, :manage_account_settings)
             })
+          if @context.grants_right?(@current_user, session, :manage)
+            js_env STUDENT_CONTEXT_CARDS_ENABLED: @domain_root_account.feature_enabled?(:student_context_cards)
+          end
         end
-        format.json { render :json => section_json(@section, @current_user, session, []) }
+        format.json { render :json => section_json(@section, @current_user, session, Array(params[:include])) }
       end
     end
   end
@@ -305,7 +324,7 @@ class SectionsController < ApplicationController
   def destroy
     if authorized_action(@section, @current_user, :delete)
       respond_to do |format|
-        if @section.enrollments.not_fake.empty?
+        if @section.deletable?
           @section.destroy
           @context.touch
           flash[:notice] = t('section_deleted', "Course section successfully deleted!")
@@ -318,5 +337,10 @@ class SectionsController < ApplicationController
         end
       end
     end
+  end
+
+  protected
+  def course_section_params
+    params[:course_section] ? params[:course_section].permit(:name, :start_at, :end_at, :restrict_enrollments_to_section_dates) : {}
   end
 end

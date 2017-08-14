@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative "js_detector"
 require_relative "../errors"
 
@@ -44,9 +61,9 @@ module Selinimum
 
       def finder
         @finder ||= begin
-          finder = IO.popen("#{File.dirname(__FILE__)}/../../../bin/find_css_bundles", "r+")
+          finder = IO.popen("#{File.dirname(__FILE__)}/../../../bin/find_css_bundles 2>&-", "r+")
           finder.puts DIRECTORY
-          result = finder.readline.strip
+          result = finder.readline.strip rescue nil
           raise "error starting bin/find_css_bundles: #{result}" if result != "Ready"
           finder
         end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -24,7 +24,6 @@ class AssetUserAccess < ActiveRecord::Base
   belongs_to :user
   has_many :page_views
   before_save :infer_defaults
-  attr_accessible :user, :asset_code
 
   scope :for_context, lambda { |context| where(:context_id => context, :context_type => context.class.to_s) }
   scope :for_user, lambda { |user| where(:user_id => user) }
@@ -205,11 +204,13 @@ class AssetUserAccess < ActiveRecord::Base
   end
 
   def asset
-    return nil unless asset_code
-    asset_code, general = self.asset_code.split(":").reverse
-    asset = Context.find_asset_by_asset_string(asset_code, context)
-    asset ||= (match = asset_code.match(/enrollment_(\d+)/)) && Enrollment.where(:id => match[1]).first
-    asset
+    unless @asset
+      return nil unless asset_code
+      asset_code, general = self.asset_code.split(":").reverse
+      @asset = Context.find_asset_by_asset_string(asset_code, context)
+      @asset ||= (match = asset_code.match(/enrollment_(\d+)/)) && Enrollment.where(:id => match[1]).first
+    end
+    @asset
   end
 
   def asset_class_name
@@ -267,11 +268,32 @@ class AssetUserAccess < ActiveRecord::Base
     self.view_score -= deductible_points
   end
 
+  ICON_MAP = {
+    announcements: "icon-announcements",
+    assignments: "icon-assignment",
+    calendar: "icon-calendar-month",
+    files: "icon-download",
+    grades: "icon-gradebook",
+    home: "icon-home",
+    inbox: "icon-message",
+    modules: "icon-module",
+    outcomes: "icon-outcomes",
+    pages: "icon-document",
+    quizzes: "icon-quiz",
+    roster: "icon-user",
+    syllabus: "icon-syllabus",
+    topics: "icon-discussion",
+    wiki: "icon-document",
+  }.freeze
+
+  def icon
+    ICON_MAP[asset_category.to_sym] || "icon-question"
+  end
+
   private
 
   def increment(attribute)
     incremented_value = (self.send(attribute) || 0) + 1
     self.send("#{attribute}=", incremented_value)
   end
-
 end

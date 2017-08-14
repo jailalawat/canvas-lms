@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,7 +17,6 @@
 #
 
 class AccountNotificationRole < ActiveRecord::Base
-  attr_accessible :account_notification_id, :role
   belongs_to :account_notification
 
   belongs_to :role

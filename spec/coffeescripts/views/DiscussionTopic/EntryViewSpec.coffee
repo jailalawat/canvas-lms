@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'compiled/models/Entry'
@@ -6,7 +23,7 @@ define [
   'helpers/fakeENV'
 ], ($, Entry, EntryView, Reply, fakeENV) ->
 
-  module 'EntryView',
+  QUnit.module 'EntryView',
     setup: ->
       fakeENV.setup
         DISCUSSION:
@@ -64,3 +81,22 @@ define [
     spy.reset()
     entry.set('replies', [])
     ok !spy.called, 'should not renderTree when value is empty'
+
+  test 'mark deleted and childless entries with css classes', ->
+    $('#fixtures').append($('<div />').attr('id', 'e1'))
+    entry = new Entry(id: 1, message: 'a comment, wooper', deleted: true, replies: [{id: 2, message: 'a reply', parent_id: 1, deleted: true}])
+    view = new EntryView(model: entry, el: '#e1')
+    view.render()
+    ok view.$el.hasClass('no-replies')
+    ok view.$el.hasClass('deleted')
+
+  test 'checks for deeply nested replies when marking childless entries', ->
+    $('#fixtures').append($('<div />').attr('id', 'e1'))
+    entry = new Entry(id: 1, message: 'a comment, wooper', deleted: true, replies: [
+      {id: 2, message: 'a reply', parent_id: 1, deleted: true, replies: [
+        {id: 3, message: 'another reply', parent_id: 2, deleted: true, replies: []},
+        {id: 4, message: 'not deleted', parent_id: 2}]}])
+    view = new EntryView(model: entry, el: '#e1')
+    view.render()
+    ok !view.$el.hasClass('no-replies')
+    ok view.$el.hasClass('deleted')

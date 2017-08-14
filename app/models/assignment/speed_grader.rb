@@ -1,9 +1,27 @@
-require_relative '../assignment'
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 
 class Assignment
   class SpeedGrader
+    include GradebookSettingsHelpers
+
     def initialize(assignment, user, avatars: false, grading_role: :grader)
       @assignment = assignment
+      @course = @assignment.context
       @user = user
       @avatars = avatars
       @grading_role = grading_role
@@ -18,7 +36,7 @@ class Assignment
 
       comment_fields = [:comment, :id, :author_name, :created_at, :author_id,
                         :media_comment_type, :media_comment_id,
-                        :cached_attachments, :attachments].freeze
+                        :cached_attachments, :attachments, :draft, :group_comment_id].freeze
 
       attachment_fields = [:id, :comment_id, :content_type, :context_id, :context_type,
                            :display_name, :filename, :mime_class,
@@ -40,13 +58,12 @@ class Assignment
 
       res[:context][:rep_for_student] = {}
 
-      students = @assignment.representatives(@user) do |rep, others|
-        others.each { |s|
-          res[:context][:rep_for_student][s.id] = rep.id
-        }
+      students = @assignment.representatives(@user, includes: gradebook_includes) do |rep, others|
+        others.each { |s| res[:context][:rep_for_student][s.id] = rep.id }
       end
 
-      enrollments = @assignment.context.apply_enrollment_visibility(@assignment.context.admin_visible_student_enrollments, @user, nil, include: :inactive)
+      enrollments = @course.apply_enrollment_visibility(gradebook_enrollment_scope, @user, nil,
+                                                        include: gradebook_includes)
 
       is_provisional = @grading_role == :provisional_grader || @grading_role == :moderator
       rubric_assmnts = @assignment.visible_rubric_assessments_for(@user, :provisional_grader => is_provisional) || []
@@ -62,7 +79,7 @@ class Assignment
       res[:context][:students] = students.map do |u|
         json = u.as_json(:include_root => false,
                   :methods => submission_comment_methods,
-                  :only => [:name, :id])
+                  :only => [:name, :id, :sortable_name])
 
         if preloaded_pg_counts
           json[:needs_provisional_grade] = @assignment.student_needs_provisional_grade?(u, preloaded_pg_counts)
@@ -95,7 +112,7 @@ class Assignment
       end
       res[:context][:quiz] = @assignment.quiz.as_json(:include_root => false, :only => [:anonymous_submissions])
 
-      includes = [:versions, :quiz_submission, :user, :attachment_associations, :assignment]
+      includes = [:versions, :quiz_submission, :user, :attachment_associations, :assignment, :originality_reports]
       key = @grading_role == :grader ? :submission_comments : :all_submission_comments
       includes << {key => {submission: {assignment: { context: :root_account }}}}
       submissions = @assignment.submissions.where(:user_id => students).preload(*includes)
@@ -105,10 +122,11 @@ class Assignment
       attachments_for_submission =
         Submission.bulk_load_attachments_for_submissions(submissions, preloads: attachment_includes)
 
-      # Preloading submission history versioned attachments
+      # Preloading submission history versioned attachments and originality reports
       submission_histories = submissions.map(&:submission_history).flatten
       Submission.bulk_load_versioned_attachments(submission_histories,
                                                  preloads: attachment_includes)
+      Submission.bulk_load_versioned_originality_reports(submission_histories)
 
       preloaded_prov_grades =
         case @grading_role
@@ -127,6 +145,14 @@ class Assignment
       qs_versions = @assignment.quiz_submission_versions(submissions, too_many)
 
       enrollment_types_by_id = enrollments.inject({}){ |h, e| h[e.user_id] ||= e.type; h }
+
+      if @assignment.quiz
+        if @assignment.quiz.assignment_overrides.to_a.select(&:active?).count == 0
+          @assignment.quiz.has_no_overrides = true
+        else
+          @assignment.quiz.context.preload_user_roles!
+        end
+      end
 
       res[:submissions] = submissions.map do |sub|
         json = sub.as_json(:include_root => false,
@@ -167,7 +193,8 @@ class Assignment
         if json['submission_history'] && (@assignment.quiz.nil? || too_many)
           json['submission_history'] = json['submission_history'].map do |version|
             version.as_json(only: submission_fields,
-                            methods: [:versioned_attachments, :late]).tap do |version_json|
+                            methods: [:versioned_attachments, :late, :external_tool_url]).tap do |version_json|
+              version_json['submission']['has_originality_report'] = version.versioned_originality_reports.present?
               if version_json['submission'] && version_json['submission']['versioned_attachments']
                 version_json['submission']['versioned_attachments'].map! do |a|
                   if @grading_role == :moderator
@@ -179,6 +206,7 @@ class Assignment
                     json[:attachment][:canvadoc_url] = a.canvadoc_url(@user)
                     json[:attachment][:crocodoc_url] = a.crocodoc_url(@user, crocodoc_user_ids)
                     json[:attachment][:submitted_to_crocodoc] = a.crocodoc_document.present?
+                    json[:attachment][:hijack_crocodoc_session] = a.crocodoc_document&.should_migrate_to_canvadocs?
                   end
                 end
               end
@@ -186,17 +214,15 @@ class Assignment
           end
         elsif @assignment.quiz && sub.quiz_submission
           json['submission_history'] = qs_versions[sub.quiz_submission.id].map do |v|
-            qs = v.model
-            # copy already-loaded associations over to the model so we
-            # don't have to load them again when qs.late? gets called
-            qs.quiz = @assignment.quiz
-            qs.submission = sub
+            # don't use v.model, because these are huge objects, and can be significantly expensive
+            # to instantiate an actual AR object deserializing and reserializing the inner YAML
+            qs = YAML.load(v.yaml)
 
             {submission: {
-                grade: qs.score,
+                grade: qs['score'],
                 show_grade_in_dropdown: true,
-                submitted_at: qs.finished_at,
-                late: qs.late?,
+                submitted_at: qs['finished_at'],
+                late: Quizzes::QuizSubmission.late_from_attributes?(qs, @assignment.quiz, sub),
                 version: v.number,
               }}
           end
@@ -235,9 +261,10 @@ class Assignment
         json
       end
       res[:GROUP_GRADING_MODE] = @assignment.grade_as_group?
-      res
+      StringifyIds.recursively_stringify_ids(res)
     ensure
       Attachment.skip_thumbnails = nil
     end
+
   end
 end

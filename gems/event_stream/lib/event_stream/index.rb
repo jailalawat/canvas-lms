@@ -1,4 +1,5 @@
-# Copyright (C) 2014 Instructure, Inc.
+#
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,8 +24,8 @@ class EventStream::Index
   attr_config :table, :type => String
   attr_config :id_column, :type => String, :default => 'id'
   attr_config :key_column, :type => String, :default => 'key'
-  attr_config :bucket_size, :type => Fixnum, :default => 1.week
-  attr_config :scrollback_limit, :type => Fixnum, :default => 52.weeks
+  attr_config :bucket_size, :type => Integer, :default => 1.week
+  attr_config :scrollback_limit, :type => Integer, :default => 52.weeks
   attr_config :entry_proc, :type => Proc
   attr_config :key_proc, :type => Proc, :default => nil
 

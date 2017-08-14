@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 Instructure, Inc.
+# Copyright (C) 2016 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,6 +17,7 @@
 #
 
 require File.expand_path(File.dirname(__FILE__) + '/../../../spec_helper')
+require_dependency "lti/membership_service/page_presenter"
 
 module Lti::MembershipService
   describe PagePresenter do
@@ -150,7 +151,7 @@ module Lti::MembershipService
           expect(membership.size).to eq 4
           expect(membership.fetch(:@id)).to be_nil
           expect(membership.fetch(:status)).to eq IMS::LIS::Statuses::SimpleNames::Active
-          expect(membership.fetch(:role)).to match_array([IMS::LIS::Roles::Context::URNs::Learner])
+          expect(membership.fetch(:role)).to match_array([IMS::LIS::Roles::Context::URNs::Member])
 
           member = membership.fetch(:member)
           expect(member.fetch(:@id)).to be_nil

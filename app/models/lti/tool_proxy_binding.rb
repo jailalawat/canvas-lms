@@ -1,4 +1,5 @@
-# Copyright (C) 2014 Instructure, Inc.
+#
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,8 +18,6 @@
 
 module Lti
   class ToolProxyBinding < ActiveRecord::Base
-
-    attr_accessible :context, :tool_proxy, :enabled
 
     belongs_to :tool_proxy, class_name: 'Lti::ToolProxy'
 

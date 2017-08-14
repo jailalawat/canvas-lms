@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -29,7 +29,7 @@ module ReportSpecHelper
   def run_report(type = @type, options = {})
     account = options[:account] || @account
     parameters = options[:params]
-    account_report = AccountReport.new(:user => @admin || user,
+    account_report = AccountReport.new(:user => @admin || user_factory,
                                        :account => account,
                                        :report_type => type)
     account_report.parameters = parameters
@@ -54,14 +54,21 @@ module ReportSpecHelper
   end
 
   def parse_csv(csv, options = {})
-    col_sep = options[:col_sep] || ','
+    csv_parse_opts = {
+      col_sep: options[:col_sep] || ',',
+      headers: options[:parse_header] || false,
+      return_headers: true,
+    }
     skip_order = true if options[:order] == 'skip'
     order = Array(options[:order]).presence || [0, 1]
-    all_parsed = CSV.parse(csv, {:col_sep => col_sep}).to_a
+    all_parsed = CSV.parse(csv, csv_parse_opts).map.to_a
     raise 'Must order report results to avoid brittle specs' unless options[:order].present? || all_parsed.count < 3
-    header = all_parsed[0]
-    all_parsed = all_parsed[1..-1]
-    all_parsed = all_parsed.sort_by { |r| r.values_at(*order).join } unless skip_order
+    header = all_parsed.shift
+    if all_parsed.present? && !skip_order
+      # cast any numbery looking things so we sort them intuitively
+      type_casts = order.map { |k| all_parsed.map { |row| row[k] }.compact.first =~ /\A\d+(\.\d+)?\z/ ? :to_f : :to_s }
+      all_parsed.sort_by! { |r| r.values_at(*order).each_with_index.map { |v, i| v.send type_casts[i] } }
+    end
     all_parsed.unshift(header) if options[:header]
     all_parsed
   end

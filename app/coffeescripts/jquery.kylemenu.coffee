@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'jquery.ui.menu.inputmenu'
@@ -46,7 +63,7 @@ define [
               else
                 tabKey = { which: $.ui.keyCode.TAB }
 
-              pressTab = jQuery.Event('keydown', tabKey)
+              pressTab = $.Event('keydown', tabKey)
               @$trigger.focus().trigger(pressTab)
 
         popupInstance = @$menu.data('popup')
@@ -60,7 +77,7 @@ define [
         @$placeholder = $('<span style="display:none;">').insertAfter(@$menu)
         @$menu.bind 'click', => @$placeholder.trigger arguments...
 
-      # passing a noifyMenuActiveOn option when initializing a kylemenu helps
+      # passing a notifyMenuActiveOn option when initializing a kylemenu helps
       # get around issue of page-specific parent elements needing to know when the menu
       # is active and removed. The value of the option is a CSS selector for a parent
       # element of the trigger.

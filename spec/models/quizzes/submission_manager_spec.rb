@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2012 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,10 +21,10 @@ require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper.rb')
 describe Quizzes::SubmissionManager do
 
   describe '#find_or_create_submission' do
-    let(:test_user) { user }
+    let(:test_user) { user_factory }
 
     before(:each) do
-      course
+      course_factory
       @quiz = @course.quizzes.create! :title => "hello"
     end
 

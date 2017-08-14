@@ -1,18 +1,35 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
-  'jquery',
-  'jsx/shared/modal',
-  'react',
-  'jsx/shared/modal-content',
+  'jquery'
+  'jsx/shared/modal'
+  'react'
+  'react-dom'
+  'react-addons-test-utils'
+  'jsx/shared/modal-content'
   'jsx/shared/modal-buttons'
-], ($, Modal, React, ModalContent, ModalButtons) ->
+], ($, Modal, React, ReactDOM, TestUtils, ModalContent, ModalButtons) ->
 
-  TestUtils = React.addons.TestUtils
-
-  module 'Modal',
+  QUnit.module 'Modal',
     setup: ->
       $('body').append("<div id=application />")
     teardown: ->
-      React.unmountComponentAtNode(@component.getDOMNode().parentNode)
+      ReactDOM.unmountComponentAtNode(@component.getDOMNode().parentNode)
       $('#application').remove()
 
   test  'has a default class of, "ReactModal__Content--canvas"', ->
@@ -79,7 +96,7 @@ define [
       "buttons here"
     )))
 
-    TestUtils.Simulate.click(@component.refs.closeWithX.getDOMNode())
+    TestUtils.Simulate.click(@component.closeBtn)
     # how do you know the modal isn't there? check a class, maybe check the state of the modal
     ok functionCalled, "calls closeWithX"
     equal @component.state.modalIsOpen, false, "modal open state is false"
@@ -136,7 +153,7 @@ define [
 
   test 'removes aria-hidden from #application when closed', ->
     @component = TestUtils.renderIntoDocument(React.createElement(Modal,
-      onRequestClose: -> console.log('closed'),
+      onRequestClose: ->
       isOpen: true,
       className: 'custom_class_name'
       title: "Hello",
@@ -161,7 +178,7 @@ define [
 
   test "removes aria-hidden from custom setElement property when closed", ->
     @component = TestUtils.renderIntoDocument(React.createElement(Modal,
-      onRequestClose: -> console.log('closed'),
+      onRequestClose: ->
       appElement: $('#fixtures')[0],
       isOpen: true,
       className: 'custom_class_name'

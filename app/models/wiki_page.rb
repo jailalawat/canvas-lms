@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,18 +22,23 @@ require 'atom'
 require_dependency 'assignment_student_visibility'
 
 class WikiPage < ActiveRecord::Base
-  attr_accessible :title, :body, :url, :user_id, :user, :editing_roles, :notify_of_update
   attr_readonly :wiki_id
-  attr_accessor :saved_by
+  attr_accessor :saved_by, :todo_type
   validates_length_of :body, :maximum => maximum_long_text_length, :allow_nil => true, :allow_blank => true
   validates_presence_of :wiki_id
-  include Workflow
+  include Canvas::SoftDeletable
   include HasContentTags
   include CopyAuthorizedLinks
   include ContextModuleItem
   include Submittable
+  include Plannable
 
   include SearchTermHelper
+
+  include MasterCourses::Restrictor
+  restrict_columns :content, [:body, :title]
+  restrict_columns :settings, [:editing_roles]
+  restrict_assignment_columns
 
   after_update :post_to_pandapub_when_revised
 
@@ -58,8 +63,22 @@ class WikiPage < ActiveRecord::Base
     where(assignment_id: nil).joins(:course).where(courses: {id: course_ids})
   }
 
-  TITLE_LENGTH = WikiPage.columns_hash['title'].limit rescue 255
-  SIMPLY_VERSIONED_EXCLUDE_FIELDS = [:workflow_state, :editing_roles, :notify_of_update]
+  scope :not_ignored_by, -> (user, purpose) do
+    where("NOT EXISTS (?)", Ignore.where(asset_type: 'WikiPage', user_id: user, purpose: purpose).where("asset_id=wiki_pages.id"))
+  end
+  scope :todo_date_between, -> (starting, ending) { where(todo_date: starting...ending) }
+  scope :for_courses_and_groups, -> (course_ids, group_ids) do
+    joins("LEFT JOIN #{Course.quoted_table_name} on wiki_pages.wiki_id = courses.wiki_id
+           LEFT JOIN #{Group.quoted_table_name} on wiki_pages.wiki_id = groups.wiki_id").
+      where("courses.id IN (?) OR groups.id IN (?)", course_ids, group_ids)
+  end
+  scope :visible_to_user, -> (user_id) do
+    joins("LEFT JOIN #{AssignmentStudentVisibility.quoted_table_name} as asv on wiki_pages.assignment_id = asv.assignment_id").
+      where("wiki_pages.assignment_id IS NULL OR asv.user_id = ?", user_id)
+  end
+
+  TITLE_LENGTH = 255
+  SIMPLY_VERSIONED_EXCLUDE_FIELDS = [:workflow_state, :editing_roles, :notify_of_update].freeze
 
   def touch_wiki_context
     self.wiki.touch_context if self.wiki && self.wiki.context
@@ -172,7 +191,6 @@ class WikiPage < ActiveRecord::Base
     state :post_delayed do
       event :delayed_post, :transitions_to => :active
     end
-    state :deleted
   end
   alias_method :published?, :active?
 
@@ -200,8 +218,6 @@ class WikiPage < ActiveRecord::Base
     self.versions.map(&:model)
   end
 
-  scope :active, -> { where(:workflow_state => 'active') }
-
   scope :deleted_last, -> { order("workflow_state='deleted'") }
 
   scope :not_deleted, -> { where("wiki_pages.workflow_state<>'deleted'") }
@@ -220,7 +236,7 @@ class WikiPage < ActiveRecord::Base
     return false unless self.could_be_locked
     Rails.cache.fetch([locked_cache_key(user), opts[:deep_check_if_needed]].cache_key, :expires_in => 1.minute) do
       locked = false
-      if item = locked_by_module_item?(user, opts[:deep_check_if_needed])
+      if item = locked_by_module_item?(user, opts)
         locked = {:asset_string => self.asset_string, :context_module => item.context_module.attributes}
         locked[:unlock_at] = locked[:context_module]["unlock_at"] if locked[:context_module]["unlock_at"] && locked[:context_module]["unlock_at"] > Time.now.utc
       end
@@ -344,7 +360,7 @@ class WikiPage < ActiveRecord::Base
       if !self.active?
         res += context.participating_admins
       else
-        res += context.participants
+        res += context.participants(by_date: true)
       end
     end
     res.flatten.uniq
@@ -422,8 +438,7 @@ class WikiPage < ActiveRecord::Base
     if revised_at_changed?
       CanvasPandaPub.post_update(
         "/private/wiki_page/#{self.global_id}/update", {
-          revised_at: self.revised_at,
-          revision: self.versions.current.number
+          revised_at: self.revised_at
         })
     end
   end

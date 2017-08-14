@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,9 +17,10 @@
 #
 
 require File.expand_path(File.dirname(__FILE__) + '../../../spec_helper.rb')
+require_dependency "courses/teacher_student_mapper"
 
 module Courses
-  describe Courses::TeacherStudentMapper do
+  describe TeacherStudentMapper do
     let(:teacher_id) { 1 }
     let(:privileged_teacher_id) { 2 }
     let(:student_id) { 3 }

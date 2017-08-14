@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -187,8 +187,8 @@ class Quizzes::QuizQuestionsController < ApplicationController
   include ::Filters::Quizzes
   include ::Filters::QuizSubmissions
 
-  before_filter :require_context, :require_quiz
-  before_filter :require_question, :only => [:show]
+  before_action :require_context, :require_quiz
+  before_action :require_question, :only => [:show]
 
   # @API List questions in a quiz or a submission
   # @beta
@@ -444,7 +444,8 @@ class Quizzes::QuizQuestionsController < ApplicationController
         id: @quiz_submission.quiz_data.map { |question| question['id'] }
       })
 
-      reject! "Cannot view questions due to quiz settings", 401 unless @quiz_submission.results_visible_for_user?(@current_user)
+      results_visible = @quiz_submission.results_visible?(user: @current_user)
+      reject! "Cannot view questions due to quiz settings", 401 unless results_visible
 
       render_question_set(scope, @quiz_submission.quiz_data)
     end

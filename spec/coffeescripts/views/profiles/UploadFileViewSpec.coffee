@@ -1,9 +1,26 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'compiled/views/profiles/UploadFileView'
   'compiled/util/BlobFactory'
 ], (UploadFileView, BlobFactory) ->
 
-  module 'UploadFileView',
+  QUnit.module 'UploadFileView',
     setup: ->
       @view  = new UploadFileView(avatarSize: { h: 128, w: 128 })
       @view.$el.appendTo('#fixtures')
@@ -24,26 +41,23 @@ define [
       delete @blob
       @view.remove()
 
-  asyncTest 'loads given file', 5, ->
+  asyncTest 'loads given file', 3, ->
     # initial state
-    ok @view.$el.find('#upload-fullsize-preview').attr('src') == '', 'image loader begins empty'
     ok @view.$el.find('.avatar-preview').length == 0, 'picker begins without preview image'
 
     $.when(@file).pipe(@view.loadPreview).done(=>
       # loaded state
       $preview  = @view.$('.avatar-preview')
-      $fullsize = @view.$('#upload-fullsize-preview')
+      $fullsize = @view.$('img.Cropper-image')
 
       ok $preview.length > 0,                     'preview image exists'
       ok $fullsize.attr('src') != '',             'image loader contains loaded image after load'
-      ok $fullsize.attr('class').match(/hidden/), 'image loader is hidden'
 
       start()
     )
 
   asyncTest 'getImage returns cropped image object', 1, ->
     $.when(@file).pipe(@view.loadPreview).done(=>
-      @view.currentCoords = { x: 0, y: 0, h: 50, w: 50 }
       @view.getImage().then((image) ->
         ok image instanceof Blob, 'image object is a blob'
         start()

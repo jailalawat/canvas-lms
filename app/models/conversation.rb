@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,6 +18,7 @@
 
 class Conversation < ActiveRecord::Base
   include SimpleTags
+  include ModelCache
 
   has_many :conversation_participants, :dependent => :destroy
   has_many :conversation_messages, -> { order("created_at DESC, id DESC") }, dependent: :delete_all
@@ -27,15 +28,12 @@ class Conversation < ActiveRecord::Base
 
   validates_length_of :subject, :maximum => maximum_string_length, :allow_nil => true
 
-  # see also MessageableUser
   def participants(reload = false)
     if !@participants || reload
       Conversation.preload_participants([self])
     end
     @participants
   end
-
-  attr_accessible
 
   def reload(options = nil)
     @current_context_strings = {}
@@ -93,6 +91,9 @@ class Conversation < ActiveRecord::Base
         conversation.has_media_objects = false
         conversation.context_type = options[:context_type]
         conversation.context_id = options[:context_id]
+        if conversation.context
+          conversation.root_account_ids |= [Shard.relative_id_for(conversation.context.root_account_id, Shard.current, Shard.birth)]
+        end
         conversation.tags = [conversation.context_string].compact
         conversation.tags += [conversation.context.context.asset_string] if conversation.context_type == "Group"
         conversation.subject = options[:subject]
@@ -149,7 +150,12 @@ class Conversation < ActiveRecord::Base
         end
 
         Shard.partition_by_shard(user_ids) do |shard_user_ids|
-          User.where(:id => shard_user_ids).update_all(["unread_conversations_count = unread_conversations_count + 1, updated_at = ?", Time.now.utc]) unless shard_user_ids.empty?
+          unless shard_user_ids.empty?
+            shard_user_ids.sort!
+            shard_user_ids.each_slice(1000) do |sliced_user_ids|
+              User.where(:id => sliced_user_ids).update_all(["unread_conversations_count = unread_conversations_count + 1, updated_at = ?", Time.now.utc])
+            end
+          end
 
           next if Shard.current == self.shard
           bulk_insert_participants(shard_user_ids, bulk_insert_options)
@@ -299,9 +305,8 @@ class Conversation < ActiveRecord::Base
   end
 
   def preload_users_and_context_codes
-    users = User.select([:id, :updated_at]).where(:id => conversation_participants.map(&:user_id)).map do |u|
-      u = User.send(:instantiate, 'id' => u.id, 'updated_at' => u.updated_at) if u.shard != Shard.current
-      u
+    users = User.where(:id => conversation_participants.map(&:user_id)).pluck(:id, :updated_at).map do |id, updated_at|
+      User.send(:instantiate, 'id' => id, 'updated_at' => updated_at)
     end
     User.preload_conversation_context_codes(users)
     users = users.index_by(&:id)
@@ -321,7 +326,7 @@ class Conversation < ActiveRecord::Base
   # * <tt>:tags</tt> - Array of tags for the message data.
   def add_message_to_participants(message, options = {})
     unless options[:new_message]
-      skip_users = message.conversation_message_participants.active.select(:user_id).to_a
+      skip_user_ids = message.conversation_message_participants.active.pluck(:user_id)
     end
 
     self.conversation_participants.shard(self).activate do |cps|
@@ -330,7 +335,7 @@ class Conversation < ActiveRecord::Base
       cps = cps.visible if options[:only_existing]
 
       unless options[:new_message]
-        cps = cps.where("user_id NOT IN (?)", skip_users.map(&:user_id)) if skip_users.present?
+        cps = cps.where("user_id NOT IN (?)", skip_user_ids) if skip_user_ids.present?
       end
 
       cps = cps.where(:user_id => (options[:only_users]+[message.author]).map(&:id)) if options[:only_users]
@@ -545,18 +550,18 @@ class Conversation < ActiveRecord::Base
     transaction do
       new_participants = other.conversation_participants.index_by(&:user_id)
       ConversationParticipant.suspend_callbacks(:destroy_conversation_message_participants) do
-        conversation_participants(true).each do |cp|
+        conversation_participants.reload.each do |cp|
           if new_cp = new_participants[cp.user_id]
             new_cp.update_attribute(:workflow_state, cp.workflow_state) if cp.unread? || new_cp.archived?
             # backcompat
-            cp.conversation_message_participants.update_all(:conversation_participant_id => new_cp)
+            cp.conversation_message_participants.update_all(conversation_participant_id: new_cp.id)
             # remove the duplicate participant
             cp.destroy
 
             if cp.user.shard != self.shard
               # remove the duplicate secondary CP on the user's shard
               cp.user.shard.activate do
-                ConversationParticipant.where(:conversation_id => self, :user_id => cp.user_id).delete_all
+                ConversationParticipant.where(conversation_id: self, :user_id => cp.user_id).delete_all
               end
             end
           else
@@ -573,7 +578,7 @@ class Conversation < ActiveRecord::Base
             if cp.user.shard != self.shard
               cp.user.shard.activate do
                 ConversationParticipant.where(:conversation_id => self, :user_id => cp.user_id).
-                  update_all(:conversation_id => other)
+                  update_all(conversation_id: other.id)
               end
             end
             # create a new duplicate cp on the target conversation's shard
@@ -589,7 +594,7 @@ class Conversation < ActiveRecord::Base
         end
       end
       if other.shard == self.shard
-        conversation_messages.update_all(:conversation_id => other)
+        conversation_messages.update_all(conversation_id: other.id)
       else
         # move messages and participants over to new shard
         conversation_messages.find_each do |message|
@@ -613,7 +618,7 @@ class Conversation < ActiveRecord::Base
       end
 
       conversation_participants.reload # now empty ... need to make sure callbacks don't double-delete
-      other.conversation_participants(true).each do |cp|
+      other.conversation_participants.reload.each do |cp|
         cp.update_cached_data! :recalculate_count => true, :set_last_message_at => false, :regenerate_tags => false
       end
       destroy
@@ -643,10 +648,11 @@ class Conversation < ActiveRecord::Base
     shards = conversations.map(&:associated_shards).flatten.uniq
     Shard.with_each_shard(shards) do
       user_map = Shackles.activate(:slave) do
-        MessageableUser.select("#{MessageableUser.build_select}, last_authored_at, conversation_id").
+        User.select("users.id, users.updated_at, users.short_name, users.name, users.avatar_image_url, users.avatar_image_source, last_authored_at, conversation_id").
           joins(:all_conversations).
           where(:conversation_participants => { :conversation_id => conversations }).
-          order(Conversation.nulls(:last, :last_authored_at, :desc), Conversation.best_unicode_collation_key("COALESCE(short_name, name)")).group_by { |mu| mu.conversation_id.to_i }
+          order(Conversation.nulls(:last, :last_authored_at, :desc), Conversation.best_unicode_collation_key("COALESCE(short_name, name)")).
+          group_by { |u| u.conversation_id.to_i }
       end
       conversations.each do |conversation|
         participants[conversation.global_id].concat(user_map[conversation.id] || [])
@@ -704,10 +710,23 @@ class Conversation < ActiveRecord::Base
     conversation_participants.shard(self).delete_all
   end
 
+  def replies_locked_for?(user)
+    return false unless %w{Course Group}.include?(self.context_type)
+    course = self.context.is_a?(Course) ? self.context : self.context.context
+
+    # can still reply if a teacher is involved
+    if course.is_a?(Course) && self.conversation_participants.where(:user_id => course.admin_enrollments.active.select(:user_id)).exists?
+      false
+    else
+      !self.context.grants_any_right?(user, :send_messages, :send_messages_all)
+    end
+  end
+
   protected
 
   def maybe_update_timestamp(col, val, additional_conditions=[])
-    condition = self.class.where(["(#{col} IS NULL OR #{col} < ?)", val]).where(additional_conditions).where_values.join(' AND ')
+    scope = self.class.where(["(#{col} IS NULL OR #{col} < ?)", val]).where(additional_conditions)
+    condition = (CANVAS_RAILS4_2 ? scope.where_values : scope.where_clause.send(:predicates)).join(' AND ')
     sanitize_sql ["#{col} = CASE WHEN #{condition} THEN ? ELSE #{col} END", val]
   end
 end

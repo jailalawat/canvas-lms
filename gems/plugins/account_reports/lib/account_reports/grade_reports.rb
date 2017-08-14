@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 - 2014 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -55,61 +55,25 @@ module AccountReports
     # - enrollment status
 
     def grade_export()
-      students = root_account.pseudonyms.except(:preload).
-        select("pseudonyms.id, u.name AS user_name, e.user_id, e.course_id,
-                pseudonyms.sis_user_id, c.name AS course_name,
-                c.sis_source_id AS course_sis_id, s.name AS section_name,
-                e.course_section_id, s.sis_source_id AS section_sis_id,
-                t.name AS term_name, t.id AS term_id,
-                t.sis_source_id AS term_sis_id, e.computed_current_score,
-                e.computed_final_score,
-           CASE WHEN e.workflow_state = 'active' THEN 'active'
-                WHEN e.workflow_state = 'completed' THEN 'concluded'
-                WHEN e.workflow_state = 'deleted' THEN 'deleted' END AS enroll_state").
-        order("t.id, c.id, e.id").
-        joins("INNER JOIN #{User.quoted_table_name} u ON pseudonyms.user_id = u.id
-               INNER JOIN #{Enrollment.quoted_table_name} e ON pseudonyms.user_id = e.user_id
-                 AND e.type = 'StudentEnrollment'
-               INNER JOIN #{Course.quoted_table_name} c ON c.id = e.course_id
-               INNER JOIN #{EnrollmentTerm.quoted_table_name} t ON c.enrollment_term_id = t.id
-               INNER JOIN #{CourseSection.quoted_table_name} s ON e.course_section_id = s.id")
-
-      if @include_deleted
-        students = students.where("e.workflow_state IN ('active', 'completed', 'deleted')")
-        if @account_report.parameters.has_key? 'limiting_period'
-          limiting_period = @account_report.parameters['limiting_period'].to_i
-          students = students.where("e.workflow_state = 'active'
-                                    OR c.conclude_at >= ?
-                                    OR (e.workflow_state = 'deleted'
-                                    AND e.updated_at >= ?)",
-                                    limiting_period.days.ago, limiting_period.days.ago)
-        end
-      else
-        students = students.where(
-          "pseudonyms.workflow_state<>'deleted'
-           AND c.workflow_state='available'
-           AND e.workflow_state IN ('active', 'completed')")
-      end
-
-      students = add_course_sub_account_scope(students, 'c')
+      students = student_grade_scope
       students = add_term_scope(students, 'c')
 
       headers = []
-      headers << I18n.t('#account_reports.report_header_student_name', 'student name')
-      headers << I18n.t('#account_reports.report_header_student_id', 'student id')
-      headers << I18n.t('#account_reports.report_header_student_sis', 'student sis')
-      headers << I18n.t('#account_reports.report_header_course', 'course')
-      headers << I18n.t('#account_reports.report_header_course_id', 'course id')
-      headers << I18n.t('#account_reports.report_header_course_sis', 'course sis')
-      headers << I18n.t('#account_reports.report_header_section', 'section')
-      headers << I18n.t('#account_reports.report_header_section_id', 'section id')
-      headers << I18n.t('#account_reports.report_header_section_sis', 'section sis')
-      headers << I18n.t('#account_reports.report_header_term', 'term')
-      headers << I18n.t('#account_reports.report_header_term_id', 'term id')
-      headers << I18n.t('#account_reports.report_header_term_sis', 'term sis')
-      headers << I18n.t('#account_reports.report_header_current_score', 'current score')
-      headers << I18n.t('#account_reports.report_header_final_score', 'final score')
-      headers << I18n.t('#account_reports.report_header_enrollment_state', 'enrollment state')
+      headers << I18n.t('student name')
+      headers << I18n.t('student id')
+      headers << I18n.t('student sis')
+      headers << I18n.t('course')
+      headers << I18n.t('course id')
+      headers << I18n.t('course sis')
+      headers << I18n.t('section')
+      headers << I18n.t('section id')
+      headers << I18n.t('section sis')
+      headers << I18n.t('term')
+      headers << I18n.t('term id')
+      headers << I18n.t('term sis')
+      headers << I18n.t('current score')
+      headers << I18n.t('final score')
+      headers << I18n.t('enrollment state')
 
       write_report headers do |csv|
 
@@ -127,12 +91,163 @@ module AccountReports
           arr << student["term_name"]
           arr << student["term_id"]
           arr << student["term_sis_id"]
-          arr << student["computed_current_score"]
-          arr << student["computed_final_score"]
+          arr << student["current_score"]
+          arr << student["final_score"]
           arr << student["enroll_state"]
           csv << arr
         end
       end
+    end
+
+    def mgp_grade_export
+      terms = @account_report.parameters[:enrollment_term_id].blank? ?
+        root_account.enrollment_terms.active :
+        root_account.enrollment_terms.where(id: @account_report.parameters[:enrollment_term_id])
+
+      term_reports = terms.reduce({}) do |reports, term|
+        reports[term.name] = mgp_term_csv(term)
+        reports
+      end
+
+      send_report(term_reports)
+    end
+
+    def mgp_term_csv(term)
+      students = student_grade_scope
+      students = students.where(c: {enrollment_term_id: term})
+
+      gp_set = term.grading_period_group
+      unless gp_set
+        not_found = Tempfile.open(%w[not-found csv])
+        not_found.puts I18n.t("no grading periods configured for this term")
+        not_found.close
+        return not_found
+      end
+      grading_periods = gp_set.grading_periods.active.order(:start_date)
+
+      headers = []
+      headers << I18n.t('student name')
+      headers << I18n.t('student id')
+      headers << I18n.t('student sis')
+      headers << I18n.t('course')
+      headers << I18n.t('course id')
+      headers << I18n.t('course sis')
+      headers << I18n.t('section')
+      headers << I18n.t('section id')
+      headers << I18n.t('section sis')
+      headers << I18n.t('term')
+      headers << I18n.t('term id')
+      headers << I18n.t('term sis')
+      headers << I18n.t('grading period set')
+      headers << I18n.t('grading period set id')
+      grading_periods.each { |gp|
+        headers << I18n.t('%{name} grading period id', name: gp.title)
+        headers << I18n.t('%{name} current score', name: gp.title)
+        headers << I18n.t('%{name} final score', name: gp.title)
+      }
+      headers << I18n.t('current score')
+      headers << I18n.t('final score')
+      headers << I18n.t('enrollment state')
+
+      generate_and_run_report headers do |csv|
+        students.find_in_batches do |student_chunk|
+          students_by_course = student_chunk.group_by { |x| x.course_id }
+          students_by_course.each do |course_id, course_students|
+            scores = indexed_scores(course_students, grading_periods)
+            course_students.each do |student|
+              arr = []
+              arr << student["user_name"]
+              arr << student["user_id"]
+              arr << student["sis_user_id"]
+              arr << student["course_name"]
+              arr << student["course_id"]
+              arr << student["course_sis_id"]
+              arr << student["section_name"]
+              arr << student["course_section_id"]
+              arr << student["section_sis_id"]
+              arr << student["term_name"]
+              arr << student["term_id"]
+              arr << student["term_sis_id"]
+              arr << gp_set.title
+              arr << gp_set.id
+              grading_periods.each do |gp|
+                scores_for_student = grading_period_scores_for_student(student, gp, scores)
+                arr << gp.id
+                arr << scores_for_student[:current]
+                arr << scores_for_student[:final]
+              end
+              arr << student["current_score"]
+              arr << student["final_score"]
+              arr << student["enroll_state"]
+              csv << arr
+            end
+          end
+        end
+      end
+    end
+
+    private
+
+    def indexed_scores(students, grading_periods)
+      Score.where(
+        enrollment_id: students.map(&:enrollment_id),
+        grading_period_id: grading_periods.map(&:id)
+      ).active.pluck(
+        :enrollment_id,
+        :grading_period_id,
+        :current_score,
+        :final_score
+      ).index_by { |score| "#{score[0]}:#{score[1]}" }
+    end
+
+    def grading_period_scores_for_student(student, grading_period, scores)
+      scores_array = scores["#{student['enrollment_id']}:#{grading_period.id}"] || []
+      { current: scores_array[2], final: scores_array[3] }
+    end
+
+    def student_grade_scope
+      students = root_account.pseudonyms.except(:preload).
+        select("pseudonyms.id, u.name AS user_name, e.user_id, e.course_id,
+                pseudonyms.sis_user_id, c.name AS course_name,
+                c.sis_source_id AS course_sis_id, s.name AS section_name,
+                e.course_section_id, s.sis_source_id AS section_sis_id,
+                e.id as enrollment_id,
+                t.name AS term_name, t.id AS term_id,
+                t.sis_source_id AS term_sis_id,
+                sc.current_score,
+                sc.final_score,
+           CASE WHEN e.workflow_state = 'active' THEN 'active'
+                WHEN e.workflow_state = 'completed' THEN 'concluded'
+                WHEN e.workflow_state = 'inactive' THEN 'inactive'
+                WHEN e.workflow_state = 'deleted' THEN 'deleted' END AS enroll_state").
+        order("t.id, c.id, e.id").
+        joins("INNER JOIN #{User.quoted_table_name} u ON pseudonyms.user_id = u.id
+               INNER JOIN #{Enrollment.quoted_table_name} e ON pseudonyms.user_id = e.user_id
+                 AND e.type = 'StudentEnrollment'
+               INNER JOIN #{Course.quoted_table_name} c ON c.id = e.course_id
+               INNER JOIN #{EnrollmentTerm.quoted_table_name} t ON c.enrollment_term_id = t.id
+               INNER JOIN #{CourseSection.quoted_table_name} s ON e.course_section_id = s.id
+               LEFT JOIN #{Score.quoted_table_name} sc ON sc.enrollment_id = e.id AND sc.grading_period_id IS NULL")
+
+      if @include_deleted
+        students = students.where("e.workflow_state IN ('active', 'completed', 'inactive', 'deleted')")
+        if @account_report.parameters.has_key? 'limiting_period'
+          limiting_period = @account_report.parameters['limiting_period'].to_i
+          students = students.where("e.workflow_state = 'active'
+                                    OR c.conclude_at >= ?
+                                    OR (e.workflow_state IN ('inactive', 'deleted')
+                                    AND e.updated_at >= ?)",
+                                    limiting_period.days.ago, limiting_period.days.ago)
+        end
+      else
+        students = students.where(
+          "pseudonyms.workflow_state<>'deleted'
+           AND c.workflow_state='available'
+           AND e.workflow_state IN ('active', 'completed')
+           AND sc.workflow_state <> 'deleted'")
+      end
+
+      students = add_course_sub_account_scope(students, 'c')
     end
   end
 end

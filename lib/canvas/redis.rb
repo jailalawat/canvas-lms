@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Canvas::Redis
   # try to grab a lock in Redis, returning false if the lock can't be held. If
   # the lock is grabbed and `ttl` is given, it'll be set to expire after `ttl`
@@ -27,6 +44,12 @@ module Canvas::Redis
 
   def self.ignore_redis_failures?
     Setting.get('ignore_redis_failures', 'true') == 'true'
+  end
+
+  COMPACT_LINE = "Redis (%{request_time_ms}ms) %{command} %{key} [%{host}]".freeze
+  def self.log_style
+    # supported: 'off', 'compact', 'json'
+    Setting.get('redis_log_style', 'compact')
   end
 
   def self.redis_failure?(redis_name)
@@ -64,7 +87,7 @@ module Canvas::Redis
 
     if self.ignore_redis_failures?
       Canvas::Errors.capture(e, type: :redis)
-      last_redis_failure[redis_name] = Time.zone.now
+      last_redis_failure[redis_name] = Time.now
       failure_retval
     else
       raise
@@ -76,6 +99,10 @@ module Canvas::Redis
 
   module Client
     def process(commands, *a, &b)
+      # These instance vars are used by the added #log_request_response method.
+      @processing_requests = commands.map(&:dup)
+      @process_start = Time.now
+
       # try to return the type of value the command would expect, for some
       # specific commands that we know can cause problems if we just return
       # nil
@@ -95,6 +122,74 @@ module Canvas::Redis
 
       Canvas::Redis.handle_redis_failure(failure_val, self.location) do
         super
+      end
+    end
+
+    NON_KEY_COMMANDS = %i[eval evalsha].freeze
+
+    def read
+      response = super
+      # Each #read grabs the response to one command send to #process, so we
+      # pop off the next queued request and send that to the logger. The redis
+      # client works this way because #process may be called with many commands
+      # at once, if using #pipeline.
+      @processing_requests ||= []
+      @process_start ||= Time.now
+      log_request_response(@processing_requests.shift, response, @process_start)
+      response
+    end
+
+    SET_COMMANDS = %i{set setex}.freeze
+    def log_request_response(request, response, start_time)
+      return if request.nil? # redis client does internal keepalives and connection commands
+      return if Canvas::Redis.log_style == 'off'
+      return unless Rails.logger
+
+      command = request.shift
+      message = {
+        message: "redis_request".freeze,
+        command: command,
+        # request_size is the sum of all the string parameters send with the command.
+        request_size: request.sum { |c| c.to_s.size },
+        request_time_ms: ((Time.now - start_time) * 1000).round(3),
+        host: location,
+      }
+      unless NON_KEY_COMMANDS.include?(command)
+        message[:key] = request.first
+      end
+      if defined?(Marginalia)
+        message[:controller] = Marginalia::Comment.controller
+        message[:action] = Marginalia::Comment.action
+        message[:job_tag] = Marginalia::Comment.job_tag
+      end
+      if SET_COMMANDS.include?(command) && Thread.current[:last_cache_generate]
+        # :last_cache_generate comes from the instrumentation added in
+        # config/initializeers/cache_store_instrumentation.rb
+        # This is necessary because the Rails caching layer doesn't pass this
+        # information down to the Redis client -- we could try to infer it by
+        # looking for reads followed by writes to the same key, but this would be
+        # error prone, especially since further cache reads can happen inside the
+        # generation block.
+        message[:generate_time_ms] = Thread.current[:last_cache_generate] * 1000
+        Thread.current[:last_cache_generate] = nil
+      end
+      if response.is_a?(Exception)
+        message[:error] = response.to_s
+        message[:response_size] = 0
+      else
+        message[:response_size] = response.try(:size) || 0
+      end
+
+      logline = format_log_message(message)
+      Rails.logger.debug(logline)
+    end
+
+    def format_log_message(message)
+      if Canvas::Redis.log_style == 'json'
+        JSON.generate(message.compact)
+      else
+        message[:key] ||= "-"
+        Canvas::Redis::COMPACT_LINE % message
       end
     end
 

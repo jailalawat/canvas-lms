@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -12,8 +12,8 @@
 # A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
 # details.
 #
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <http://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
 class NotificationMessageCreator
@@ -85,7 +85,8 @@ class NotificationMessageCreator
 
         unless @notification.registration?
           if @notification.summarizable? && too_many_messages_for?(user) && no_daily_messages_in(delayed_messages)
-            delayed_messages << build_fallback_for(user)
+            fallback = build_fallback_for(user)
+            delayed_messages << fallback if fallback
           end
 
           unless user.pre_registered?
@@ -112,7 +113,8 @@ class NotificationMessageCreator
   end
 
   def build_fallback_for(user)
-    fallback_channel = immediate_channels_for(user).sort_by(&:path_type).first
+    fallback_channel = immediate_channels_for(user).find{ |cc| cc.path_type == 'email'}
+    return unless fallback_channel
     fallback_policy = nil
     NotificationPolicy.unique_constraint_retry do
       fallback_policy = fallback_channel.notification_policies.by('daily').where(:notification_id => nil).first
@@ -127,19 +129,21 @@ class NotificationMessageCreator
   end
 
   def build_summary_for(user, policy)
-    message = user.messages.build(message_options_for(user))
-    message.parse!('summary')
-    delayed_message = policy.delayed_messages.build(:notification => @notification,
-                                  :frequency => policy.frequency,
-                                  :communication_channel_id => policy.communication_channel_id,
-                                  :root_account_id => message.context_root_account.try(:id),
-                                  :linked_name => 'work on this link!!!',
-                                  :name_of_topic => message.subject,
-                                  :link => message.url,
-                                  :summary => message.body)
-    delayed_message.context = @asset
-    delayed_message.save! if Rails.env.test?
-    delayed_message
+    user.shard.activate do
+      message = user.messages.build(message_options_for(user))
+      message.parse!('summary')
+      delayed_message = policy.delayed_messages.build(:notification => @notification,
+                                    :frequency => policy.frequency,
+                                    :communication_channel_id => policy.communication_channel_id,
+                                    :root_account_id => message.context_root_account.try(:id),
+                                    :linked_name => 'work on this link!!!',
+                                    :name_of_topic => message.subject,
+                                    :link => message.url,
+                                    :summary => message.body)
+      delayed_message.context = @asset
+      delayed_message.save! if Rails.env.test?
+      delayed_message
+    end
   end
 
   def build_immediate_messages_for(user, channels=immediate_channels_for(user).reject(&:unconfirmed?))
@@ -201,9 +205,10 @@ class NotificationMessageCreator
     policies= []
     user_has_policy = unretired_policies_for(user).for(@notification).exists?
     if user_has_policy
-      policies += unretired_policies_for(user).for(@notification).by(['daily', 'weekly'])
+      policies += unretired_policies_for(user).for(@notification).by(['daily', 'weekly']).where("communication_channels.path_type='email'")
     elsif channel &&
-        channel.active? &&
+          channel.active? &&
+          channel.path_type == 'email' &&
         ['daily', 'weekly'].include?(@notification.default_frequency)
       policies << channel.notification_policies.create!(:notification => @notification,
                                             :frequency => @notification.default_frequency)

@@ -1,6 +1,6 @@
 # coding: utf-8
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -72,7 +72,7 @@ describe ApplicationHelper do
     Account.default.update_attribute(:settings, { :teachers_can_create_courses => true, :students_can_create_courses => true })
     @domain_root_account = Account.default
     expect(show_user_create_course_button(nil)).to be_falsey
-    user
+    user_factory
     expect(show_user_create_course_button(@user)).to be_falsey
     course_with_teacher
     expect(show_user_create_course_button(@teacher)).to be_truthy
@@ -188,547 +188,205 @@ describe ApplicationHelper do
     end
   end
 
-  describe "cache_if" do
-    it "should cache the fragment if the condition is true" do
-      enable_cache do
-        cache_if(true, "t1", :expires_in => 15.minutes, :no_locale => true) { output_buffer.concat "blargh" }
-        expect(@controller.read_fragment("t1")).to eq "blargh"
-      end
-    end
-
-    it "should not cache if the condition is false" do
-      enable_cache do
-        cache_if(false, "t1", :expires_in => 15.minutes, :no_locale => true) { output_buffer.concat "blargh" }
-        expect(@controller.read_fragment("t1")).to be_nil
-      end
-    end
-  end
-
   describe "custom css/js includes" do
-    context "without use_new_styles" do
-      before do
-        helper.stubs(:use_new_styles?).returns(false)
+
+    def set_up_subaccounts
+      @domain_root_account.settings[:global_includes] = true
+      @domain_root_account.settings[:sub_account_includes] = true
+      @domain_root_account.create_brand_config!({
+        css_overrides: 'https://example.com/root/account.css',
+        js_overrides: 'https://example.com/root/account.js'
+      })
+      @domain_root_account.save!
+
+      @child_account = account_model(root_account: @domain_root_account, name: 'child account')
+      bc = @child_account.build_brand_config({
+        css_overrides: 'https://example.com/child/account.css',
+        js_overrides: 'https://example.com/child/account.js'
+      })
+      bc.parent = @domain_root_account.brand_config
+      bc.save!
+      @child_account.save!
+
+      @grandchild_account = @child_account.sub_accounts.create!(name: 'grandchild account')
+      bc = @grandchild_account.build_brand_config({
+        css_overrides: 'https://example.com/grandchild/account.css',
+        js_overrides: 'https://example.com/grandchild/account.js'
+      })
+      bc.parent = @child_account.brand_config
+      bc.save!
+      @grandchild_account.save!
+    end
+
+    describe "include_account_css" do
+
+      before :once do
+        @site_admin = Account.site_admin
+        @domain_root_account = Account.default
+        @domain_root_account.settings = @domain_root_account.settings.merge(global_includes: true)
+        @domain_root_account.save!
       end
 
-      describe "include_account_css" do
-
-        before :once do
-          @site_admin = Account.site_admin
-          @domain_root_account = Account.default
-        end
-
-        context "with no custom css" do
-          it "should be empty" do
-            expect(helper.include_account_css).to be_nil
-          end
-        end
-
-        context "with custom css" do
-          it "should include account css" do
-            @domain_root_account.settings = @domain_root_account.settings.merge(global_includes: true)
-            @domain_root_account.settings = @domain_root_account.settings.merge(global_stylesheet: '/path/to/css')
-            @domain_root_account.save!
-
-            output = helper.include_account_css
-            expect(output).to have_tag 'link'
-            expect(output).to match %r{/path/to/css}
-          end
-
-          it "should include site admin css" do
-            @site_admin.settings = @site_admin.settings.merge(global_includes: true)
-            @site_admin.settings = @site_admin.settings.merge(global_stylesheet: '/path/to/css')
-            @site_admin.save!
-
-            output = helper.include_account_css
-            expect(output).to have_tag 'link'
-            expect(output).to match %r{/path/to/css}
-          end
-
-          it "should include site admin css once" do
-            @site_admin.settings = @site_admin.settings.merge(global_includes: true)
-            @site_admin.settings = @site_admin.settings.merge(global_stylesheet: '/path/to/css')
-            @site_admin.save!
-
-            output = helper.include_account_css
-            expect(output).to have_tag 'link'
-            expect(output.scan(%r{/path/to/css}).length).to eql 1
-          end
-
-          it "should include site admin css first" do
-            @site_admin.settings = @site_admin.settings.merge(global_includes: true)
-            @site_admin.settings = @site_admin.settings.merge(global_stylesheet: '/path/to/admin/css')
-            @site_admin.save!
-
-            @domain_root_account.settings = @domain_root_account.settings.merge(global_includes: true)
-            @domain_root_account.settings = @domain_root_account.settings.merge(global_stylesheet: '/path/to/root/css')
-            @domain_root_account.save!
-
-            output = helper.include_account_css
-            expect(output).to have_tag 'link'
-            expect(output.scan(%r{/path/to/(root/|admin/)?css})).to eql [['admin/'], ['root/']]
-          end
-
-          it "should not include anything if param is set to 0" do
-            @domain_root_account.settings = @domain_root_account.settings.merge(global_includes: true)
-            @domain_root_account.settings = @domain_root_account.settings.merge(global_stylesheet: '/path/to/css')
-            @domain_root_account.save!
-
-            params[:global_includes] = '0'
-            output = helper.include_account_css
-            expect(output).to be_nil
-          end
-        end
-
-        context "sub-accounts" do
-          before :once do
-            @site_admin.settings = @site_admin.settings.merge(global_includes: true)
-            @site_admin.settings = @site_admin.settings.merge(global_stylesheet: '/path/to/admin/css')
-            @site_admin.save!
-
-            @domain_root_account.settings = @domain_root_account.settings.merge(global_includes: true)
-            @domain_root_account.settings = @domain_root_account.settings.merge(sub_account_includes: true)
-            @domain_root_account.settings = @domain_root_account.settings.merge(global_stylesheet: '/path/to/root/css')
-            @domain_root_account.save!
-
-            @sub_account1 = account_model(root_account: @domain_root_account)
-            @sub_account1.settings = @sub_account1.settings.merge(global_stylesheet: '/path/to/sub1/css')
-            @sub_account1.settings = @sub_account1.settings.merge(sub_account_includes: true)
-            @sub_account1.save!
-
-            @sub_account2 = account_model(root_account: @domain_root_account)
-            @sub_account2.settings = @sub_account2.settings.merge(global_stylesheet: '/path/to/sub2/css')
-            @sub_account2.save!
-          end
-
-          it "should include sub-account css" do
-            @context = @sub_account1
-            output = helper.include_account_css
-            expect(output).to have_tag 'link'
-            expect(output.scan(%r{/path/to/(sub1/|sub2/|root/|admin/)?css})).to eql [['admin/'], ['root/'], ['sub1/']]
-          end
-
-          it "should not include sub-account css when root account is context" do
-            @context = @domain_root_account
-            output = helper.include_account_css
-            expect(output).to have_tag 'link'
-            expect(output.scan(%r{/path/to/(sub1/|sub2/|root/|admin/)?css})).to eql [['admin/'], ['root/']]
-          end
-
-          it "should include sub-account css for course context" do
-            @context = @sub_account1.courses.create!
-            output = helper.include_account_css
-            expect(output).to have_tag 'link'
-            expect(output.scan(%r{/path/to/(sub1/|sub2/|root/|admin/)?css})).to eql [['admin/'], ['root/'], ['sub1/']]
-          end
-
-          it "should include sub-account css for group context" do
-            @course = @sub_account1.courses.create!
-            @context = @course.groups.create!
-            output = helper.include_account_css
-            expect(output).to have_tag 'link'
-            expect(output.scan(%r{/path/to/(sub1/|sub2/|root/|admin/)?css})).to eql [['admin/'], ['root/'], ['sub1/']]
-          end
-
-          it "should use include sub-account css, if sub-account is lowest common account context" do
-            @course = @sub_account1.courses.create!
-            @course.offer!
-            student_in_course(active_all: true)
-            @context = @user
-            @current_user = @user
-            output = helper.include_account_css
-            expect(output).to have_tag 'link'
-            expect(output.scan(%r{/path/to/(sub1/|sub2/|root/|admin/)?css})).to eql [['admin/'], ['root/'], ['sub1/']]
-          end
-
-          it "should not use include sub-account css, if sub-account is not lowest common account context" do
-            @course1 = @sub_account1.courses.create!
-            @course1.offer!
-            @course2 = @sub_account2.courses.create!
-            @course2.offer!
-            student_in_course(active_all: true, course: @course1)
-            student_in_course(active_all: true, course: @course2, user: @user)
-            @context = @user
-            @current_user = @user
-            output = helper.include_account_css
-            expect(output).to have_tag 'link'
-            expect(output.scan(%r{/path/to/(sub1/|sub2/|root/|admin/)?css})).to eql [['admin/'], ['root/']]
-          end
-
-          it "should include multiple levesl of sub-account css in the right order for course page" do
-            @sub_sub_account1 = account_model(parent_account: @sub_account1, root_account: @domain_root_account)
-            @sub_sub_account1.settings = @sub_sub_account1.settings.merge(global_stylesheet: '/path/to/subsub1/css')
-            @sub_sub_account1.save!
-
-            @context = @sub_sub_account1.courses.create!
-            output = helper.include_account_css
-            expect(output).to have_tag 'link'
-            expect(output.scan(%r{/path/to/(subsub1/|sub1/|sub2/|root/|admin/)?css})).to eql [['admin/'], ['root/'], ['sub1/'], ['subsub1/']]
-          end
-
-          it "should include multiple levesl of sub-account css in the right order" do
-            @sub_sub_account1 = account_model(parent_account: @sub_account1, root_account: @domain_root_account)
-            @sub_sub_account1.settings = @sub_sub_account1.settings.merge(global_stylesheet: '/path/to/subsub1/css')
-            @sub_sub_account1.save!
-
-            @course = @sub_sub_account1.courses.create!
-            @course.offer!
-            student_in_course(active_all: true)
-            @context = @user
-            @current_user = @user
-            output = helper.include_account_css
-            expect(output).to have_tag 'link'
-            expect(output.scan(%r{/path/to/(subsub1/|sub1/|sub2/|root/|admin/)?css})).to eql [['admin/'], ['root/'], ['sub1/'], ['subsub1/']]
-          end
-        end
-      end
-
-      describe "include_account_js" do
-        before :once do
-          @site_admin = Account.site_admin
-          @domain_root_account = Account.default
-        end
-
-        context "with no custom js" do
-          it "should be empty" do
-            expect(helper.include_account_js).to be_nil
-          end
-        end
-
-        context "with custom js" do
-          it "should include account javascript" do
-            @domain_root_account.settings = @domain_root_account.settings.merge(
-              global_includes: true,
-              global_javascript: '/path/to/js'
-            )
-            @domain_root_account.save!
-
-            output = helper.include_account_js
-            expect(output).to have_tag 'script'
-            expect(output).to match %r{\\?/path\\?/to\\?/js}
-          end
-
-          it "should include site admin javascript" do
-            @site_admin.settings = @site_admin.settings.merge(
-              global_includes: true,
-              global_javascript: '/path/to/js'
-            )
-            @site_admin.save!
-
-            output = helper.include_account_js
-            expect(output).to have_tag 'script'
-            expect(output).to match %r{\\?/path\\?/to\\?/js}
-          end
-
-          it "should include both site admin and root account javascript, site admin first" do
-            @domain_root_account.settings = @domain_root_account.settings.merge(
-              global_includes: true,
-              global_javascript: '/path/to/root/js'
-            )
-            @domain_root_account.save!
-
-            @site_admin.settings = @site_admin.settings.merge(
-              global_includes: true,
-              global_javascript: '/path/to/admin/js'
-            )
-            @site_admin.save!
-
-            output = helper.include_account_js
-            expect(output).to have_tag 'script'
-            expect(output.scan(%r{\\?/path\\?/to\\?/(admin|root)?\\?/?js})).to eql [['admin'], ['root']]
-          end
-        end
-      end
-
-      describe "global_includes" do
-        it "should only compute includes once, with includes" do
-          @site_admin = Account.site_admin
-          @site_admin.expects(:global_includes_hash).once.returns({css: "/path/to/css", js: "/path/to/js"})
-          expect(helper.include_account_css).to match %r{/path/to/css}
-          expect(helper.include_account_js).to match %r{\\?/path\\?/to\\?/js}
-        end
-
-        it "should only compute includes once, with includes" do
-          @site_admin = Account.site_admin
-          @site_admin.expects(:global_includes_hash).once.returns(nil)
+      context "with no custom css" do
+        it "should be empty" do
+          helper.stubs(:active_brand_config).returns(nil)
           expect(helper.include_account_css).to be_nil
+        end
+      end
+
+      context "with custom css" do
+        it "should include account css" do
+          helper.stubs(:active_brand_config).returns BrandConfig.create!(css_overrides: 'https://example.com/path/to/overrides.css')
+          output = helper.include_account_css
+          expect(output).to have_tag 'link'
+          expect(output).to match %r{https://example.com/path/to/overrides.css}
+        end
+
+        it "should include site_admin css even if there is no active brand" do
+          helper.stubs(:active_brand_config).returns nil
+          Account.site_admin.create_brand_config!({
+            css_overrides: 'https://example.com/site_admin/account.css',
+            js_overrides: 'https://example.com/site_admin/account.js'
+          })
+          output = helper.include_account_css
+          expect(output).to have_tag 'link'
+          expect(output).to match %r{https://example.com/site_admin/account.css}
+        end
+
+
+        it "should not include anything if param is set to 0" do
+          helper.stubs(:active_brand_config).returns BrandConfig.create!(css_overrides: 'https://example.com/path/to/overrides.css')
+          params[:global_includes] = '0'
+
+          output = helper.include_account_css
+          expect(output).to be_nil
+        end
+      end
+
+      context "sub-accounts" do
+        before { set_up_subaccounts }
+
+        it "should include sub-account css when viewing the subaccount or any course or group in it" do
+          course = @grandchild_account.courses.create!
+          group = course.groups.create!
+          [@grandchild_account, course, group].each do |context|
+            @context = context
+            output = helper.include_account_css
+            expect(output).to have_tag 'link'
+            expect(output.scan(%r{https://example.com/(root|child|grandchild)?/account.css})).to eql [['root'], ['child'], ['grandchild']]
+          end
+        end
+
+        it "should not include sub-account css when root account is context" do
+          @context = @domain_root_account
+          output = helper.include_account_css
+          expect(output).to have_tag 'link'
+          expect(output.scan(%r{https://example.com/(root|child|grandchild)?/account.css})).to eql [['root']]
+        end
+
+        it "should use include sub-account css, if sub-account is lowest common account context" do
+          @course = @grandchild_account.courses.create!
+          @course.offer!
+          student_in_course(active_all: true)
+          @context = @user
+          @current_user = @user
+          output = helper.include_account_css
+          expect(output).to have_tag 'link'
+          expect(output.scan(%r{https://example.com/(root|child|grandchild)?/account.css})).to eql [['root'], ['child'], ['grandchild']]
+        end
+
+        it "should work using common_account_chain starting from lowest common account context with enrollments" do
+          course1 = @child_account.courses.create!
+          course1.offer!
+          course2 = @grandchild_account.courses.create!
+          course2.offer!
+          student_in_course(active_all: true, course: course1, user: @user)
+          student_in_course(active_all: true, course: course2, user: @user)
+          @context = @user
+          @current_user = @user
+          output = helper.include_account_css
+          expect(output).to have_tag 'link'
+          expect(output.scan(%r{https://example.com/(root|child|grandchild)?/account.css})).to eql [['root'], ['child']]
+        end
+
+        it "should fall-back to @domain_root_account's branding if I'm logged in but not enrolled in anything" do
+          @current_user = user_factory
+          output = helper.include_account_css
+          expect(output).to have_tag 'link'
+          expect(output.scan(%r{https://example.com/(root|child|grandchild)?/account.css})).to eql [['root']]
+        end
+
+        it "should load custom css even for high contrast users" do
+          @current_user = user_factory
+          user_factory.enable_feature!(:high_contrast)
+          @context = @grandchild_account
+          output = helper.include_account_css
+          expect(output).to have_tag 'link'
+          expect(output.scan(%r{https://example.com/(root|child|grandchild)?/account.css})).to eql [["root"], ["child"], ["grandchild"]]
+        end
+
+      end
+    end
+
+    describe "include_account_js" do
+      before :once do
+        @site_admin = Account.site_admin
+        @domain_root_account = Account.default
+        @domain_root_account.settings = @domain_root_account.settings.merge(global_includes: true)
+        @domain_root_account.save!
+      end
+
+      context "with no custom js" do
+        it "should be empty" do
+          helper.stubs(:active_brand_config).returns(nil)
           expect(helper.include_account_js).to be_nil
         end
       end
 
-      describe "get_global_includes" do
-        before :once do
-          @domain_root_account = Account.default
-          @domain_root_account.settings = @domain_root_account.settings.merge(
-            global_includes: true,
-            global_javascript: '/path/to/js'
-          )
-          @domain_root_account.save!
+      context "with custom js" do
+        it "should include account javascript" do
+          helper.stubs(:active_brand_config).returns BrandConfig.create!(js_overrides: 'https://example.com/path/to/overrides.js')
+          output = helper.include_account_js
+          expect(output).to have_tag 'script', text: %r{https:\\/\\/example.com\\/path\\/to\\/overrides.js}
         end
 
-        it "should return default account includes" do
-          includes = helper.get_global_includes
-          expect(includes).to eq [{js: '/path/to/js'}]
-        end
+        it "should include site_admin javascript even if there is no active brand" do
+          helper.stubs(:active_brand_config).returns nil
+          Account.site_admin.create_brand_config!({
+            css_overrides: 'https://example.com/site_admin/account.css',
+            js_overrides: 'https://example.com/site_admin/account.js'
+          })
 
-        it "should return sub-account includes if enabled" do
-          @domain_root_account.settings = @domain_root_account.settings.merge(
-            sub_account_includes: true
-          )
-          @domain_root_account.save!
-          @sub_account = account_model(root_account: @domain_root_account)
-          @sub_account.settings = @sub_account.settings.merge(
-            global_javascript: '/path/to/sub/js'
-          )
-          @sub_account.save!
-          @context = @sub_account
-
-          includes = helper.get_global_includes
-          expect(includes).to eq [{js: '/path/to/js'}, {js: '/path/to/sub/js'}]
-        end
-
-        it "should not include sub-account includes if disabled" do
-          @sub_account = account_model(root_account: @domain_root_account)
-          @sub_account.settings = @sub_account.settings.merge(
-            global_javascript: '/path/to/sub/js'
-          )
-          @sub_account.save!
-          @context = @sub_account
-
-          includes = helper.get_global_includes
-          expect(includes).to eq [{js: '/path/to/js'}]
-        end
-
-        it "should not include stale values when updated" do
-          enable_cache do
-            now = Time.now.utc
-            Timecop.freeze(now) do
-              @domain_root_account.settings = @domain_root_account.settings.merge(
-                sub_account_includes: true
-              )
-              @domain_root_account.save!
-              @context = @domain_root_account
-
-              includes = helper.get_global_includes
-              expect(includes).to eq [{js: '/path/to/js'}]
-            end
-
-            # a little time passes, so updated_at changes
-            Timecop.freeze(now + 5.seconds) do
-
-              @domain_root_account.settings = @domain_root_account.settings.merge(
-                global_javascript: '/path/to/new/js'
-              )
-              @domain_root_account.save!
-
-              # simulate the next request
-              helper.remove_instance_variable(:@global_includes)
-
-              includes = helper.get_global_includes
-
-              # we still get the old javascript because it's cached, the real
-              # test here is that we don't get BOTH.
-              expect(includes).to eq [{js: '/path/to/js'}]
-            end
-          end
-        end
-      end
-    end
-
-    context "with use_new_styles turned on" do
-      before do
-        helper.stubs(:use_new_styles?).returns(true)
-      end
-
-      def set_up_subaccounts
-        @domain_root_account.settings[:global_includes] = true
-        @domain_root_account.settings[:sub_account_includes] = true
-        @domain_root_account.create_brand_config!({
-          css_overrides: 'https://example.com/root/account.css',
-          js_overrides: 'https://example.com/root/account.js'
-        })
-        @domain_root_account.save!
-
-        @child_account = account_model(root_account: @domain_root_account, name: 'child account')
-        bc = @child_account.build_brand_config({
-          css_overrides: 'https://example.com/child/account.css',
-          js_overrides: 'https://example.com/child/account.js'
-        })
-        bc.parent = @domain_root_account.brand_config
-        bc.save!
-        @child_account.save!
-
-        @grandchild_account = @child_account.sub_accounts.create!(name: 'grandchild account')
-        bc = @grandchild_account.build_brand_config({
-          css_overrides: 'https://example.com/grandchild/account.css',
-          js_overrides: 'https://example.com/grandchild/account.js'
-        })
-        bc.parent = @child_account.brand_config
-        bc.save!
-        @grandchild_account.save!
-      end
-
-      describe "include_account_css" do
-
-        before :once do
-          @site_admin = Account.site_admin
-          @domain_root_account = Account.default
-          @domain_root_account.settings = @domain_root_account.settings.merge(global_includes: true)
-          @domain_root_account.save!
-        end
-
-        context "with no custom css" do
-          it "should be empty" do
-            helper.stubs(:active_brand_config).returns(nil)
-            expect(helper.include_account_css).to be_nil
-          end
-        end
-
-        context "with custom css" do
-          it "should include account css" do
-            helper.stubs(:active_brand_config).returns BrandConfig.create!(css_overrides: 'https://example.com/path/to/overrides.css')
-            output = helper.include_account_css
-            expect(output).to have_tag 'link'
-            expect(output).to match %r{https://example.com/path/to/overrides.css}
-          end
-
-          it "should include site admin css" do
-            raise pending("need to make new_styles custom css/js work with subaccounts/site_admin: CNVS-23957")
-          end
-
-          it "should include site admin css first" do
-            raise pending("need to make new_styles custom css/js work with subaccounts/site_admin: CNVS-23957")
-          end
-
-          it "should not include anything if param is set to 0" do
-            helper.stubs(:active_brand_config).returns BrandConfig.create!(css_overrides: 'https://example.com/path/to/overrides.css')
-            params[:global_includes] = '0'
-
-            output = helper.include_account_css
-            expect(output).to be_nil
-          end
+          output = helper.include_account_js
+          expect(output).to have_tag 'script', text: %r{https:\\/\\/example.com\\/site_admin\\/account.js}
         end
 
         context "sub-accounts" do
           before { set_up_subaccounts }
 
-          it "should include sub-account css when viewing the subaccount or any course or group in it" do
+          it "should just include domain root account's when there is no context or @current_user" do
+            output = helper.include_account_js
+            expect(output).to have_tag 'script'
+            expect(output).to eq("<script src=\"https://example.com/root/account.js\" defer=\"defer\"></script>")
+          end
+
+          it "should load custom js even for high contrast users" do
+            @current_user = user_factory
+            user_factory.enable_feature!(:high_contrast)
+            output = helper.include_account_js
+            expect(output).to eq("<script src=\"https://example.com/root/account.js\" defer=\"defer\"></script>")
+          end
+
+          it "should include granchild, child, and root when viewing the grandchild or any course or group in it" do
             course = @grandchild_account.courses.create!
             group = course.groups.create!
             [@grandchild_account, course, group].each do |context|
               @context = context
-              output = helper.include_account_css
-              expect(output).to have_tag 'link'
-              expect(output.scan(%r{https://example.com/(root|child|grandchild)?/account.css})).to eql [['root'], ['child'], ['grandchild']]
-            end
-          end
-
-          it "should not include sub-account css when root account is context" do
-            @context = @domain_root_account
-            output = helper.include_account_css
-            expect(output).to have_tag 'link'
-            expect(output.scan(%r{https://example.com/(root|child|grandchild)?/account.css})).to eql [['root']]
-          end
-
-          it "should use include sub-account css, if sub-account is lowest common account context" do
-            @course = @grandchild_account.courses.create!
-            @course.offer!
-            student_in_course(active_all: true)
-            @context = @user
-            @current_user = @user
-            output = helper.include_account_css
-            expect(output).to have_tag 'link'
-            expect(output.scan(%r{https://example.com/(root|child|grandchild)?/account.css})).to eql [['root'], ['child'], ['grandchild']]
-          end
-
-          it "should work using common_account_chain starting from lowest common account context" do
-            course1 = @child_account.courses.create!
-            course1.offer!
-            course2 = @grandchild_account.courses.create!
-            course2.offer!
-            student_in_course(active_all: true, course: course1, user: @user)
-            student_in_course(active_all: true, course: course2, user: @user)
-            @context = @user
-            @current_user = @user
-            output = helper.include_account_css
-            expect(output).to have_tag 'link'
-            expect(output.scan(%r{https://example.com/(root|child|grandchild)?/account.css})).to eql [['root'], ['child'], ['grandchild']]
-          end
-
-          it "should fall-back to @domain_root_account's branding if I'm logged in but not enrolled in anything" do
-            @current_user = user
-            output = helper.include_account_css
-            expect(output).to have_tag 'link'
-            expect(output.scan(%r{https://example.com/(root|child|grandchild)?/account.css})).to eql [['root']]
-          end
-
-          it "should load custom css even for high contrast users" do
-            @current_user = user
-            user.enable_feature!(:high_contrast)
-            @context = @grandchild_account
-            output = helper.include_account_css
-            expect(output).to have_tag 'link'
-            expect(output.scan(%r{https://example.com/(root|child|grandchild)?/account.css})).to eql [["root"], ["child"], ["grandchild"]]
-          end
-
-          it "should include site admin css/js" do
-            raise pending("need to handle site admin css/js from theme editor: CNVS-25229")
-          end
-        end
-      end
-
-      describe "include_account_js" do
-        before :once do
-          @site_admin = Account.site_admin
-          @domain_root_account = Account.default
-          @domain_root_account.settings = @domain_root_account.settings.merge(global_includes: true)
-          @domain_root_account.save!
-        end
-
-        context "with no custom js" do
-          it "should be empty" do
-            helper.stubs(:active_brand_config).returns(nil)
-            expect(helper.include_account_js).to be_nil
-          end
-        end
-
-        context "with custom js" do
-          it "should include account javascript" do
-            helper.stubs(:active_brand_config).returns BrandConfig.create!(js_overrides: 'https://example.com/path/to/overrides.js')
-            output = helper.include_account_js
-            expect(output).to have_tag 'script', text: %r{https:\\/\\/example.com\\/path\\/to\\/overrides.js}
-          end
-
-          context "sub-accounts" do
-            before { set_up_subaccounts }
-
-            it "should include site admin javascript" do
-              raise pending("need to handle site admin css/js from theme editor: CNVS-25229")
-            end
-
-            it "should just include domain root account's when there is no context or @current_user" do
-              output = helper.include_account_js
-              expect(output).to have_tag 'script'
-              expect(output).to match(/#{Regexp.quote('["https:\/\/example.com\/root\/account.js"].forEach')}/)
-            end
-
-            it "should load custom js even for high contrast users" do
-              @current_user = user
-              user.enable_feature!(:high_contrast)
-              output = helper.include_account_js
-              expect(output).to have_tag 'script'
-              expect(output).to match(/#{Regexp.quote('["https:\/\/example.com\/root\/account.js"].forEach')}/)
-            end
-
-            it "should include granchild, child, and root when viewing the grandchild or any course or group in it" do
-              course = @grandchild_account.courses.create!
-              group = course.groups.create!
-              [@grandchild_account, course, group].each do |context|
-                @context = context
-                output = helper.include_account_js
-              expect(output).to have_tag 'script'
-              expected = '["https:\/\/example.com\/root\/account.js","https:\/\/example.com\/child\/account.js","https:\/\/example.com\/grandchild\/account.js"].forEach'
-              expect(output).to match(/#{Regexp.quote(expected)}/)
-              end
+              expect(helper.include_account_js).to eq %{
+<script src="https://example.com/root/account.js" defer="defer"></script>
+<script src="https://example.com/child/account.js" defer="defer"></script>
+<script src="https://example.com/grandchild/account.js" defer="defer"></script>
+              }.strip
             end
           end
         end
@@ -736,45 +394,50 @@ describe ApplicationHelper do
     end
   end
 
-  describe "hidden dialogs" do
-    before do
-      expect(hidden_dialogs).to be_empty
+  describe "help link" do
+    before :once do
+      Setting.set('show_feedback_link', 'true')
     end
 
-    it "should generate empty string when there are no dialogs" do
-      str = render_hidden_dialogs
-      expect(str).to eq ''
+    it "should configure the help link to display the dialog by default" do
+      expect(helper.show_help_link?).to eq true
+      expect(helper.help_link_url).to eq '#'
+      expect(helper.help_link_classes).to eq 'help_dialog_trigger'
     end
 
-    it "should work with one hidden_dialog" do
-      hidden_dialog('my_test_dialog') { "Hello there!" }
-      str = render_hidden_dialogs
-      expect(str).to eq "<div id='my_test_dialog' style='display: none;''>Hello there!</div>"
+    it "should override default help link with the configured support url" do
+      support_url = 'http://instructure.com'
+      Account.default.update_attribute(:settings, { :support_url => support_url })
+      helper.instance_variable_set(:@domain_root_account, Account.default)
+      Setting.set('show_feedback_link', 'false')
+
+      expect(helper.support_url).to eq support_url
+      expect(helper.show_help_link?).to eq true
+      expect(helper.help_link_url).to eq support_url
+      expect(helper.help_link_icon).to eq 'help'
+      expect(helper.help_link_classes).to eq 'support_url'
     end
 
-    it "should work with more than one hidden dialog" do
-      hidden_dialog('first_dialog') { "first" }
-      hidden_dialog('second_dialog') { "second" }
-      str = render_hidden_dialogs
-      expect(str).to eq "<div id='first_dialog' style='display: none;''>first</div><div id='second_dialog' style='display: none;''>second</div>"
+    it "should return the configured icon" do
+      icon = 'inbox'
+      Account.default.update_attribute(:settings, { :help_link_icon => icon })
+      helper.instance_variable_set(:@domain_root_account, Account.default)
+
+      expect(helper.help_link_icon).to eq icon
     end
 
-    it "should raise an error when a dialog with conflicting content is added" do
-      hidden_dialog('dialog_id') { 'content' }
-      expect { hidden_dialog('dialog_id') { 'different content' } }.to raise_error
-    end
+    it "should return the configured help link name" do
+      link_name = 'Links'
+      Account.default.update_attribute(:settings, { :help_link_name => link_name })
+      helper.instance_variable_set(:@domain_root_account, Account.default)
 
-    it "should only render a dialog once when it has been added multiple times" do
-      hidden_dialog('dialog_id') { 'content' }
-      hidden_dialog('dialog_id') { 'content' }
-      str = render_hidden_dialogs
-      expect(str).to eq "<div id='dialog_id' style='display: none;''>content</div>"
+      expect(helper.help_link_name).to eq link_name
     end
   end
 
   describe "collection_cache_key" do
     it "should generate a cache key, changing when an element cache_key changes" do
-      collection = [user, user, user]
+      collection = [user_factory, user_factory, user_factory]
       key1 = collection_cache_key(collection)
       key2 = collection_cache_key(collection)
       expect(key1).to eq key2
@@ -820,7 +483,7 @@ describe ApplicationHelper do
 
       context "with a user logged in" do
         before :each do
-          @current_user = user
+          @current_user = user_factory
         end
 
         it "returns the custom dashboard_url with the current user's id" do
@@ -948,27 +611,20 @@ describe ApplicationHelper do
   end
 
   describe "active_brand_config" do
-    it "returns nil if new styles are turned off" do
-      helper.stubs(:use_new_styles?).returns(false)
-      expect(helper.send(:active_brand_config)).to be_nil
-    end
 
     it "returns nil if user prefers high contrast" do
-      helper.stubs(:use_new_styles?).returns(true)
-      @current_user = user
+      @current_user = user_factory
       @current_user.enable_feature!(:high_contrast)
       expect(helper.send(:active_brand_config)).to be_nil
     end
 
     it "returns 'K12 Theme' by default for a k12 school" do
-      helper.stubs(:use_new_styles?).returns(true)
       helper.stubs(:k12?).returns(true)
       BrandConfig.stubs(:k12_config)
       expect(helper.send(:active_brand_config)).to eq BrandConfig.k12_config
     end
 
     it "returns 'K12 Theme' if a k12 school has chosen 'canvas default' in Theme Editor" do
-      helper.stubs(:use_new_styles?).returns(true)
       helper.stubs(:k12?).returns(true)
       BrandConfig.stubs(:k12_config)
 
@@ -981,31 +637,146 @@ describe ApplicationHelper do
   end
 
 
-  describe "include_js_bundles" do
-    before :each do
+  describe "include_head_js" do
+    before do
       helper.stubs(:js_bundles).returns([[:some_bundle], [:some_plugin_bundle, :some_plugin], [:another_bundle, nil]])
     end
-    it "creates the correct javascript tags" do
-      base_url = helper.use_optimized_js? ? '/optimized' : '/javascripts'
-      expect(helper.include_js_bundles).to eq %{
-<script src="#{base_url}/compiled/bundles/some_bundle.js"></script>
-<script src="#{base_url}/plugins/some_plugin/compiled/bundles/some_plugin_bundle.js"></script>
-<script src="#{base_url}/compiled/bundles/another_bundle.js"></script>
-      }.strip
-    end
 
-    it "creates the correct javascript tags with webpack enabled" do
-      helper.stubs(:use_webpack?).returns(true)
-      base_url = helper.use_optimized_js? ? "/webpack-dist-optimized" : "/webpack-dist"
-      expect(helper.include_js_bundles).to eq %{
-<script src="#{base_url}/vendor.bundle.js"></script>
-<script src="#{base_url}/instructure-common.bundle.js"></script>
-<script src="#{base_url}/some_bundle.bundle.js"></script>
-<script src="#{base_url}/some_plugin-some_plugin_bundle.bundle.js"></script>
-<script src="#{base_url}/another_bundle.bundle.js"></script>
+    it "creates the correct javascript tags" do
+      helper.stubs(:js_env).returns({
+        BIGEASY_LOCALE: 'nb_NO',
+        MOMENT_LOCALE: 'nb',
+        TIMEZONE: 'America/La_Paz',
+        CONTEXT_TIMEZONE: 'America/Denver'
+      })
+      base_url = helper.use_optimized_js? ? 'dist/webpack-production' : 'dist/webpack-dev'
+      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/vendor.js').returns('vendor_url')
+      Canvas::Cdn::RevManifest.stubs(:revved_url_for).with('timezone/America/La_Paz.js').returns('La_Paz_url')
+      Canvas::Cdn::RevManifest.stubs(:revved_url_for).with('timezone/America/Denver.js').returns('Denver_url')
+      Canvas::Cdn::RevManifest.stubs(:revved_url_for).with('timezone/nb_NO.js').returns('nb_NO_url')
+      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/moment/locale/nb.js').returns('nb_url')
+      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/appBootstrap.js').returns('app_bootstrap_url')
+      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/common.js').returns('common_url')
+      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/some_bundle.js').returns('some_bundle_url')
+      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/some_plugin-some_plugin_bundle.js').returns('plugin_url')
+      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/another_bundle.js').returns('another_bundle_url')
+
+      expect(helper.include_head_js).to eq %{
+<script src="/vendor_url" defer="defer"></script>
+<script src="/La_Paz_url" defer="defer"></script>
+<script src="/Denver_url" defer="defer"></script>
+<script src="/nb_NO_url" defer="defer"></script>
+<script src="/nb_url" defer="defer"></script>
+<script src="/app_bootstrap_url" defer="defer"></script>
+<script src="/common_url" defer="defer"></script>
+<script src="/some_bundle_url" defer="defer"></script>
+<script src="/plugin_url" defer="defer"></script>
+<script src="/another_bundle_url" defer="defer"></script>
       }.strip
     end
   end
 
+  describe "include_js_bundles" do
+    before do
+      helper.stubs(:js_bundles).returns([[:some_bundle], [:some_plugin_bundle, :some_plugin], [:another_bundle, nil]])
+    end
+    it "creates the correct javascript tags" do
+      base_url = helper.use_optimized_js? ? 'dist/webpack-production' : 'dist/webpack-dev'
+      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/some_bundle.js').returns('some_bundle_url')
+      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/some_plugin-some_plugin_bundle.js').returns('plugin_url')
+      Canvas::Cdn::RevManifest.stubs(:webpack_url_for).with(base_url + '/another_bundle.js').returns('another_bundle_url')
 
+      expect(helper.include_js_bundles).to eq %{
+<script src="/some_bundle_url" defer="defer"></script>
+<script src="/plugin_url" defer="defer"></script>
+<script src="/another_bundle_url" defer="defer"></script>
+      }.strip
+    end
+  end
+
+  describe "map_courses_for_menu" do
+    context "with Dashcard Reordering feature enabled" do
+      before(:each) do
+        @account = Account.default
+        @account.enable_feature! :dashcard_reordering
+        @domain_root_account = @account
+      end
+
+      it "returns the list of courses sorted by position" do
+        course1 = @account.courses.create!
+        course2 = @account.courses.create!
+        course3 = @account.courses.create!
+        user = user_model
+        course1.enroll_student(user)
+        course2.enroll_student(user)
+        course3.enroll_student(user)
+        courses = [course1, course2, course3]
+        user.dashboard_positions[course1.asset_string] = 3
+        user.dashboard_positions[course2.asset_string] = 2
+        user.dashboard_positions[course3.asset_string] = 1
+        user.save!
+        @current_user = user
+        mapped_courses = map_courses_for_menu(courses)
+        expect(mapped_courses.map {|h| h[:id]}).to eq [course3.id, course2.id, course1.id]
+      end
+    end
+  end
+
+  describe "tutorials_enabled?" do
+    before(:each) do
+      @domain_root_account = Account.default
+    end
+    context "with new_users_tutorial feature flag enabled" do
+      before(:each) do
+        @domain_root_account.enable_feature! :new_user_tutorial
+        @current_user = User.create!
+      end
+
+      it "returns true if the user has the flag enabled" do
+        @current_user.enable_feature!(:new_user_tutorial_on_off)
+        expect(tutorials_enabled?).to be true
+      end
+
+      it "returns false if the user has the flag disabled" do
+        @current_user.disable_feature!(:new_user_tutorial_on_off)
+        expect(tutorials_enabled?).to be false
+      end
+    end
+
+    context "with new_users_tutorial feature flag disabled" do
+      it "returns false" do
+        expect(tutorials_enabled?).to be false
+      end
+    end
+  end
+
+  describe "planner_enabled?" do
+    before(:each) do
+      @domain_root_account = Account.default
+    end
+
+    context "with student_planner feature flag enabled" do
+      before(:each) do
+        @domain_root_account.enable_feature! :student_planner
+      end
+
+      it "returns false when a user has no student enrollments" do
+        course_with_teacher(:active_all => true)
+        @current_user = @user
+        expect(planner_enabled?).to be false
+      end
+
+      it "returns true when there is at least one student enrollment" do
+        course_with_student(:active_all => true)
+        @current_user = @user
+        expect(planner_enabled?).to be true
+      end
+    end
+
+    context "with student_planner feature flag disabled" do
+      it "returns false" do
+        expect(planner_enabled?).to be false
+      end
+    end
+  end
 end

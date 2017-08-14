@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2012 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,7 +22,102 @@ require File.expand_path(File.dirname(__FILE__) + '/../../lib/canvas/draft_state
 describe Quizzes::Quiz do
 
   before :once do
-    course
+    course_factory
+  end
+
+  describe "default values for boolean attributes" do
+    before(:once) do
+      @quiz = @course.quizzes.create!(title: "hello")
+    end
+
+    let(:default_false_values) do
+      Quizzes::Quiz.where(id: @quiz).pluck(
+        :shuffle_answers,
+        :could_be_locked,
+        :anonymous_submissions,
+        :require_lockdown_browser,
+        :require_lockdown_browser_for_results,
+        :one_question_at_a_time,
+        :cant_go_back,
+        :require_lockdown_browser_monitor,
+        :only_visible_to_overrides,
+        :one_time_results,
+        :show_correct_answers_last_attempt
+      ).first
+    end
+
+    it "saves boolean attributes as false if they are set to nil" do
+      @quiz.update!(
+        shuffle_answers: nil,
+        could_be_locked: nil,
+        anonymous_submissions: nil,
+        require_lockdown_browser: nil,
+        require_lockdown_browser_for_results: nil,
+        one_question_at_a_time: nil,
+        cant_go_back: nil,
+        require_lockdown_browser_monitor: nil,
+        only_visible_to_overrides: nil,
+        one_time_results: nil,
+        show_correct_answers_last_attempt: nil
+      )
+
+      expect(default_false_values).to eq([false] * default_false_values.length)
+    end
+
+    it "saves show_correct_answers as true if it is set to nil" do
+      @quiz.update!(show_correct_answers: nil)
+      expect(@quiz.show_correct_answers).to eq(true)
+    end
+
+    it "saves boolean attributes as false if they are set to false" do
+      @quiz.update!(
+        shuffle_answers: false,
+        could_be_locked: false,
+        anonymous_submissions: false,
+        require_lockdown_browser: false,
+        require_lockdown_browser_for_results: false,
+        one_question_at_a_time: false,
+        cant_go_back: false,
+        require_lockdown_browser_monitor: false,
+        only_visible_to_overrides: false,
+        one_time_results: false,
+        show_correct_answers_last_attempt: false
+      )
+
+      expect(default_false_values).to eq([false] * default_false_values.length)
+    end
+
+    it "saves show_correct_answers as false if it is set to false" do
+      @quiz.update!(show_correct_answers: false)
+      expect(@quiz.show_correct_answers).to eq(false)
+    end
+
+    it "saves boolean attributes as true if they are set to true" do
+      Quizzes::Quiz.stubs(:lockdown_browser_plugin_enabled?).returns(true)
+      @quiz.update!(
+        shuffle_answers: true,
+        could_be_locked: true,
+        anonymous_submissions: true,
+        require_lockdown_browser: true,
+        require_lockdown_browser_for_results: true,
+        one_question_at_a_time: true,
+        cant_go_back: true,
+        require_lockdown_browser_monitor: true,
+        only_visible_to_overrides: true,
+        one_time_results: true,
+        show_correct_answers_last_attempt: true,
+        # if allowed_attempts is <= 1, show_correct_answers_last_attempt
+        # cannot be set to true
+        allowed_attempts: 2
+      )
+
+      expect(default_false_values).to eq([true] * default_false_values.length)
+    end
+
+    it "saves show_correct_answers as true if it is set to true" do
+      @quiz.update!(show_correct_answers: true)
+      expect(@quiz.show_correct_answers).to eq(true)
+    end
   end
 
   describe ".mark_quiz_edited" do
@@ -440,7 +535,7 @@ describe Quizzes::Quiz do
     q.save
     expect(q.active_quiz_questions.size).to eql(4)
     expect(q.quiz_groups.length).to eql(1)
-    expect(g.quiz_questions(true).active.size).to eql(2)
+    expect(g.quiz_questions.reload.active.size).to eql(2)
 
     entries = q.root_entries(true)
     expect(entries.length).to eql(3)
@@ -563,6 +658,21 @@ describe Quizzes::Quiz do
     expect(data[0][:questions]).not_to be_nil
     expect(data[1][:answers]).not_to be_nil
     expect(data[2][:answers]).not_to be_nil
+  end
+
+  it "should not lose precision when calculating points_possible from entries" do
+    # These values create enough error to test comparison but more arithmetic is
+    # necessary to persist error after roundtrip to storage.
+    expect(Array.new(3){ 3.3 }.sum).to be < 9.9
+
+    q = @course.quizzes.create!(title: "floaty quiz")
+    question_data = { points_possible: 3.3, question_type: 'multiple_choice_question' }
+    3.times do |i|
+      q.quiz_questions.create!(question_data: question_data.merge(name: "root #{i}"))
+    end
+
+    possible = Quizzes::Quiz.count_points_possible(q.root_entries(true))
+    expect(possible).to eq 9.9
   end
 
   describe "#generate_submission" do
@@ -809,7 +919,8 @@ describe Quizzes::Quiz do
     expect(q.quiz_submissions.size).to eq 0
 
     # create a graded submission
-    Quizzes::SubmissionGrader.new(q.generate_submission(User.create!(:name => "some_user"))).grade_submission
+    student_in_course(course: @course, active_all: true)
+    Quizzes::SubmissionGrader.new(q.generate_submission(@student)).grade_submission
     q.reload
 
     expect(q.quiz_submissions.size).to eq 1
@@ -1120,7 +1231,7 @@ describe Quizzes::Quiz do
       it "should not allow quiz points higher than allowable by postgres" do
         q = Quizzes::Quiz.new(:points_possible => 2000000001)
         expect(q.valid?).to eq false
-        expect(Array(q.errors[:points_possible])).to eq ["must be less than or equal to 2000000000"]
+        expect(Array(q.errors[:points_possible])).to eq ["must be less than or equal to 2,000,000,000"]
       end
     end
 
@@ -1302,7 +1413,7 @@ describe Quizzes::Quiz do
     before(:once) { @quiz = @course.quizzes.create! title: 'Test Quiz' }
 
     it "returns the regrade for the quiz and quiz version" do
-      course_with_teacher_logged_in(active_all: true, course: @course)
+      course_with_teacher(active_all: true, course: @course)
       question = @quiz.quiz_questions.create(question_data: { question_text: "test 1" })
 
       regrade = Quizzes::QuizRegrade.create!(quiz: @quiz, quiz_version: @quiz.version_number, user: @teacher)
@@ -1311,7 +1422,7 @@ describe Quizzes::Quiz do
     end
 
     it "should not return disabled regrade options" do
-      course_with_teacher_logged_in(active_all: true, course: @course)
+      course_with_teacher(active_all: true, course: @course)
       question = @quiz.quiz_questions.create(question_data: { question_text: "test 1" })
 
       regrade = Quizzes::QuizRegrade.create!(quiz: @quiz, quiz_version: @quiz.version_number, user: @teacher)
@@ -1325,7 +1436,7 @@ describe Quizzes::Quiz do
     before { @quiz = @course.quizzes.create! title: 'Test Quiz' }
 
     it "returns the correct question ids" do
-      course_with_teacher_logged_in(active_all: true, course: @course)
+      course_with_teacher(active_all: true, course: @course)
       q = @quiz.quiz_questions.create!
       regrade = Quizzes::QuizRegrade.create!(quiz: @quiz, quiz_version: @quiz.version_number, user: @teacher)
       rq = regrade.quiz_question_regrades.create! quiz_question_id: q.id, regrade_option: 'current_correct_only'
@@ -1336,7 +1447,7 @@ describe Quizzes::Quiz do
   describe "#regrade_if_published" do
 
     it "queues a job to regrade if there are current question regrades" do
-      course_with_teacher_logged_in(course: @course, active_all: true)
+      course_with_teacher(course: @course, active_all: true)
       quiz = @course.quizzes.create!
       q = quiz.quiz_questions.create!
       regrade = Quizzes::QuizRegrade.create!(quiz: quiz, quiz_version: quiz.version_number, user: @teacher)
@@ -1349,7 +1460,7 @@ describe Quizzes::Quiz do
     end
 
     it "does not queue a job to regrade when no current question regrades" do
-      course_with_teacher_logged_in(course: @course, active_all: true)
+      course_with_teacher(course: @course, active_all: true)
       Quizzes::QuizRegrader::Regrader.expects(:send_later).never
       quiz = @course.quizzes.create!
       quiz.save!
@@ -1358,7 +1469,7 @@ describe Quizzes::Quiz do
 
   describe "#questions_regraded_since" do
     before :once do
-      course_with_teacher_logged_in(active_all: true)
+      course_with_teacher(active_all: true)
       @quiz = @course.quizzes.create!
     end
 
@@ -1444,59 +1555,88 @@ describe Quizzes::Quiz do
   end
 
   describe "#restrict_answers_for_concluded_course?" do
-    let(:account){Account.new}
-    let(:enrollment_term){EnrollmentTerm.new}
-    let(:course){Course.new(conclude_at: conclude_at, enrollment_term: enrollment_term, restrict_enrollments_to_course_dates: true)}
-    let(:quiz){Quizzes::Quiz.new(context: course)}
+    let(:account) { Account.default }
+    let(:course){ Course.create!(root_account: account) }
+    let(:quiz) { course.quizzes.create! }
 
-    before {account.settings[:restrict_quiz_questions] = restrict_quiz_settings}
-    before {enrollment_term.stubs(root_account: account)}
-    before {course.stubs(root_account: account)}
+    subject { quiz.restrict_answers_for_concluded_course? }
 
-    context 'When account setting is true' do
-      let(:restrict_quiz_settings){true}
+    before do
+      account.settings[:restrict_quiz_questions] = restrict_quiz_settings
+      account.save!
+    end
 
-      context 'and the course has concluded' do
-        let(:conclude_at){10.minutes.ago}
+    context 'account setting is true' do
+      let(:restrict_quiz_settings) { true }
 
-        it "should be true" do
-          expect(quiz.restrict_answers_for_concluded_course?).to be(true)
+      context 'course has not concluded' do
+        it { is_expected.to be(false) }
+
+        context 'concluded enrollment_term' do
+          let(:enrollment_term) { account.enrollment_terms.create!(end_at: 10.minutes.ago) }
+
+          before do
+            course.enrollment_term = enrollment_term
+            course.save!
+          end
+
+          it { is_expected.to be(true) }
         end
       end
 
-      context 'and the course has not concluded' do
-        let(:conclude_at){10.minutes.from_now}
+      context 'the course has soft-concluded' do
+        before do
+          course.conclude_at = 10.minutes.ago
+          course.save!
+        end
 
-        it "should be false" do
-          expect(quiz.restrict_answers_for_concluded_course?).to be_falsey
+        it { is_expected.to be(false) }
+
+        context 'course settings is true' do
+          before do
+            course.restrict_enrollments_to_course_dates = true
+            course.save!
+          end
+
+          it { is_expected.to be(true) }
+
+          context 'student in a section with extended time' do
+            let(:section_end_at) { 10.minutes.from_now }
+            let(:section_start_at) { 10.minutes.ago }
+            let(:section) do
+              course.course_sections.create!(
+                start_at: section_start_at,
+                end_at: section_end_at,
+                restrict_enrollments_to_section_dates: true)
+            end
+            let(:student) { student_in_section(section) }
+
+            subject { quiz.restrict_answers_for_concluded_course?(user: student) }
+
+            it { is_expected.to be(false) }
+          end
         end
       end
 
-      context 'and the course is hard-concluded' do
-        let(:conclude_at){10.minutes.from_now}
-        it "should be true" do
-          course.workflow_state = 'completed'
-          expect(quiz.restrict_answers_for_concluded_course?).to be(true)
+      context 'course is hard-concluded' do
+        before do
+          course.complete!
         end
-      end
 
-      context 'and the course does not have a conclude_at date but has a concluded enrollment_term' do
-        let(:enrollment_term){EnrollmentTerm.new(end_at: 10.minutes.ago)}
-        let(:conclude_at){nil}
-
-        it "should be true" do
-          expect(quiz.restrict_answers_for_concluded_course?).to be(true)
-        end
+        it { is_expected.to be(true) }
       end
     end
 
-    context 'When account setting is false and the course has concluded' do
-      let(:restrict_quiz_settings){false}
-      let(:conclude_at){10.minutes.ago}
+    context 'account setting is false' do
+      let(:restrict_quiz_settings) { false }
 
-      it "should be false" do
-        expect(quiz.restrict_answers_for_concluded_course?).to be_falsey
-      end
+      it { is_expected.to be(false) }
+    end
+
+    context 'account setting is nil' do
+      let(:restrict_quiz_settings) { nil }
+
+      it { is_expected.to be(false) }
     end
   end
 
@@ -1613,7 +1753,7 @@ describe Quizzes::Quiz do
     end
 
     context "show_correct_answers_last_attempt is true" do
-      let(:user) { User.create! }
+      let(:student) { student_in_course(course: @course, active_all: true) }
 
       it "shows the correct answers on last attempt completed" do
         quiz = @course.quizzes.create!({
@@ -1625,15 +1765,15 @@ describe Quizzes::Quiz do
 
         quiz.publish!
 
-        submission = quiz.generate_submission(user)
-        expect(quiz.show_correct_answers?(user, submission)).to be_falsey
+        submission = quiz.generate_submission(student)
+        expect(quiz.show_correct_answers?(student, submission)).to be_falsey
         submission.complete!
 
-        submission = quiz.generate_submission(user)
-        expect(quiz.show_correct_answers?(user, submission)).to be_falsey
+        submission = quiz.generate_submission(student)
+        expect(quiz.show_correct_answers?(student, submission)).to be_falsey
         submission.complete!
 
-        expect(quiz.show_correct_answers?(user, submission)).to be_truthy
+        expect(quiz.show_correct_answers?(student, submission)).to be_truthy
       end
 
       it "hides the correct answers on last attempt" do
@@ -1646,9 +1786,9 @@ describe Quizzes::Quiz do
 
         quiz.publish!
 
-        submission = quiz.generate_submission(user)
+        submission = quiz.generate_submission(student)
 
-        expect(quiz.show_correct_answers?(user, submission)).to be_falsey
+        expect(quiz.show_correct_answers?(student, submission)).to be_falsey
       end
     end
   end
@@ -1669,6 +1809,13 @@ describe Quizzes::Quiz do
       expect(@quiz.grants_right?(@teacher, :read)).to eq true
     end
 
+    it "lets admins read quizzes that are unpublished even without management rights" do
+      @quiz.unpublish!.reload
+      @course.account.role_overrides.create!(:role => teacher_role, :permission => "manage_assignments", :enabled => false)
+      @course.account.role_overrides.create!(:role => teacher_role, :permission => "manage_grades", :enabled => false)
+      expect(@quiz.grants_right?(@teacher, :read)).to eq true
+    end
+
     it "does let students read/submit quizzes that are published" do
       @quiz.publish!
       expect(@quiz.grants_right?(@student, :read)).to eq true
@@ -1677,9 +1824,189 @@ describe Quizzes::Quiz do
     end
 
     it "doesn't let students submit quizzes that are excused" do
-      @quiz.assignment.grade_student(@student, excuse: true)
+      @quiz.assignment.grade_student(@student, excuse: true, grader: @teacher)
       expect(@quiz.grants_right?(@student, :submit)).to eq false
       expect(@quiz.grants_right?(@student, :read)).to eq true
+    end
+  end
+
+  describe "#grants_right?" do
+    before(:once) do
+      quiz_model(course: @course)
+      @admin = account_admin_user()
+      teacher_in_course(:course => @course)
+      @grading_period_group = @course.root_account.grading_period_groups.create!(title: "Example Group")
+      @grading_period_group.enrollment_terms << @course.enrollment_term
+      @course.enrollment_term.save!
+      @quiz.reload
+
+      @grading_period_group.grading_periods.create!({
+        title: "Closed Grading Period",
+        start_date: 5.weeks.ago,
+        end_date: 3.weeks.ago,
+        close_date: 1.week.ago
+      })
+      @grading_period_group.grading_periods.create!({
+        title: "Open Grading Period",
+        start_date: 3.weeks.ago,
+        end_date: 1.week.ago,
+        close_date: 1.week.from_now
+      })
+    end
+
+    context "to delete" do
+      context "when there are no grading periods" do
+        it "is true for admins" do
+          @course.stubs(:grading_periods?).returns false
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to be true
+        end
+
+        it "is false for teachers" do
+          @course.stubs(:grading_periods?).returns false
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to be true
+        end
+      end
+
+      context "when the quiz is due in a closed grading period" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 4.weeks.ago)
+        end
+
+        it "is true for admins" do
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is false for teachers" do
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(false)
+        end
+      end
+
+      context "when the quiz is due in an open grading period" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 2.weeks.ago)
+        end
+
+        it "is true for admins" do
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz is due after all grading periods" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 1.day.from_now)
+        end
+
+        it "is true for admins" do
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz is due before all grading periods" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 6.weeks.ago)
+        end
+
+        it "is true for admins" do
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz has no due date" do
+        before(:once) do
+          @quiz.update_attributes(due_at: nil)
+        end
+
+        it "is true for admins" do
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz is due in a closed grading period for a student" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 2.days.from_now)
+          override = @quiz.assignment_overrides.build
+          override.set = @course.default_section
+          override.override_due_at(4.weeks.ago)
+          override.save!
+        end
+
+        it "is true for admins" do
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is false for teachers" do
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(false)
+        end
+      end
+
+      context "when the quiz is overridden with no due date for a student" do
+        before(:once) do
+          @quiz.update_attributes(due_at: nil)
+          override = @quiz.assignment_overrides.build
+          override.set = @course.default_section
+          override.save!
+        end
+
+        it "is true for admins" do
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz has a deleted override in a closed grading period for a student" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 2.days.from_now)
+          override = @quiz.assignment_overrides.build
+          override.set = @course.default_section
+          override.override_due_at(4.weeks.ago)
+          override.save!
+          override.destroy
+        end
+
+        it "is true for admins" do
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz is overridden with no due date and is only visible to overrides" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 4.weeks.ago, only_visible_to_overrides: true)
+          override = @quiz.assignment_overrides.build
+          override.set = @course.default_section
+          override.save!
+        end
+
+        it "is true for admins" do
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
     end
   end
 
@@ -1698,7 +2025,7 @@ describe Quizzes::Quiz do
 
   describe "restore" do
     before do
-      course
+      course_factory
     end
 
     it "should restore to published state if there are student submissions" do
@@ -1744,6 +2071,127 @@ describe Quizzes::Quiz do
     end
   end
 
+  describe '#locked_for?' do
+    let(:quiz) { @course.quizzes.create! }
+    let(:student) { student_in_course(course: @course, active_enrollment: true).user }
+    let(:subject_user) { student }
+    let(:opts) { {} }
+
+    subject { quiz.locked_for?(subject_user, opts) }
+
+    before do
+      @course.offer!
+    end
+
+    shared_examples 'overrides' do
+      context 'when a user has a manually unlocked submission' do
+        before do
+          quiz_submission = quiz.generate_submission(subject_user)
+          quiz_submission.manually_unlocked = true
+          quiz_submission.save
+        end
+
+        it { is_expected.to be false }
+      end
+    end
+
+    context '#unlock_at time has not yet occurred' do
+      before do
+        quiz.unlock_at = 1.hour.from_now
+      end
+
+      include_examples 'overrides'
+
+      it { is_expected.to be_truthy }
+
+      it { is_expected.to have_key :unlock_at }
+    end
+
+    context '#unlock_at time has passed' do
+      before do
+        quiz.unlock_at = 1.hour.ago
+      end
+
+      it { is_expected.to be false }
+    end
+
+    context '#lock_at time as passed' do
+      before do
+        quiz.lock_at = 1.hour.ago
+      end
+
+      include_examples 'overrides'
+
+      it { is_expected.to be_truthy }
+
+      it { is_expected.to have_key :lock_at }
+    end
+
+    context '#lock_at time has not yet occurred' do
+      before do
+        quiz.lock_at = 1.hour.from_now
+      end
+
+      it { is_expected.to be false }
+    end
+
+    context 'quiz is for an assignment' do
+      let(:assignment_lock_info) { quiz.assignment.locked_for?(subject_user, opts) }
+
+      before do
+        # need the after_save hooks to run for fully-prepare the quiz
+        quiz.save!
+      end
+
+      context 'assignment is not locked' do
+        it { is_expected.to be false }
+      end
+
+      context 'assignment is locked' do
+        before do
+          quiz.assignment.unlock_at = 1.day.from_now
+          quiz.assignment.save
+        end
+
+        include_examples 'overrides'
+
+        it { is_expected.to be_truthy }
+
+        it 'returns the lock info for the assignment' do
+          expect(subject).to eq assignment_lock_info
+        end
+
+        context 'skipping assignments' do
+          let(:opts) { { skip_assignment: true } }
+
+          it { is_expected.to be false }
+        end
+      end
+    end
+
+    context 'modules are locked' do
+      before do
+        locked_module = @course.context_modules.create!(name: 'locked module', unlock_at: 1.day.from_now)
+        locked_module.add_item(id: quiz.id, type: 'quiz')
+      end
+
+      include_examples 'overrides'
+
+      it { is_expected.to be_truthy }
+
+      it { is_expected.to have_key :context_module }
+    end
+
+    context 'user is not a student' do
+      let(:admin) { account_admin_user(account: @course.account) }
+      let(:subject_user) { admin }
+
+      it { is_expected.to be_truthy }
+
+      it { is_expected.to have_key :missing_permission }
+    end
+  end
+
   describe '.class_names' do
     it 'returns an array of all acceptable class names' do
       expect(Quizzes::Quiz.class_names).to eq ['Quiz', 'Quizzes::Quiz']
@@ -1781,6 +2229,7 @@ describe Quizzes::Quiz do
         it "should grant submit rights" do
           @course.stubs(:grants_right?).with(@student1, nil, :participate_as_student).returns(true)
           @course.stubs(:grants_right?).with(@student1, nil, :manage_assignments).returns(false)
+          @course.stubs(:grants_right?).with(@student1, nil, :read_as_admin).returns(false)
           @course.stubs(:grants_right?).with(@student1, nil, :manage_grades).returns(false)
           expect(@quiz.grants_right?(@student1, :submit)).to eq true
           @course.unstub(:grants_right?)
@@ -1799,6 +2248,7 @@ describe Quizzes::Quiz do
         it 'should not grant submit rights' do
           @course.stubs(:grants_right?).with(@student2, nil, :participate_as_student).returns(true)
           @course.stubs(:grants_right?).with(@student2, nil, :manage_assignments).returns(false)
+          @course.stubs(:grants_right?).with(@student2, nil, :read_as_admin).returns(false)
           @course.stubs(:grants_right?).with(@student2, nil, :manage_grades).returns(false)
           expect(@quiz.grants_right?(@student2, :submit)).to eq false
         end
@@ -1842,6 +2292,56 @@ describe Quizzes::Quiz do
           end
         end
       end
+    end
+  end
+
+  context "due_between_with_overrides" do
+    before :once do
+      @quiz = @course.quizzes.create!(:title => "some quiz", :quiz_type => "survey", :due_at => 1.day.ago)
+
+      override = @quiz.assignment_overrides.build
+      override.due_at = 1.day.from_now
+      override.due_at_overridden = true
+      override.title = 'override'
+      override.save!
+    end
+
+    it 'should return quizzes due between the given dates' do
+      expect(@course.quizzes.due_between_with_overrides(2.days.ago, Time.now)).to include(@quiz)
+    end
+
+    it 'should return quizzes with overrides between the given dates' do
+      expect(@course.quizzes.due_between_with_overrides(Time.now, 2.days.from_now)).to include(@quiz)
+    end
+
+    it "should exclude quizzes that don't meet either criterion" do
+      expect(@course.quizzes.due_between_with_overrides(1.hour.ago, 1.hour.from_now)).not_to include (@quiz)
+    end
+  end
+
+  context "need_submitting_info" do
+    before(:once) do
+      @quiz1 = @course.quizzes.create!
+      @quiz2 = @course.quizzes.create!
+      @quiz3 = @course.quizzes.create!
+      student_in_course :active_all => true
+      sub2 = @quiz2.quiz_submissions.build(:user => @student)
+      sub2.workflow_state = 'preview'
+      sub2.save!
+      sub3 = @quiz3.quiz_submissions.build(:user => @student)
+      sub3.workflow_state = 'complete'
+      sub3.save!
+    end
+
+    it 'includes quizzes without complete submissions' do
+      quizzes = @course.quizzes.need_submitting_info(@student, 10)
+      expect(quizzes).to include @quiz1
+      expect(quizzes).to include @quiz2
+      expect(quizzes).not_to include @quiz3
+    end
+
+    it 'respects limit' do
+      expect(@course.quizzes.need_submitting_info(@student, 1).length).to eql 1
     end
   end
 end

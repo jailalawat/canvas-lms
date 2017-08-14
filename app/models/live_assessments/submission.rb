@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,8 +18,6 @@
 
 module LiveAssessments
   class Submission < ActiveRecord::Base
-    attr_accessible :user, :assessment, :possible, :score, :assessed_at
-
     belongs_to :user
     belongs_to :assessment, class_name: 'LiveAssessments::Assessment'
 

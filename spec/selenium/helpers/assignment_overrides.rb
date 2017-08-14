@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module AssignmentOverridesSeleniumHelper
   def visit_new_assignment_page
     get "/courses/#{@course.id}/assignments/new"
@@ -79,19 +96,23 @@ module AssignmentOverridesSeleniumHelper
     wait_for_ajaximations
   end
 
-  def select_last_override_section(section_name)
-    driver.switch_to.default_content
-    fj('.ic-tokeninput-input:last').send_keys(section_name)
-    wait_for_ajaximations
+  def select_last_override_section(override_name)
+    fj('.ic-tokeninput-input:last').send_keys(override_name)
     fj(".ic-tokeninput-option:visible:last").click
-    wait_for_ajaximations
+    driver.action.send_keys(:tab).perform # hide the menu so it doesn't interfere with later actions
   end
 
-  def select_first_override_section(section_name)
-    driver.switch_to.default_content
-    fj('.ic-tokeninput-input:first').send_keys(section_name)
-    wait_for_ajaximations
+  def select_first_override_section(override_name)
+    fj('.ic-tokeninput-input:first').send_keys(override_name)
     fj(".ic-tokeninput-option:visible:first").click
+    driver.action.send_keys(:tab).perform # hide the menu so it doesn't interfere with later actions
+  end
+
+  def select_first_override_header(override_name)
+    driver.switch_to.default_content
+    fj('.ic-tokeninput-input:first').send_keys(override_name)
+    wait_for_ajaximations
+    fj(".ic-tokeninput-list [role='option']:visible:first").click
     wait_for_ajaximations
   end
 
@@ -222,16 +243,16 @@ module AssignmentOverridesSeleniumHelper
     prepare_vdd_scenario
 
     @teacher1 = user_with_pseudonym(username: 'teacher1@example.com', active_all: 1)
-    @course.enroll_teacher(@teacher1, section: @section_a)
-    @course.enroll_teacher(@teacher1, section: @section_b)
+    @course.enroll_teacher(@teacher1, section: @section_a).accept!
+    @course.enroll_teacher(@teacher1, section: @section_b, allow_multiple_enrollments: true).accept!
   end
 
   def prepare_vdd_scenario_for_ta
     prepare_vdd_scenario
 
     @ta1 = user_with_pseudonym(username: 'ta1@example.com', active_all: 1)
-    @course.enroll_ta(@ta1, section: @section_a)
-    @course.enroll_ta(@ta1, section: @section_b)
+    @course.enroll_ta(@ta1, section: @section_a).accept!
+    @course.enroll_ta(@ta1, section: @section_b, allow_multiple_enrollments: true).accept!
   end
 
   def create_quiz_with_vdd

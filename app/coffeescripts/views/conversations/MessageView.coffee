@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!conversations'
   'Backbone'
@@ -13,6 +30,7 @@ define [
 
     els:
       '.star-btn': '$starBtn'
+      '.StarButton-LabelContainer': '$starBtnScreenReaderMessage'
       '.read-state': '$readBtn'
 
     events:
@@ -55,11 +73,25 @@ define [
     deselect: (modifier) ->
       @model.set('selected', false) if modifier
 
+    setStarBtnCheckedScreenReaderMessage: ->
+      text = if @model.starred()
+               if @model.get('subject')
+                 I18n.t('Starred "%{subject}", Click to unstar.', subject: @model.get('subject'))
+               else
+                 I18n.t('Starred "(No Subject)", Click to unstar.')
+             else
+               if @model.get('subject')
+                 I18n.t('Not starred "%{subject}", Click to star.', subject: @model.get('subject'))
+               else
+                 I18n.t('Not starred "(No Subject)", Click to star.')
+      @$starBtnScreenReaderMessage.text(text)
+
     setStarBtnChecked: =>
       @$starBtn.attr
         'aria-checked': @model.starred()
         title: if @model.starred() then @messages.unstar else @messages.star
       @$starBtn.toggleClass('active', @model.starred())
+      @setStarBtnCheckedScreenReaderMessage()
 
     toggleStar: (e) ->
       e.preventDefault()

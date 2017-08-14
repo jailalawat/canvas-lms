@@ -1,4 +1,5 @@
-# Copyright (C) 2014 Instructure, Inc.
+#
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,7 +24,7 @@ module Quizzes
     attributes :id
 
     def_delegators :@controller,
-      :course_quiz_quiz_submission_url
+      :course_quiz_quiz_submission_url, :course_quiz_history_url
 
     def serializable_object(options={})
       return super unless object

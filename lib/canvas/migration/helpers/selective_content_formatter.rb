@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Canvas::Migration::Helpers
   class SelectiveContentFormatter
     COURSE_SETTING_TYPE = -> { I18n.t('lib.canvas.migration.course_settings', 'Course Settings') }
@@ -185,10 +202,10 @@ module Canvas::Migration::Helpers
           hash[:linked_resource] = {:type => 'quizzes', :migration_id => mig_id}
         elsif mig_id = item['topic_migration_id']
           hash[:linked_resource] = {:type => 'discussion_topics', :migration_id => mig_id}
+        elsif mig_id = item['page_migration_id']
+          hash[:linked_resource] = {:type => 'wiki_pages', :migration_id => mig_id}
         end
-      elsif type == 'discussion_topics' && mig_id = item['assignment_migration_id']
-        hash[:linked_resource] = {:type => 'assignments', :migration_id => mig_id}
-      elsif type == 'quizzes' && mig_id = item['assignment_migration_id']
+      elsif ['discussion_topics', 'quizzes', 'wiki_pages'].include?(type) && mig_id = item['assignment_migration_id']
         hash[:linked_resource] = {:type => 'assignments', :migration_id => mig_id}
       end
       hash
@@ -206,11 +223,15 @@ module Canvas::Migration::Helpers
             when 'attachments'
               course_attachments_data(content_list, source)
             when 'wiki_pages'
-              source.wiki.wiki_pages.not_deleted.select("id, title").each do |item|
+              source.wiki.wiki_pages.not_deleted.select("id, title, assignment_id").each do |item|
                 content_list << course_item_hash(type, item)
               end
             when 'discussion_topics'
               source.discussion_topics.active.only_discussion_topics.select("id, title, user_id, assignment_id").except(:preload).each do |item|
+                content_list << course_item_hash(type, item)
+              end
+            when 'learning_outcomes'
+              source.linked_learning_outcomes.active.select('learning_outcomes.id,short_description').each do |item|
                 content_list << course_item_hash(type, item)
               end
             else
@@ -220,9 +241,7 @@ module Canvas::Migration::Helpers
 
                 scope = scope.select(:assignment_id) if type == 'quizzes'
 
-                if type == 'learning_outcomes'
-                  scope = scope.select(:short_description)
-                elsif type == 'context_modules' || type == 'context_external_tools' || type == 'groups'
+                if type == 'context_modules' || type == 'context_external_tools' || type == 'groups'
                   scope = scope.select(:name)
                 else
                   scope = scope.select(:title)
@@ -251,6 +270,8 @@ module Canvas::Migration::Helpers
               count = source.wiki.wiki_pages.not_deleted.count
             elsif type == 'discussion_topics'
               count = source.discussion_topics.active.only_discussion_topics.count
+            elsif type == 'learning_outcomes'
+              count = source.linked_learning_outcomes.count
             elsif source.respond_to?(type) && source.send(type).respond_to?(:count)
               scope = source.send(type).except(:preload)
               if scope.klass.respond_to?(:not_deleted)
@@ -312,8 +333,12 @@ module Canvas::Migration::Helpers
           lr = course_item_hash('discussion_topics', item.discussion_topic, false)
           lr[:message] = I18n.t('linked_discussion_topic_message', "linked with Discussion Topic '%{title}'",
                                 :title => item.discussion_topic.title)
+        elsif item.wiki_page
+          lr = course_item_hash('wiki_pages', item.wiki_page, false)
+          lr[:message] = I18n.t("linked with Wiki Page '%{title}'",
+                                :title => item.wiki_page.title)
         end
-      elsif (item.is_a?(DiscussionTopic) || item.is_a?(Quizzes::Quiz)) && item.assignment
+      elsif [DiscussionTopic, WikiPage, Quizzes::Quiz].any? { |t| item.is_a?(t) } && item.assignment
         lr = course_item_hash('assignments', item.assignment, false)
         lr[:message] = I18n.t('linked_assignment_message', "linked with Assignment '%{title}'",
                               :title => item.assignment.title)

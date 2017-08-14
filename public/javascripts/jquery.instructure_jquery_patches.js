@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,15 +12,18 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-define(['vendor/jquery-1.7.2', 'vendor/jquery.cookie'], function($) {
+
+import $ from 'jquery'
+import 'jquery.cookie'
+
   // monkey patch jquery's JSON parsing so we can have all of our ajax responses return with
   // 'while(1);' prepended to them to protect against a CSRF attack vector.
   var _parseJSON = $.parseJSON;
   $.parseJSON = function() {
-    "use strict";
+
     if (arguments[0]) {
       try {
         var newData = arguments[0].replace(/^while\(1\);/, '');
@@ -72,7 +75,8 @@ define(['vendor/jquery-1.7.2', 'vendor/jquery.cookie'], function($) {
 
   // see: https://github.com/rails/jquery-ujs/blob/master/src/rails.js#L80
   var CSRFProtection =  function(xhr) {
-    if ($.cookie('_csrf_token')) xhr.setRequestHeader('X-CSRF-Token', $.cookie('_csrf_token'));
+    var csrfToken = $.cookie('_csrf_token');
+    if (csrfToken) xhr.setRequestHeader('X-CSRF-Token', csrfToken);
   }
 
   $.ajaxPrefilter(function( options, originalOptions, jqXHR ) {
@@ -91,5 +95,5 @@ define(['vendor/jquery-1.7.2', 'vendor/jquery.cookie'], function($) {
     });
   });
 
-  return $;
-});
+export default $;
+

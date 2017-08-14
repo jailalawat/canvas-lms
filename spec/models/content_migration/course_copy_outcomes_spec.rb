@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/course_copy_helper.rb')
 
 describe ContentMigration do
@@ -68,6 +85,9 @@ describe ContentMigration do
       old_root = @copy_from.root_outcome_group
 
       lo = create_outcome(@copy_from, old_root)
+      lo.calculation_method = "n_mastery"
+      lo.calculation_int = 2
+      lo.save!
 
       log = @copy_from.learning_outcome_groups.new
       log.context = @copy_from
@@ -108,6 +128,8 @@ describe ContentMigration do
       expect(lo_new.short_description).to eq lo.short_description
       expect(lo_new.description).to eq lo.description
       expect(lo_new.data).to eq lo.data
+      expect(lo_new.calculation_method).to eq lo.calculation_method
+      expect(lo_new.calculation_int).to eq lo.calculation_int
 
       log_new = new_root.child_outcome_groups.first
       expect(log_new.title).to eq log.title
@@ -175,6 +197,30 @@ describe ContentMigration do
       expect(to_root.child_outcome_links.where(content_id: lo2.id).first).not_to be_nil
     end
 
+    it "should copy external learning outcomes linked to banks correctly" do
+      account = @copy_from.account
+      a_group = account.root_outcome_group
+      lo = create_outcome(account, a_group)
+
+      root = @copy_from.root_outcome_group
+      log = @copy_from.learning_outcome_groups.create!(:title => "some group")
+      root.adopt_outcome_group(log)
+      log.add_outcome(lo)
+
+      bank = @copy_from.assessment_question_banks.create!(:title => 'bank')
+      bank.assessment_questions.create!(:question_data => {'name' => 'test question', 'question_type' => 'essay_question'})
+
+      lo.align(bank, @copy_from, {:mastery_type => 'points', :mastery_score => 50.0})
+
+      run_course_copy
+
+      to_log = @copy_to.learning_outcome_groups.where(:migration_id => mig_id(log)).first
+      expect(to_log.child_outcome_links.where(content_id: lo.id).first).not_to be_nil
+
+      to_root = @copy_to.root_outcome_group
+      expect(to_root.child_outcome_links.count).to eq 0
+    end
+
     it "should create outcomes in new course if external context not found" do
       hash = {"is_global_outcome"=>true,
                "points_possible"=>nil,
@@ -223,7 +269,7 @@ describe ContentMigration do
       @cm.outcome_to_id_map = {}
       Importers::RubricImporter.import_from_migration(hash, @cm)
 
-      expect(@cm.warnings).to eq ["The external Rubric couldn't be found for \"root rubric\", creating a copy."]
+      expect(@cm.warnings).to be_empty
 
       new_rubric = @copy_to.rubrics.first
       expect(new_rubric.id).not_to eq 0
@@ -315,6 +361,34 @@ describe ContentMigration do
       expect(rub).not_to be_nil
       asmnt2 = @copy_to.assignments.where(migration_id: mig_id(@assignment)).first
       expect(asmnt2.rubric.id).to eq rub.id
+    end
+
+    it "should restore deleted learning outcome groups on re-copy" do
+      default = @copy_from.root_outcome_group
+      log = @copy_from.learning_outcome_groups.new
+      log.context = @copy_from
+      log.title = "outcome group"
+      log.description = "<p>Groupage</p>"
+      log.save!
+      default.adopt_outcome_group(log)
+
+      lo = @copy_from.created_learning_outcomes.new
+      lo.context = @copy_from
+      lo.short_description = "outcome1"
+      lo.workflow_state = 'active'
+      lo.data = {:rubric_criterion=>{:mastery_points=>2, :ratings=>[{:description=>"e", :points=>50}, {:description=>"me", :points=>2}, {:description=>"Does Not Meet Expectations", :points=>0.5}], :description=>"First outcome", :points_possible=>5}}
+      lo.save!
+
+      log.add_outcome(lo)
+
+      run_course_copy
+
+      group = @copy_to.learning_outcome_groups.where(migration_id: mig_id(log)).first
+      group.destroy!
+
+      run_course_copy
+
+      expect(group.reload).to be_active
     end
   end
 end

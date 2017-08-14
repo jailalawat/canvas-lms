@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,6 +17,7 @@
 #
 #
 require_relative "../../spec_helper.rb"
+require_dependency "assignments/scoped_to_user"
 
 module Assignments
   describe ScopedToUser do
@@ -26,8 +27,7 @@ module Assignments
     end
     let_once(:published) do
       @course.assignments.create({
-        title: 'published assignment',
-        state: 'published'
+        title: 'published assignment'
       })
     end
     let_once(:unpublished) do

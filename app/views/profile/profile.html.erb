@@ -1,11 +1,29 @@
-<% content_for :page_title do %>
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
+<% content_for(:page_title) do %>
   <%= join_title t("User Settings"), @user.name %>
 <% end %>
 
 <% content_for :right_side do %>
   <% if @current_user.registered? %>
   <%= render :partial => "ways_to_contact" %>
-  <div class="rs-margin-lr">
+  <div>
     <hr />
     <a href="#" class="edit_settings_link btn button-sidebar-wide"><i class="icon-edit"></i> <%= t('links.edit_settings', "Edit Settings") %></a>
     <% mfa_settings = @user.mfa_settings(pseudonym_hint: @current_pseudonym) %>
@@ -15,8 +33,11 @@
     <% if mfa_settings == :optional && @user.otp_secret_key %>
       <a href="<%= disable_mfa_path('self') %>" class="btn button-sidebar-wide" id="disable_mfa_link"><%= image_tag "unlock.png", :alt => '' %> <%= t('links.disable_mfa', "Disable Multi-Factor Authentication") %></a>
     <% end %>
+    <% if @user.otp_secret_key %>
+        <a href="<%= one_time_passwords_path %>" class="btn button-sidebar-wide" id="otp_backup_codes_link" target="_blank"><%= image_tag "lock.png" %> <%= t('links.otp_backup_codes', "Multi-Factor Authentication Backup Codes") %></a>
+    <% end %>
     <a href="<%= dashboard_content_exports_path %>" class="btn button-sidebar-wide"><i class="icon-download"></i> <%= t("Download Submissions") %></a>
-    <% if @current_user.account.feature_allowed?(:epub_export)%>
+    <% if @domain_root_account.feature_allowed?(:epub_export) && !@domain_root_account.enable_offline_web_export? %>
         <%= link_to  epub_exports_path, class: 'btn button-sidebar-wide' do %>
           <i class="icon-download" aria-hidden='true'></i> <%= t("Download Course Content") %>
         <% end %>
@@ -46,14 +67,14 @@
 <table class="profile_table">
   <tr>
     <% editable_name = @user.user_can_edit_name? %>
-    <td><%= f.blabel :name, :en => "Full Name" %></td>
+    <th scope="row"><%= f.blabel :name, :en => "Full Name" %></th>
     <td><span <% unless editable_name %>id="name"<% end %>
               class="full_name <%= editable_name ? 'display_data' : 'edit_or_show_data' %>"><%=h @user.name %></span>
       <%= f.text_field :name, :class => "edit_data", :maxlength => 255, :size => 30, "aria-describedby" => "hints_name" if editable_name %>
       <span id="hints_name" class="edit_or_show_data data_description"><br/><%= t('hints.name', "This name will be used for grading.") %></span>
   </tr>
   <tr>
-    <td><%= f.blabel :short_name, :en => "Display Name" %></td>
+    <th scope="row"><%= f.blabel :short_name, :en => "Display Name" %></th>
     <td><span <% unless editable_name %>id="short_name"<% end %>
               class="short_name <%= editable_name ? 'display_data' : 'edit_or_show_data' %>"><%=h @user.short_name %></span>
       <%= f.text_field :short_name, :class => "edit_data", :maxlength => 255, :size => 30, "aria-describedby" => "hints_short_name" if editable_name %>
@@ -61,7 +82,7 @@
     </td>
   </tr>
   <tr>
-    <td><%= f.blabel :sortable_name, :en => "Sortable Name" %></td>
+    <th scope="row"><%= f.blabel :sortable_name, :en => "Sortable Name" %></th>
     <td><span <% unless editable_name %>id="sortable_name"<% end %>
               class="sortable_name <%= editable_name ? 'display_data' : 'edit_or_show_data' %>"><%=h @user.sortable_name %></span>
       <%= f.text_field :sortable_name, :class => "edit_data", :maxlength => 255, :size => 30, "aria-describedby" => "hints_sortable_name" if editable_name %>
@@ -71,7 +92,7 @@
   <% active_email_channels = @email_channels.select { |cc| cc.active? } %>
   <% if active_email_channels.length > 1 %>
     <tr>
-      <td><label for="default_email_id"><%= before_label(:default_email, "Default Email") %></label></td>
+      <th scope="row"><label for="default_email_id"><%= before_label(:default_email, "Default Email") %></label></th>
       <td>
         <span class="default_email unique_id display_data"><%=h @default_email_channel.path %></span>
         <select id="default_email_id" name="default_email_id" class="default_email edit_data">
@@ -84,19 +105,19 @@
   <% end %>
   <% if available_locales.size > 1 %>
   <tr>
-    <td><%= f.blabel :locale, :en => "Language" %></td>
+    <th scope="row"><%= f.blabel :locale, :en => "Language" %></th>
     <td>
       <% no_language = t("System Default (%{language})", :language => available_locales[infer_locale(:root_account => @domain_root_account, :accept_language => request.headers['Accept-Language'])]) %>
       <span class="locale display_data"><%= @user.locale ? available_locales[@user.locale] : no_language %></span>
       <span class="edit_data"><%= f.select :locale, [[no_language, nil]] + available_locales.invert.sort, {:selected => @user.locale}, {:class => 'locale', "aria-describedby" => "hints_language"} %>
       <%= render :partial => 'shared/locale_warning' %>
-      <span id="hints_language" style="font-size: 0.8em; color: #888;"><br/><%= t('hints.language', "This will override any browser or account settings.") %></span>
+      <span id="hints_language" class="data_description"><br/><%= t('hints.language', "This will override any browser or account settings.") %></span>
       </span>
     </td>
   </tr>
   <% end %>
   <tr>
-    <td><%= f.blabel :time_zone, :en => "Time Zone" %></td>
+    <th scope="row"><%= f.blabel :time_zone, :en => "Time Zone" %></th>
     <td>
       <span class="time_zone display_data">
         <% if name = @user.time_zone.try(:name) %>
@@ -122,12 +143,12 @@
   <% end %>
   <% if !@password_pseudonyms.empty? %>
   <tr class="edit_data_row select_change_password_row" style="display: none;">
-    <td><%= before_label(:password, "Password") %></td>
+    <th scope="row"><%= before_label(:password, "Password") %></th>
     <td><label for="change_password_checkbox" class="checkbox"><input type="checkbox" id="change_password_checkbox" name="pseudonym[change_password]" value="1"/><%= t('labels.change_password', "Change Password") %></label></td>
   </tr>
   <% end %>
   <tr class="change_password_row" style="display: none;">
-    <td class="nobr"><label for="profile_pseudonym_id"><%= before_label(:password_for, "Password For") %></label></td>
+    <th class="nobr" scope="row"><label for="profile_pseudonym_id"><%= before_label(:password_for, "Password For") %></label></th>
     <td>
       <select name="pseudonym[password_id]" id="profile_pseudonym_id">
         <% @password_pseudonyms.each do |p| %>
@@ -137,26 +158,23 @@
     </td>
   </tr>
   <tr class="change_password_row" style="display: none;">
-    <td><label for="old_password"><%= before_label(:old_password, "Old Password") %></label></td>
+    <th scope="row"><label for="old_password"><%= before_label(:old_password, "Old Password") %></label></th>
     <td><input type="password" style="width: 150px;" id="old_password" name="pseudonym[old_password]"/></td>
   </tr>
   <tr class="change_password_row" style="display: none;">
-    <td><%= label :pseudonym, :password, before_label(:new_password, "New Password") %></td>
+    <th scope="row"><%= label :pseudonym, :password, before_label(:new_password, "New Password") %></th>
     <td><%= password_field :pseudonym, :password, :value => "", :style => "width: 150px;" %></td>
   </tr>
   <tr class="change_password_row" style="display: none;">
-    <td><%= label :pseudonym, :password_confirmation, before_label(:confirm_password, "Confirm Password") %></td>
+    <th scope="row"><%= label :pseudonym, :password_confirmation, before_label(:confirm_password, "Confirm Password") %></th>
     <td><%= password_field :pseudonym, :password_confirmation, :value => "", :style => "width: 150px;" %></td>
   </tr>
   <tr class="edit_data_row more_options_link_row" style="display: none;">
-    <td colspan="2"><a href="#" class="more_options_link" style="display: none;"><%= t('links.more_options', "more options") %></a></td>
+    <th scope="row" colspan="2"><a href="#" class="more_options_link" style="display: none;"><%= t('links.more_options', "more options") %></a></th>
   </tr>
 
   <tr class="edit_data_row" style="display: none;">
     <td colspan="2">
-      <% if @user == @current_user && @user.allows_user_to_remove_from_account?(@domain_root_account, @current_user) %>
-        <p><a style="font-size: 0.9em" href="<%= user_delete_url(@user.id) %>" class="admin"><%= t('links.delete_account', "Delete My Account") %> </a></p>
-      <% end %>
       <div class="form-actions">
         <button type="button" class="btn cancel_button"><%= t('#buttons.cancel', "Cancel") %></button>
         <button type="submit" class="btn btn-primary"><%= t('buttons.update_settings', "Update Settings") %></button>
@@ -171,8 +189,8 @@
 <table class="summary pseudonym_list">
   <thead>
     <tr>
-      <th><%= t('headers.organization', "Organization") %></th>
-      <th><%= t('headers.login', "Login") %></th>
+      <th scope="col"><%= t('headers.organization', "Organization") %></th>
+      <th scope="col"><%= t('headers.login', "Login") %></th>
       <th>&nbsp;</th>
     </tr>
   </thead>
@@ -212,7 +230,7 @@ TEXT
 <p>
 <input type="checkbox" id="show_user_services" <%= 'checked' if @user.show_user_services %>/> <label for="show_user_services"><%= t('labels.show_user_services', "Let fellow course/group members see which services I've linked to my profile") %></label>
 </p>
-<table style="width: 100%;"><tr>
+<table role="presentation" style="width: 100%;"><tr>
   <td style="vertical-align: top; width: 50%; padding-right: 20px;">
     <h3><%= t('headers.registered_services', "Registered Services") %></h3>
     <div style="margin-left: 20px; margin-bottom: 20px;">
@@ -293,7 +311,7 @@ TEXT
           <div style="text-align: center; font-size: 1.2em; margin-top: 10px;">
             <%= form_for :user_service, :url => profile_create_user_service_url, :html => {:class => "create_user_service_form"}, :namespace => "skype" do |f| %>
             <%= f.hidden_field :service, :value => "skype" %>
-            <table class="formtable">
+            <table class="formtable" role="presentation">
               <tr>
                 <td><%= f.blabel :user_name, :skype_name, :en => "Skype Name" %></td>
                 <td><%= f.text_field :user_name, :style => "width: 150px;" %></td>
@@ -373,7 +391,7 @@ TEXT
           <div style="text-align: center; font-size: 1.2em; margin-top: 10px;">
             <%= form_for :user_service, :url => profile_create_user_service_url, :html => {:class => "create_user_service_form"}, :namespace => "yo" do |f| %>
             <%= f.hidden_field :service, :value => "yo" %>
-            <table class="formtable">
+            <table class="formtable" role="presentation">
               <tr>
                 <td><%= f.blabel :user_name, :yo_name, :en => "Yo Name" %></td>
                 <td><%= f.text_field :user_name, :style => "width: 150px;" %></td>
@@ -404,7 +422,7 @@ TEXT
           <div style="font-size: 1.0em; margin-top: 10px;">
             <%= form_for :user_service, :url => profile_create_user_service_url, :html => {:class => "create_user_service_form"}, :namespace => "delicious" do |f| %>
             <%= f.hidden_field :service, :value => "delicious" %>
-            <table class="formtable">
+            <table role="presentation" class="formtable">
               <tr>
                 <td><%= f.blabel :user_name, :en => "User Name" %></td>
                 <td><%= f.text_field :user_name, :style => "width: 150px;" %></td>
@@ -439,7 +457,7 @@ TEXT
           <div style="font-size: 1.0em; margin-top: 10px;">
             <%= form_for :user_service, :url => profile_create_user_service_url, :html => {:class => "create_user_service_form"}, :namespace => "diigo" do |f| %>
             <%= f.hidden_field :service, :value => "diigo" %>
-            <table class="formtable">
+            <table role="presentation" class="formtable">
               <tr>
                 <td><%= f.blabel :user_name, :en => "User Name" %></td>
                 <td><%= f.text_field :user_name, :style => "width: 150px;" %></td>
@@ -480,11 +498,11 @@ TEXT
     <table id="access_tokens" class="summary" style="margin-top: 10px;">
       <thead>
         <tr>
-          <th><%= t('headers.application_abbrev', "App") %></th>
-          <th><%= t('headers.purpose', "Purpose") %></th>
-          <th><%= t('headers.dates', "Dates") %></th>
-          <th>&nbsp;</th>
-          <th>&nbsp;</th>
+          <th scope="col"><%= t('headers.application_abbrev', "App") %></th>
+          <th scope="col"><%= t('headers.purpose', "Purpose") %></th>
+          <th scope="col"><%= t('headers.dates', "Dates") %></th>
+          <td>&nbsp;</td>
+          <td>&nbsp;</td>
         </tr>
       </thead>
       <tbody>
@@ -495,7 +513,7 @@ TEXT
   </div>
   <% unless @real_current_user %>
     <div style="margin-top: 10px;">
-      <a href="#" class="btn btn-primary add_access_token_link"><i class="icon-add"></i> <%= t('buttons.new_access_token', "New Access Token") %></a>
+      <a href="#" class="btn btn-primary add_access_token_link"><i class="icon-plus"></i> <%= t('buttons.new_access_token', "New Access Token") %></a>
     </div>
   <% end %>
   <div id="token_details_dialog" style="display: none;" title="<%= t('titles.access_token_details', "Access Token Details") %>">
@@ -511,7 +529,7 @@ TEXT
     <div class="results">
       <table>
         <tr>
-          <th><%= before_label(:token, "Token") %></th>
+          <th scope="row"><%= before_label(:token, "Token") %></th>
           <td>
             <div class="visible_token">&nbsp;</div>
             <div class="full_token_warning"><%= mt(:full_token_warning, <<-TEXT)
@@ -522,19 +540,19 @@ TEXT
             %></div>
           </td>
         </tr><tr>
-          <th><%= before_label(:token_application, "App") %></th>
+          <th scope="row"><%= before_label(:token_application, "App") %></th>
           <td class="app_name">&nbsp;</td>
         </tr><tr>
-          <th><%= before_label(:token_purpose, "Purpose") %></th>
+          <th scope="row"><%= before_label(:token_purpose, "Purpose") %></th>
           <td class="purpose">&nbsp;</td>
         </tr><tr>
-          <th><%= before_label(:token_created, "Created") %></th>
+          <th scope="row"><%= before_label(:token_created, "Created") %></th>
           <td class="created">&nbsp;</td>
         </tr><tr>
-          <th><%= before_label(:token_last_used, "Last Used") %></th>
+          <th scope="row"><%= before_label(:token_last_used, "Last Used") %></th>
           <td class="used">&nbsp;</td>
         </tr><tr>
-          <th><%= before_label(:token_expires, "Expires") %></th>
+          <th scope="row"><%= before_label(:token_expires, "Expires") %></th>
           <td class="expires">&nbsp;</td>
         </tr>
         <% unless @real_current_user %>
@@ -559,18 +577,14 @@ project](%{documentation_url}) you can just generate the token from here.
 TEXT
     %>
     <%= form_for :access_token, :url => profile_tokens_url, :html => {:id => "access_token_form", :style => "margin-top: 10px;"} do |f| %>
-      <table class="formtable">
+      <table class="formtable" role="presentation">
         <tr>
           <td><%= f.blabel :purpose, :en => "Purpose" %></td>
           <td><%= f.text_field :purpose %></td>
         </tr>
         <tr>
           <td>
-            <%= f.blabel :expires_at, en: "Expires" %>
-            <label class="screenreader-only" id="token_expires_at_accessible_label">
-              <%= t("Access token is valid until") %>
-              <%= datepicker_screenreader_prompt %>
-            </label>
+            <%= f.blabel :expires_at, en: "Expires", id: "token_expires_at_accessible_label" %>
           </td>
           <td>
             <div>
@@ -578,10 +592,11 @@ TEXT
                                class: "expires_field datetime_field",
                                style: "width: 120px;",
                                "aria-labelledby" => "token_expires_at_accessible_label",
+                               "aria-describedby" => "leave_blank_for_no_expiration",
                                "data-tooltip" => "{\"position\":\"top\",\"force_position\":\"true\"}",
                                title: accessible_date_format %>
             </div>
-            <div style="font-size: 0.8em;" class="hint">
+            <div style="font-size: 0.8em;" class="hint" id="leave_blank_for_no_expiration">
               <%= t('hints.expires_at', "leave blank for no expiration") %>
             </div>
           </td>
@@ -622,6 +637,7 @@ TEXT
   </div>
 </div>
 <% else %>
+  <% js_bundle :confirm_email %>
   <p class="alert alert-info">
     <%= t <<-TEXT, :email => @current_user.email, :wrapper => {'*' => '<a href="' + re_send_confirmation_path(@current_user, @current_user.communication_channel) + '" class="re_send_confirmation_link">\1</a>'}
       Before you can edit your profile, you need to verify your email address (%{email}) by clicking the link in the email we sent you.

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -193,7 +193,7 @@ class MessageableUser < User
       bookmark.is_a?(Array) &&
       bookmark.size == 2 &&
       bookmark[0].is_a?(String) &&
-      bookmark[1].is_a?(Fixnum)
+      bookmark[1].is_a?(Integer)
     end
 
     # ordering is already guaranteed

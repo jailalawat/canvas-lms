@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -77,7 +77,8 @@ define [
         if !@collection.urls or !@collection.urls.next
           @stopPaginationListener() if @collection.length
           return
-        if $(@paginationScrollContainer).is(':visible') and @distanceToBottom() < @distanceTillFetchNextPage
+        shouldFetchNextPage = @distanceToBottom() < @distanceTillFetchNextPage or !@collection.length
+        if $(@paginationScrollContainer).is(':visible') and shouldFetchNextPage
           @collection.fetch _.extend({page: 'next'}, @fetchOptions)
       , 0
 

@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,60 +12,60 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
 // xsslint jqueryObject.function makeFormAnswer makeDisplayAnswer
 // xsslint jqueryObject.property sortable placeholder
 // xsslint safeString.property question_text
-define([
-  'jst/quiz/regrade',
-  'i18n!quizzes',
-  'underscore',
-  'jquery' /* $ */,
-  'calcCmd',
-  'str/htmlEscape',
-  'str/pluralize',
-  'compiled/handlebars_helpers',
-  'compiled/views/assignments/DueDateOverride',
-  'compiled/models/Quiz',
-  'compiled/models/DueDateList',
-  'compiled/views/quizzes/QuizRegradeView',
-  'compiled/collections/SectionCollection',
-  'compiled/views/calendar/MissingDateDialogView',
-  'compiled/editor/MultipleChoiceToggle',
-  'compiled/editor/EditorToggle',
-  'compiled/str/TextHelper',
-  'compiled/views/editor/KeyboardShortcuts',
-  'INST', // safari sniffing for VO workarounds
-  'quiz_formula_solution',
-  'jsx/shared/rce/RichContentEditor',
-  'jsx/shared/conditional_release/ConditionalRelease',
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.instructure_date_and_time' /* time_field, datetime_field */,
-  'jquery.instructure_forms' /* formSubmit, fillFormData, getFormData, formErrors, errorBox */,
-  'jqueryui/dialog',
-  'jquery.instructure_misc_helpers' /* replaceTags, scrollSidebar, /\$\.underscore/ */,
-  'jquery.instructure_misc_plugins' /* .dim, confirmDelete, showIf */,
-  'jquery.keycodes' /* keycodes */,
-  'jquery.loadingImg' /* loadingImage */,
-  'compiled/jquery.rails_flash_notifications',
-  'jquery.templateData' /* fillTemplateData, getTemplateData */,
-  'supercalc' /* superCalc */,
-  'vendor/jquery.placeholder' /* /\.placeholder/ */,
-  'vendor/jquery.scrollTo' /* /\.scrollTo/ */,
-  'jqueryui/sortable' /* /\.sortable/ */,
-  'jqueryui/tabs' /* /\.tabs/ */
-], function(regradeTemplate, I18n,_,$,calcCmd, htmlEscape, pluralize,
-            Handlebars, DueDateOverrideView, Quiz,
-            DueDateList, QuizRegradeView, SectionList,
-            MissingDateDialog,MultipleChoiceToggle,EditorToggle,TextHelper,
-            RCEKeyboardShortcuts, INST, QuizFormulaSolution, RichContentEditor,
-            ConditionalRelease){
+import regradeTemplate from 'jst/quiz/regrade'
+import I18n from 'i18n!quizzes'
+import _ from 'underscore'
+import $ from 'jquery'
+import calcCmd from './calcCmd'
+import htmlEscape from './str/htmlEscape'
+import pluralize from './str/pluralize'
+import Handlebars from 'compiled/handlebars_helpers'
+import DueDateOverrideView from 'compiled/views/assignments/DueDateOverride'
+import Quiz from 'compiled/models/Quiz'
+import DueDateList from 'compiled/models/DueDateList'
+import QuizRegradeView from 'compiled/views/quizzes/QuizRegradeView'
+import SectionList from 'compiled/collections/SectionCollection'
+import MissingDateDialog from 'compiled/views/calendar/MissingDateDialogView'
+import MultipleChoiceToggle from 'compiled/editor/MultipleChoiceToggle'
+import EditorToggle from 'compiled/editor/EditorToggle'
+import TextHelper from 'compiled/str/TextHelper'
+import RCEKeyboardShortcuts from 'compiled/views/editor/KeyboardShortcuts'
+import INST from './INST' // safari sniffing for VO workarounds
+import QuizFormulaSolution from './quiz_formula_solution'
+import addAriaDescription from './quiz_labels'
+import RichContentEditor from 'jsx/shared/rce/RichContentEditor'
+import ConditionalRelease from 'jsx/shared/conditional_release/ConditionalRelease'
+import deparam from 'compiled/util/deparam'
+import SisValidationHelper from 'compiled/util/SisValidationHelper'
+import LockManager from 'jsx/blueprint_courses/apps/LockManager'
+import './jquery.ajaxJSON'
+import './jquery.instructure_date_and_time' /* time_field, datetime_field */
+import './jquery.instructure_forms' /* formSubmit, fillFormData, getFormData, formErrors, errorBox */
+import 'jqueryui/dialog'
+import './jquery.instructure_misc_helpers' /* replaceTags, /\$\.underscore/ */
+import './jquery.instructure_misc_plugins' /* .dim, confirmDelete, showIf */
+import './jquery.keycodes'
+import './jquery.loadingImg'
+import 'compiled/jquery.rails_flash_notifications'
+import './jquery.templateData'
+import './supercalc'
+import './vendor/jquery.scrollTo'
+import 'jqueryui/sortable'
+import 'jqueryui/tabs'
 
-  var dueDateList, overrideView, quizModel, sectionList, correctAnswerVisibility,
-      scoreValidation;
+var dueDateList, overrideView, quizModel, sectionList, correctAnswerVisibility, scoreValidation;
+
+var lockManager = new LockManager()
+lockManager.init({ itemType: 'quiz', page: 'edit' })
+const lockedItems = lockManager.isChildContent() ? lockManager.getItemLocks() : {}
+
 
   RichContentEditor.preloadRemoteModule();
 
@@ -122,7 +122,9 @@ define([
       overrideView = window.overrideView = new DueDateOverrideView({
         el: '.js-assignment-overrides',
         model: dueDateList,
-        views: {}
+        views: {},
+        dueDatesReadonly: lockedItems.due_dates,
+        availabilityDatesReadonly: lockedItems.availability_dates
       });
       overrideView.render()
     }
@@ -161,11 +163,66 @@ define([
     }
   }
 
+  export function isChangeMultiFuncBound ($questionContent) {
+    var ret = false;
+    var events = $._data($questionContent[0], 'events');
+    if (events && events.change) {
+      events.change.forEach(function (event) {
+        if (event.handler.origFuncNm === 'changeMultiFunc') {
+          ret = true;
+        }
+      });
+    }
+    return ret;
+  }
+
+  function getChangeMultiFunc ($questionContent, questionType, $select) {
+    var ret = function changeMultiFunc () {
+      if (questionType !== 'multiple_dropdowns_question' && questionType !== 'fill_in_multiple_blanks_question') {
+        return;
+      }
+      var text = RichContentEditor.callOnRCE($questionContent, 'get_code');
+      var matches = text.match(/\[[A-Za-z0-9_\-.]+\]/g);
+      $select.find('option.shown_when_no_other_options_available').remove();
+      $select.find('option').addClass('to_be_removed');
+      var matchHash = {};
+      if (matches) {
+        for (var idx = 0; idx < matches.length; idx++) {
+          if (matches[idx]) {
+            var variable = matches[idx].substring(1, matches[idx].length - 1);
+            if (!matchHash[variable]) {
+              var $option = $select.find('option').eq(idx);
+              if (!$option.length) {
+                $option = $('<option/>').appendTo($select);
+              }
+              $option
+                .removeClass('to_be_removed')
+                .val(variable)
+                .text(variable);
+              matchHash[variable] = true;
+            }
+          }
+        }
+      }
+      // if there are not any options besides the default:
+      // "<option class='shown_when_no_other_options_available' value='0'>[ Enter Answer Variables Above ]</option>"
+      if (!$select.find('option:not(.shown_when_no_other_options_available)').length) {
+        $select.append("<option class='shown_when_no_other_options_available' value='0'>" + htmlEscape(I18n.t('enter_answer_variable_above',
+                       '[ Enter Answer Variables Above ]')) + '</option>');
+      }
+      $select.find('option.to_be_removed').remove();
+      $select.change();
+    };
+    // doing the following because minifying will change the function name
+    // which we reference in isChangeMultiFuncBound()
+    ret.origFuncNm = 'changeMultiFunc';
+    return ret;
+  }
+
   // TODO: refactor this... it's not going to be horrible, but it will
   // take a little bit of work.  I just wrapped it in a closure for now
   // to not pollute the global namespace, but it could use more.
-  var quiz = window.quiz = {};
-  quiz = {
+  export const quiz = window.quiz = {
     uniqueLocalIDStore: {},
 
     // Should cache any elements used throughout the object here
@@ -319,18 +376,36 @@ define([
 
     questionContentCounter: 0,
 
-    showFormQuestion: function($form) {
+    loadJQueryElemById: function (id) {
+      return $('#' + id);
+    },
+
+    rebindMultiChange: function (questionType, questionContentId, $select) {
+      var $questionContent = quiz.loadJQueryElemById(questionContentId);
+      if (questionType === 'multiple_dropdowns_question' || questionType === 'fill_in_multiple_blanks_question') {
+        if (!isChangeMultiFuncBound($questionContent)) {
+          $questionContent.bind('change', getChangeMultiFunc($questionContent, questionType, $select)).change();
+        }
+      }
+    },
+
+    showFormQuestion: function ($form) {
+      var $question = $form.find('.question');
+      var $questionContent = $question.find('.question_content');
+      var $select = $question.find('.blank_id_select');
+      var questionType = $question.find('.question_type').val();
       if (!$form.attr('id')) {
         // we show and then hide the form so that the layout for the editor is computed correctly
         $form.show();
-        $form.find(".question_content").attr('id', 'question_content_' + quiz.questionContentCounter++);
-        RichContentEditor.loadNewEditor($form.find(".question_content"), {
+        $form.find('.question_content').attr('id', 'question_content_' + quiz.questionContentCounter++);
+        RichContentEditor.loadNewEditor($questionContent, {
           tinyOptions: {
             aria_label: I18n.t('label.question.instructions', 'Question instructions, rich text area')
           }
-        })
-        $form.find(".text_after_answers").attr('id', 'text_after_answers_' + quiz.questionContentCounter++);
-        RichContentEditor.loadNewEditor($form.find(".text_after_answers"))
+        });
+        quiz.rebindMultiChange(questionType, $questionContent[0].id, $select);
+        $form.find('.text_after_answers').attr('id', 'text_after_answers_' + quiz.questionContentCounter++);
+        RichContentEditor.loadNewEditor($form.find('.text_after_answers'));
         $form.hide();
       }
       return $form.show();
@@ -441,7 +516,7 @@ define([
 
     updateDisplayQuestion: function($question, question, escaped) {
 
-      fillArgs = {
+      var fillArgs = {
         data: question,
         except: ['answers'],
         htmlValues: ['correct_comments_html', 'incorrect_comments_html', 'neutral_comments_html']
@@ -649,7 +724,7 @@ define([
             $(answerEl).text(answers[index].id);
           });
         }
-      };
+      }
     },
 
     // Updates the question's form when the type changes
@@ -797,16 +872,7 @@ define([
       return result;
     },
 
-    updateDisplayComments: function() {
-      this.checkShowDetails();
-      $(".question_holder > .question > .question_comment").each(function() {
-        var val = $.trim($(this).find(".question_comment_text").html());
-        $(this).css('display', '').toggleClass('empty', !val);
-      });
-      $(".question_holder .answer_comment_holder").each(function() {
-        var val = $.trim($(this).find(".answer_comment").html());
-        $(this).css('display', '').toggleClass('empty', !val);
-      });
+    calculatePointsPossible: function() {
       var tally = 0;
       $("#questions .question_holder:not(.group) .question:not(#question_new)").each(function() {
         var val = parseFloat($(this).find(".question_points,.question_points.hidden").text());
@@ -816,17 +882,10 @@ define([
       $("#questions .group_top:not(#group_top_new)").each(function(){
         var val = parseFloat($(this).find(".question_points").text());
         if (isNaN(val) || val < 0) { val = 0; }
-        var pickCount = parseInt($(this).find(".pick_count").text(), 10);
+        var pickCount = $(this).find(".pick_count").text() || 0;
         if (isNaN(pickCount)) { pickCount = 0; }
         var groupId = this.id.replace("group_top_","")
-        questionCount = $(this.parentElement).find("[data-group-id='" + groupId + "']").length
-
-        var $warning = $('#insufficient_count_warning_' + groupId);
-        if (pickCount > ($(this).data('bank_question_count') || questionCount)) {
-          $warning.show();
-        } else {
-          $warning.hide();
-        }
+        var questionCount = $(this.parentElement).find("[data-group-id='" + groupId + "']").length
 
         // unless it is a question bank, make sure
         // enough questions are in the group
@@ -837,7 +896,33 @@ define([
         tally += val * pickCount;
       });
       tally = Math.round(tally * 100.0) / 100.0;
-      $(".points_possible").text(tally);
+      return tally;
+    },
+
+    updateDisplayComments: function() {
+      this.checkShowDetails();
+      $(".question_holder > .question > .question_comment").each(function() {
+        var val = $.trim($(this).find(".question_comment_text").html());
+        $(this).css('display', '').toggleClass('empty', !val);
+      });
+      $(".question_holder .answer_comment_holder").each(function() {
+        var val = $.trim($(this).find(".answer_comment").html());
+        $(this).css('display', '').toggleClass('empty', !val);
+      });
+      $("#questions .group_top:not(#group_top_new)").each(function(){
+        var pickCount = $(this).find(".pick_count").text() || 0;
+        if (isNaN(pickCount)) { pickCount = 0; }
+        var groupId = this.id.replace("group_top_","")
+        var questionCount = $(this.parentElement).find("[data-group-id='" + groupId + "']").length
+
+        var $warning = $('#insufficient_count_warning_' + groupId);
+        if (pickCount > ($(this).data('bank_question_count') || questionCount)) {
+          $warning.show();
+        } else {
+          $warning.hide();
+        }
+      });
+      $(".points_possible").text(this.calculatePointsPossible());
     },
 
     findContainerGroup: function($obj) {
@@ -961,13 +1046,13 @@ define([
 
       if (value && isNaN(numVal)) {
         $("input#quiz_points_possible").trigger("invalid:not_a_number");
-        valid = false;
+        // valid = false;
       } else if (numVal > 2000000000) {
         $("input#quiz_points_possible").trigger("invalid:less_than");
-        valid = false;
+        // valid = false;
       } else if (numVal < 0) {
         $("input#quiz_points_possible").trigger("invalid:greater_than");
-        valid = false;
+        // valid = false;
       }
     },
 
@@ -982,7 +1067,7 @@ define([
     }
   }
 
-  ipFilterValidation = {
+  var ipFilterValidation = {
     init: function() {
       this.initValidators.apply(this);
       $('#quiz_options_form').on('xhrError', this.onFormError);
@@ -1276,7 +1361,6 @@ define([
 
     if (isNaN(answer.answer_weight)) { answer.answer_weight = 0; }
     quiz.updateFormAnswer($answer, answer, true);
-    $answer.find('input[placeholder]').placeholder();
     $answer.show();
     return $answer;
   }
@@ -1418,7 +1502,7 @@ define([
   }
 
   function addHTMLFeedback($container, question_data, name) {
-    html = question_data[name+'_html'];
+    var html = question_data[name+'_html'];
     if (!html || html.length == 0) {
       html = htmlEscape(question_data[name]);
       question_data[name+'_html'] = html;
@@ -1484,6 +1568,7 @@ define([
         $('#quiz_tabs').tabs("option", "disabled", false);
       } else {
         $('#quiz_tabs').tabs("option", "disabled", [2]);
+        $('#quiz_tabs').tabs("option", "active", 0)
       }
     }
   }
@@ -1500,7 +1585,6 @@ define([
 
     var $quiz_options_form = $("#quiz_options_form");
     var $quiz_edit_wrapper = $("#quiz_edit_wrapper");
-    $.scrollSidebar();
     $(".datetime_field").datetime_field();
     $("#questions").delegate('.group_top,.question,.answer_select,.comment', 'mouseover', function(event) {
       $(this).addClass('hover');
@@ -1703,14 +1787,54 @@ define([
 
       processData: function(data) {
         $(this).attr('method', 'PUT');
-        var quiz_title = $("#quiz_title").val();
+        var quiz_title = $("input[name='quiz[title]']").val();
+        let postToSIS = data['quiz[post_to_sis]'] === '1'
+        var vaildQuizType = data['quiz[quiz_type]'] != 'survey' && data['quiz[quiz_type]'] != 'practice_quiz'
+        let maxNameLength = 256;
+
+        if (postToSIS && ENV.MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT && vaildQuizType){
+          maxNameLength = ENV.MAX_NAME_LENGTH
+        }
+
+        let valid = true
+        const validationData = {
+          assignment_overrides: overrideView.getAllDates(),
+          postToSIS: data['quiz[post_to_sis]'] == '1'
+        }
+
+        const errs = overrideView.validateBeforeSave(validationData,{})
+
+        let validationHelper = new SisValidationHelper({
+          postToSIS: validationData.postToSIS,
+          maxNameLengthRequired: ENV.MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT,
+          maxNameLength: maxNameLength,
+          name: quiz_title
+        })
+
+        if (_.keys(errs).length > 0) {
+          valid = false
+        }
+        if (validationHelper.nameTooLong()) {
+          valid = false
+          let headerOffset = $('#quiz_title').errorBox(I18n.t('The Quiz name must be under %{length} characters', {length: maxNameLength + 1})).offset();
+          $('html,body').scrollTo({top: headerOffset.top, left: 0});
+        }
+        if (!valid) {
+          return false
+        }
+
         if (quiz_title.length == 0) {
           var offset = $("#quiz_title").errorBox(I18n.t('errors.field_is_required', "This field is required")).offset();
           $('html,body').scrollTo({top: offset.top, left:0});
           return false;
         }
+
         data['quiz[title]'] = quiz_title;
-        data['quiz[description]'] = RichContentEditor.callOnRCE($("#quiz_description"), 'get_code');
+        if (lockedItems.content) {
+          data['quiz[description]'] = quizModel.get('description')
+        } else {
+          data['quiz[description]'] = RichContentEditor.callOnRCE($('#quiz_description'), 'get_code');
+        }
         if ($("#quiz_notify_of_update").is(':checked')) {
           data['quiz[notify_of_update]'] = $("#quiz_notify_of_update").val();
         }
@@ -1723,15 +1847,8 @@ define([
         data['quiz[allowed_attempts]'] = attempts;
         var overrides = overrideView.getOverrides();
         data['quiz[only_visible_to_overrides]'] = overrideView.containsSectionsWithoutOverrides();
-        var validationData = {
-          assignment_overrides: overrideView.getAllDates()
-        };
-        var errs = overrideView.validateBeforeSave(validationData,{});
-        if (_.keys(errs).length > 0) {
-          return false;
-        }
-        else if (overrideView.containsSectionsWithoutOverrides() && !hasCheckedOverrides) {
-          sections = overrideView.sectionsWithoutOverrides();
+        if (overrideView.containsSectionsWithoutOverrides() && !hasCheckedOverrides) {
+          var sections = overrideView.sectionsWithoutOverrides();
           var missingDateView = new MissingDateDialog({
             validationFn: function(){ return sections },
             labelFn: function( section ) { return section.get('name')},
@@ -1765,6 +1882,14 @@ define([
           if (overrides.length === 0) { overrides = false; }
           data['quiz[assignment_overrides]'] = overrides;
         }
+        if (ENV['CONDITIONAL_RELEASE_SERVICE_ENABLED']) {
+          var crError = conditionalRelease.editor.validateBeforeSave();
+          if (crError) {
+            $('#quiz_tabs').tabs("option", "active", 2);
+            conditionalRelease.editor.focusOnError();
+            return false;
+          }
+        }
 
         var serializingEvent = $.Event('serializing');
 
@@ -1782,47 +1907,71 @@ define([
         $quiz_edit_wrapper.find(".btn.save_and_publish").attr('disabled', true);
       },
 
-      success: function(data) {
-        var $form = $(this);
-        $quiz_edit_wrapper
-          .find(".btn.saving")
-          .text(I18n.t('buttons.saved', "Saved!"));
-        if (data.quiz.assignment) {
-          var assignment = data.quiz.assignment;
-          if ($("#assignment_option_" + assignment.id).length === 0) {
-            if (assignment.assignment_group && $("#assignment_group_optgroup_" + assignment.assignment_group_id).length === 0) {
-              var assignment_group = assignment.assignment_group;
-              var $optgroup = $(document.createElement('optgroup'));
-              $optgroup.attr('label', assignment_group.name).attr('id', 'assignment_group_optgroup_' + assignment_group.id);
-            }
-            var $group = $("#assignment_group_optgroup_" + assignment.assignment_group_id);
-            var $option = $(document.createElement('option'));
-            $option.attr('id', 'assignment_option_' + assignment.id).val(assignment.id).text(assignment.title);
-            $group.append($option);
-          }
-        }
-        $(".show_rubric_link").showIf(data.quiz.assignment);
-        $("#quiz_assignment_id").val(data.quiz.quiz_type || "practice_quiz").change();
-        location.href = $(this).attr('action');
-        quiz.updateDisplayComments();
-      },
-      error: function(data) {
-        $("#quiz_edit_wrapper")
-          .find(".btn.save_quiz_button")
-          .attr('disabled', false)
-          .removeClass("saving")
-          .text(I18n.t('buttons.save', "Save"));
-        $("#quiz_edit_wrapper")
-          .find(".btn.save_and_publish")
-          .attr('disabled', false)
-          .removeClass("saving")
-          .text(I18n.t('buttons.save_and_publish', "Save & Publish"));
-        $("#quiz_edit_wrapper")
-          .find('input[name="publish"]')
-          .remove();
+      onSubmit: function(promise, data) {
+        var form = this;
 
-        $(this).trigger('xhrError', data);
-        $(this).formErrors(data);
+        if (ENV['CONDITIONAL_RELEASE_SERVICE_ENABLED']) {
+          promise = promise.pipe(function(promisedData) {
+            if (promisedData && promisedData.quiz) {
+              conditionalRelease.editor.updateAssignment({
+                id: promisedData.quiz.assignment_id,
+                grading_type: 'points',
+                points_possible: promisedData.quiz.points_possible
+              });
+            }
+            return conditionalRelease.editor.save().pipe(function() {
+              return promisedData;
+            });
+          });
+        }
+        promise.then(success.bind(this), error.bind(this));
+
+        function success(data) {
+          $quiz_edit_wrapper
+            .find(".btn.saving")
+            .text(I18n.t('buttons.saved', "Saved!"));
+          if (data.quiz.assignment) {
+            var assignment = data.quiz.assignment;
+            if ($("#assignment_option_" + assignment.id).length === 0) {
+              if (assignment.assignment_group && $("#assignment_group_optgroup_" + assignment.assignment_group_id).length === 0) {
+                var assignment_group = assignment.assignment_group;
+                var $optgroup = $(document.createElement('optgroup'));
+                $optgroup.attr('label', assignment_group.name).attr('id', 'assignment_group_optgroup_' + assignment_group.id);
+              }
+              var $group = $("#assignment_group_optgroup_" + assignment.assignment_group_id);
+              var $option = $(document.createElement('option'));
+              $option.attr('id', 'assignment_option_' + assignment.id).val(assignment.id).text(assignment.title);
+              $group.append($option);
+            }
+          }
+          $(".show_rubric_link").showIf(data.quiz.assignment);
+          $("#quiz_assignment_id").val(data.quiz.quiz_type || "practice_quiz").change();
+          if (deparam()['return_to']) {
+            location.href = deparam()['return_to']
+          } else {
+            location.href = $(this).attr('action');
+          }
+          quiz.updateDisplayComments();
+        }
+
+        function error(data) {
+          $("#quiz_edit_wrapper")
+            .find(".btn.save_quiz_button")
+            .attr('disabled', false)
+            .removeClass("saving")
+            .text(I18n.t('buttons.save', "Save"));
+          $("#quiz_edit_wrapper")
+            .find(".btn.save_and_publish")
+            .attr('disabled', false)
+            .removeClass("saving")
+            .text(I18n.t('buttons.save_and_publish', "Save & Publish"));
+          $("#quiz_edit_wrapper")
+            .find('input[name="publish"]')
+            .remove();
+
+          $(this).trigger('xhrError', data);
+          $(this).formErrors(data);
+        }
       }
     });
 
@@ -1968,7 +2117,7 @@ define([
 
       if ($question.hasClass('missing_word_question') || question.question_type == 'missing_word_question') {
         question = $question.getTemplateData({textValues: ['text_before_answers', 'text_after_answers']});
-        answer_data = $question.find(".original_question_text").getFormData();
+        var answer_data = $question.find(".original_question_text").getFormData();
         question.text_before_answers = answer_data.question_text;
         question.text_after_answers = answer_data.text_after_answers;
         question.question_text = question.text_before_answers;
@@ -2031,7 +2180,7 @@ define([
         $formQuestion.triggerHandler('recompute_variables', true);
       } else {
         // must use > in selector
-        $question.find(".text > .answers .answer").each(function() {
+        $question.find(".text > .answers .answer").each(function(index) {
           var answer = $(this).getTemplateData({
             textValues: data.textValues,
             htmlValues: data.htmlValues
@@ -2039,6 +2188,7 @@ define([
           answer.answer_type = data.answer_type;
           answer.question_type = data.question_type;
           var $answer = makeFormAnswer(answer);
+          addAriaDescription($answer, index+1);
           $form.find(".form_answers").append($answer);
         });
       }
@@ -2070,29 +2220,31 @@ define([
         var newAnswer = $form.find('.correct_answer')
         toggleAnswer($question, {regradeOption: regradeOption, newAnswer: newAnswer})
       }
-      toggleSelectAnswerAltText($(".form_answers .answer"), quiz.answerSelectionType(question.question_type))
-      togglePossibleCorrectAnswerLabel($(".form_answers .answer"));
+      toggleSelectAnswerAltText($('.form_answers .answer'), quiz.answerSelectionType(question.question_type))
+      togglePossibleCorrectAnswerLabel($('.form_answers .answer'));
     });
 
-    $(".question_form :input[name='question_type']").change(function() {
-      quiz.updateFormQuestion($(this).parents(".question_form"));
-
+    $(".question_form :input[name='question_type']").change(function () {
       // is this the initial loado of the question type
-      var loading = $(this).parents(".question.initialLoad").length > 0;
+      var loading = $(this).parents('.question.initialLoad').length > 0;
       var holder = $(this).parents('.question_holder');
-      var isNew = $(holder).find("#question_new").length > 0;
-      if ($("#student_submissions_warning").length > 0 && !loading && !isNew) {
+      var isNew = $(holder).find('#question_new').length > 0;
+
+      quiz.updateFormQuestion($(this).parents('.question_form'));
+
+      if ($('#student_submissions_warning').length > 0 && !loading && !isNew) {
         disableRegrade(holder);
       }
     });
 
-    $("#question_form_template .cancel_link").click(function(event) {
-      event.preventDefault();
-      var $displayQuestion = $(this).parents("form").prev();
-
+    $('#question_form_template .cancel_link').click(function (event) {
+      var $displayQuestion = $(this).parents('form').prev();
       var isNew = $displayQuestion.attr('id') == 'question_new';
+
+      event.preventDefault();
+
       if (!isNew) {
-        $(this).parents("form").remove();
+        $(this).parents('form').remove();
       }
       $displayQuestion.show();
       $("html,body").scrollTo({top: $displayQuestion.offset().top - 10, left: 0});
@@ -2113,7 +2265,24 @@ define([
 
       // create toggler instance on the first click
       if (!toggler) {
-        toggler = new EditorToggle($comment_html, {editorBoxLabel: $link.title });
+        var tinyOptions = {}
+
+        var inputColumn = $comment.parents().find('.answer_type:visible')[0]
+
+        if (inputColumn) {
+          var rightMargin = parseInt($comment.css('marginRight')) || 0
+          var leftMargin = parseInt($comment.css('marginLeft')) || 0
+          var commentMargin = rightMargin + leftMargin
+
+          var rceWidth = inputColumn.offsetWidth - commentMargin
+          tinyOptions.width = rceWidth
+        }
+
+        toggler = new EditorToggle($comment_html, {
+          editorBoxLabel: $link.title,
+          tinyOptions: tinyOptions
+        });
+
         toggler.editButton = $link;
         toggler.on('display', function() {
 
@@ -2173,15 +2342,15 @@ define([
           multipleAnswer: questionType === "multiple_answers_question"
         });
         regradeOptions.on('update', function(regradeOption){
-          newAnswerData = {regradeOption: regradeOption, newAnswer: newAnswer}
+          var newAnswerData = {regradeOption: regradeOption, newAnswer: newAnswer}
           toggleAnswer($question, newAnswerData)
         })
       }
     }
 
     function toggleAnswer($question, newAnswerData) {
-      $answer = $(newAnswerData.newAnswer);
-      $answers = $answer.parent().find(".answer");
+      var $answer = $(newAnswerData.newAnswer);
+      var $answers = $answer.parent().find(".answer");
 
       if ($question.find(":input[name='question_type']").val() != "multiple_answers_question") {
         $question.find(".answer:visible").removeClass('correct_answer')
@@ -2215,7 +2384,7 @@ define([
     function setAnswerText(answer, text) {
       $(answer)
         .attr('title', text)
-        .find('img').attr('alt', text)
+        .find('.answer_image').attr('alt', text)
     }
 
     function setQuestionID(question){
@@ -2345,7 +2514,7 @@ define([
       var $question = makeQuestion();
       if ($(this).parents(".group_top").length > 0) {
 
-        groupID = $(this).parents(".group_top")[0].id.replace("group_top_","")
+        var groupID = $(this).parents(".group_top")[0].id.replace("group_top_","")
         $($question[0]).attr("data-group-id", groupID)
 
         var $bottom = $(this).parents(".group_top").next();
@@ -2393,9 +2562,8 @@ define([
           $dialog.find(".message").hide();
           $dialog.find(".find_banks").show();
           $dialog.addClass('loaded');
-          for(idx in banks) {
+          for(var idx in banks) {
             var bank = banks[idx].assessment_question_bank;
-            bank.title = TextHelper.truncateText(bank.title)
             var $bank = $dialog.find(".bank.blank:first").clone(true).removeClass('blank');
             $bank.fillTemplateData({data: bank, dataValues: ['id', 'context_type', 'context_id']});
             $dialog.find(".bank_list").append($bank);
@@ -2451,7 +2619,7 @@ define([
           $dialog.find(".message").hide();
           $dialog.find(".side_tabs_table").show();
           $dialog.addClass('loaded');
-          for(idx in banks) {
+          for(var idx in banks) {
             var bank = banks[idx].assessment_question_bank;
             bank.title = TextHelper.truncateText(bank.title)
             var $bank = $dialog.find(".bank.blank:first").clone(true).removeClass('blank');
@@ -2780,7 +2948,7 @@ define([
         answer.question_type = question_type;
         answer.blank_id = $question.find(".blank_id_select").val();
         answer.blank_index = $question.find(".blank_id_select")[0].selectedIndex;
-        $answer = makeFormAnswer(answer);
+        var $answer = makeFormAnswer(answer);
         if (answer_selection_type == "any_answer") {
           $answer.addClass('correct_answer');
         } else if (answer_selection_type == "blanks") {
@@ -2838,7 +3006,7 @@ define([
           error_text = I18n.t('errors.no_correct_answer', "Please choose a correct answer");
         }
       } else if (questionData.question_type == "fill_in_multiple_blanks_question" || questionData.question_type == "short_answer_question") {
-        function checkForNotBlanks(elements) {
+        var checkForNotBlanks = function (elements) {
           return elements.filter(function(i,element) {
             return !!element.value;
           }).length;
@@ -3456,9 +3624,9 @@ define([
         return params;
       }
     }
-    $(document).on('click keypress', ".draggable-handle", function(event) {
+    $(document).on('click keydown', ".draggable-handle", function(event) {
+      if (event.type == "keydown" && event.keyCode != 13 && event.keyCode != 32) { return; }
       event.preventDefault();
-      if (event.type == "keypress" && event.keyCode != 13) { return; }
 
       accessibleSortables.init(
         $(event.target), $("#questions"), $("#move_quiz_item_form")
@@ -3559,7 +3727,7 @@ define([
         var items = [];
         if (quiz.findContainerGroup(ui.item)) {
           $container = quiz.findContainerGroup(ui.item);
-          $list = [];
+          var $list = [];
           url = $container.find(".reorder_group_questions_url").attr('href');
           var $obj = $container.next();
           while($obj.length > 0 && !$obj.hasClass('group_bottom')) {
@@ -3673,12 +3841,15 @@ define([
 
     var keyboardShortcutsView = new RCEKeyboardShortcuts();
 
-    RichContentEditor.loadNewEditor($("#quiz_description"), {
-      focus: true,
-      tinyOptions: {
-        aria_label: I18n.t('label.quiz.instructions', 'Quiz instructions, rich text area')
-      }
-    })
+    if (!lockedItems.content) {
+      RichContentEditor.loadNewEditor($('#quiz_description'), {
+        focus: true,
+        manageParent: true,
+        tinyOptions: {
+          aria_label: I18n.t('label.quiz.instructions', 'Quiz instructions, rich text area')
+        }
+      })
+    }
     keyboardShortcutsView.render().$el.insertBefore($(".toggle_description_views_link:first"));
 
     $(".toggle_description_views_link").click(function(event) {
@@ -3721,91 +3892,72 @@ define([
     });
 
     if (ENV['CONDITIONAL_RELEASE_SERVICE_ENABLED']) {
-      window.conditionalRelease = window.conditionalRelease || {};
+      var conditionalRelease = window.conditionalRelease = window.conditionalRelease || {};
       conditionalRelease.editor = ConditionalRelease.attach(
-        $('#conditional-release-target').get(0),
+        $('#conditional_release_target').get(0),
         I18n.t('quiz'),
         ENV['CONDITIONAL_RELEASE_ENV']);
 
-      $('div.form').on('change', function(event) {
-        if (!conditionalRelease.assignmentDirty) {
-          conditionalRelease.assignmentDirty = true
-          conditionalRelease.editor.setProps({ assignmentDirty: true });
+      $('#questions').on("change DOMNodeRemoved DOMNodeInserted", function() {
+        conditionalRelease.assignmentUpToDate = false;
+      });
+      $("#quiz_tabs").on("tabsbeforeactivate", function(event) {
+        if (!conditionalRelease.assignmentUpToDate) {
+          var id = null;
+          if (quizModel) {
+            id = quizModel.attributes.assignment_id;
+          }
+          conditionalRelease.editor.updateAssignment({
+            id: id,
+            grading_type: "points",
+            points_possible: quiz.calculatePointsPossible()
+          });
+          conditionalRelease.assignmentUpToDate = true;
         }
       });
     }
   });
 
-  $.fn.multipleAnswerSetsQuestion = function() {
-    var $question = $(this),
-        $question_content = $question.find(".question_content"),
-        $select = $question.find(".blank_id_select"),
-        $question_type = $question.find(".question_type");
+  $.fn.multipleAnswerSetsQuestion = function () {
+    var $question = $(this);
+    var $questionContent = $question.find('.question_content');
+    var $select = $question.find('.blank_id_select');
+    var questionType = $question.find('.question_type').val();
+
     if ($question.data('multiple_sets_question_bindings')) { return; }
     $question.data('multiple_sets_question_bindings', true);
-    $question_content.bind('keypress', function(event) {
-      setTimeout(function() {$(event.target).triggerHandler('change')}, 50);
+
+    $questionContent.bind('keypress', function (event) {
+      setTimeout(function () { $(event.target).triggerHandler('change'); }, 50);
     });
-    $question_content.bind('change', function() {
-      var question_type = $question_type.val();
-      if (question_type != 'multiple_dropdowns_question' && question_type != 'fill_in_multiple_blanks_question') {
+
+    if (!isChangeMultiFuncBound($questionContent)) {
+      $questionContent.bind('change', getChangeMultiFunc($questionContent, questionType, $select)).change();
+    }
+
+    $select.change(function () {
+      if (questionType !== 'multiple_dropdowns_question' && questionType !== 'fill_in_multiple_blanks_question') {
         return;
       }
-      var text = RichContentEditor.callOnRCE($(this), 'get_code');
-      var matches = text.match(/\[[A-Za-z0-9_\-.]+\]/g);
-      $select.find("option.shown_when_no_other_options_available").remove();
-      $select.find("option").addClass('to_be_removed');
-      var matchHash = {};
-      if (matches) {
-        for(var idx  = 0; idx < matches.length; idx++) {
-          if (matches[idx]) {
-            var variable = matches[idx].substring(1, matches[idx].length - 1);
-            if (!matchHash[variable]) {
-              var $option = $select.find("option").eq(idx); //." + variable);
-              if (!$option.length) {
-                $option = $("<option/>").appendTo($select);
-              }
-              $option
-                .removeClass('to_be_removed')
-                .val(variable)
-                .text(variable);
-              matchHash[variable] = true;
-            }
-          }
-        }
-      }
-      // if there are not any options besides the default "<option class="shown_when_no_other_options_available" value='0'>[ Enter Answer Variables Above ]</option>" one
-      if (!$select.find("option:not(.shown_when_no_other_options_available)").length) {
-        $select.append("<option class='shown_when_no_other_options_available' value='0'>" + htmlEscape(I18n.t('enter_answer_variable_above', "[ Enter Answer Variables Above ]")) + "</option>");
-      }
-      $select.find("option.to_be_removed").remove();
-      $select.change();
-    }).change();
-    $select.change(function() {
-      var question_type = $question_type.val();
-      if (question_type != 'multiple_dropdowns_question' && question_type != 'fill_in_multiple_blanks_question') {
-        return;
-      }
-      $question.find(".form_answers .answer").hide().addClass('hidden');
-      $select.find("option").each(function(i) {
-        var $option = $(this);
-        $question.find(".form_answers .answer_for_" + $(this).val()).each(function() {
-          $(this).attr('class', $(this).attr('class').replace(/answer_idx_\d+/g, ""));
+      $question.find('.form_answers .answer').hide().addClass('hidden');
+      $select.find('option').each(function (i) {
+        $question.find('.form_answers .answer_for_' + $(this).val()).each(function () {
+          $(this).attr('class', $(this).attr('class').replace(/answer_idx_\d+/g, ''));
         }).addClass('answer_idx_' + i);
       });
-      if ($select.val() !== "0") {
-        var variable = $select.val(),
-            variableIdx = $select[0].selectedIndex;
+      if ($select.val() !== '0') {
+        var variable = $select.val();
+        var variableIdx = $select[0].selectedIndex;
         if (variableIdx >= 0) {
-          $question.find(".form_answers .answer").each(function() {
+          $question.find('.form_answers .answer').each(function () {
             var $this = $(this);
             if (!$this.attr('class').match(/answer_idx_/)) {
               if ($this.attr('class').match(/answer_for_/)) {
-                var idx = null,
-                    blank_id = $this.attr('class').match(/answer_for_[^\s]+/);
-                if (blank_id && blank_id[0]) { blank_id = blank_id[0].substring(11); }
-                $select.find("option").each(function(i) {
-                  if ($(this).text() == blank_id) {
+                var idx = null;
+                var blankId = $this.attr('class').match(/answer_for_[^\s]+/);
+                if (blankId && blankId[0]) { blankId = blankId[0].substring(11); }
+                $select.find('option').each(function (i) {
+                  if ($(this).text() == blankId) {
                     idx = i;
                   }
                 });
@@ -4061,9 +4213,9 @@ define([
 
                 $variable = $("<tr class='variable'>"
                               + "<th id='" + label_id + "' class='name'></th>"
-                              + "<td><input aria-labelledby='" + label_id + " equation_var_minimum' type='text' name='min' class='min variable_setting' style='width: 30px;' value='1'/></td>"
-                              + "<td><input aria-labelledby='" + label_id + " equation_var_maximum' type='text' name='max' class='max variable_setting' style='width: 30px;' value='10'/></td>"
-                              + "<td><select aria-labelledby='" + label_id + " equation_var_precision' name='round' class='round variable_setting'><option>0</option><option>1</option><option>2</option><option>3</option></td>"
+                              + "<td><div><input aria-labelledby='" + label_id + " equation_var_minimum' type='text' name='min' class='min variable_setting' style='width: 70%;' value='1'/></div></td>"
+                              + "<td><div><input aria-labelledby='" + label_id + " equation_var_maximum' type='text' name='max' class='max variable_setting' style='width: 70%;' value='10'/></div></td>"
+                              + "<td><div style='width: 70%;'><select aria-labelledby='" + label_id + " equation_var_precision' name='round' class='round variable_setting'><option>0</option><option>1</option><option>2</option><option>3</option></div></td>"
                               + "<td aria-labelledby='equation_var_example' class='value'></td></tr>");
 
                 $question.find(".variables tbody").append($variable);
@@ -4096,10 +4248,15 @@ define([
     event.preventDefault();
     var $this = $(this);
     var toggler = $this.data('editorToggle');
+    var inputColumn = $this.parents().find('.answer_type:visible')[0]
+    var rceWidth = inputColumn.offsetWidth
 
     // create toggler instance on the first click
     if (!toggler) {
-      toggler = new MultipleChoiceToggle($this, {editorBoxLabel: I18n.t('label.answer.text', 'Answer text, rich text area')});
+      toggler = new MultipleChoiceToggle($this, {
+        editorBoxLabel: I18n.t('label.answer.text', 'Answer text, rich text area'),
+        tinyOptions: {width: rceWidth}
+      });
       $this.data('editorToggle', toggler);
     }
 
@@ -4127,11 +4284,11 @@ define([
       }
 
       // Only allow students to see answers on last attempt if the quiz has more than one attempt
-      showCorrectAnswersLastAttempt = parseInt($('#quiz_allowed_attempts').val()) > 0;
+      var showCorrectAnswersLastAttempt = parseInt($('#quiz_allowed_attempts').val()) > 0;
       $('#quiz_show_correct_answers_last_attempt_container').toggle(showCorrectAnswersLastAttempt);
       if(!showCorrectAnswersLastAttempt) {
         $('#quiz_show_correct_answers_last_attempt').prop('checked', false);
       }
     }).triggerHandler('change');
   });
-});
+

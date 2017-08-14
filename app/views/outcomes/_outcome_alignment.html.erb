@@ -1,8 +1,24 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <% outcome_alignment ||= nil %>
 <%= outcome_alignment_tag(@context, @outcome, outcome_alignment) do -%>
   <div class="header">
-    <a href="#" class="move_alignment_link no-hover"><%= image_tag "move.png", :alt => t('Move') %></a>
-    <%= image_tag "blank.png", :class => "type_icon", :alt => outcome_alignment.try_rescue(:content_type).try_rescue(:titleize), :title => outcome_alignment.try_rescue(:content_type).try_rescue(:titleize) %>
     <%= link_to_outcome_alignment(@context, @outcome, outcome_alignment) %>
   </div>
   <div class="links"></div>

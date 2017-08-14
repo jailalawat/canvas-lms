@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/discussions_common')
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 
@@ -151,14 +168,13 @@ describe "discussions" do
           expect(get_value("#assignment_group_category_id")).to eq topic.group_category.id.to_s
         end
 
-        it "should revert to [ New Group Category ] if original group is deleted with no submissions", priority: "1", test_id: 270921 do
+        it "should prompt for creating a new group category if original group is deleted with no submissions", priority: "1", test_id: 270921 do
           topic.group_category = @gc
           topic.save!
           @gc.destroy
           get url
           wait_for_ajaximations
-
-          expect(f("#assignment_group_category_id option[selected]")).to include_text "New Group Category"
+          expect(f("#assignment_group_category_id")).not_to be_displayed
         end
 
         context "graded" do
@@ -257,7 +273,7 @@ describe "discussions" do
           topic.delayed_post_at = 5.days.from_now
           topic.lock_at         = 10.days.from_now
           topic.workflow_state  = 'active'
-          topic.locked          = nil
+          topic.locked          = false
           topic.save!
 
           get url

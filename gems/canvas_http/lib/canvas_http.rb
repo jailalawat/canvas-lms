@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'uri'
 
 module CanvasHttp
@@ -41,22 +58,29 @@ module CanvasHttp
   # rather than reading it all into memory.
   #
   # Eventually it may be expanded to optionally do cert verification as well.
-  #
-  # TODO: this doesn't yet handle relative redirects (relative Location HTTP
-  # header), which actually isn't even technically allowed by the HTTP spec.
-  # But everybody allows and handles it.
-  def self.request(request_class, url_str, other_headers = {}, redirect_limit = 3)
+  def self.request(request_class, url_str, other_headers = {}, redirect_limit: 3, form_data: nil, multipart: false)
     last_scheme = nil
     last_host = nil
 
     loop do
       raise(TooManyRedirectsError) if redirect_limit <= 0
 
-      _, uri = CanvasHttp.validate_url(url_str, last_host, last_scheme) # uses the last host and scheme for relative redirects
+      _, uri = CanvasHttp.validate_url(url_str, host: last_host, scheme: last_scheme) # uses the last host and scheme for relative redirects
       http = CanvasHttp.connection_for_uri(uri)
+
+      multipart_query = nil
+      if form_data && multipart
+        multipart_query, multipart_headers = Multipart::Post.new.prepare_query(form_data)
+        other_headers = other_headers.merge(multipart_headers)
+      end
+
       request = request_class.new(uri.request_uri, other_headers)
+      add_form_data(request, form_data) if form_data && !multipart
+
       http.verify_mode = OpenSSL::SSL::VERIFY_NONE
-      http.request(request) do |response|
+      args = [request]
+      args << multipart_query if multipart
+      http.request(*args) do |response|
         if response.is_a?(Net::HTTPRedirection) && !response.is_a?(Net::HTTPNotModified)
           last_host = uri.host
           last_scheme = uri.scheme
@@ -76,8 +100,17 @@ module CanvasHttp
     end
   end
 
+  def self.add_form_data(request, form_data)
+    if form_data.is_a?(String)
+      request.body = form_data
+      request.content_type = 'application/x-www-form-urlencoded'
+    else
+      request.set_form_data(form_data)
+    end
+  end
+
   # returns [normalized_url_string, URI] if valid, raises otherwise
-  def self.validate_url(value, host=nil, scheme=nil)
+  def self.validate_url(value, host: nil, scheme: nil, allowed_schemes: %w{http https})
     value = value.strip
     raise ArgumentError if value.empty?
     uri = URI.parse(value)
@@ -92,7 +125,7 @@ module CanvasHttp
       end
       uri = URI.parse(value) # it's still a URI::Generic
     end
-    raise ArgumentError unless %w(http https).include?(uri.scheme.downcase)
+    raise ArgumentError if !allowed_schemes.nil? && !allowed_schemes.include?(uri.scheme.downcase)
     raise(RelativeUriError) if uri.host.nil? || uri.host.strip.empty?
 
     return value, uri

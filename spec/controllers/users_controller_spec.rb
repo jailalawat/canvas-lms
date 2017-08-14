@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,83 +16,77 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require File.expand_path(File.dirname(__FILE__) + '/../sharding_spec_helper')
+require_relative '../sharding_spec_helper'
 
 describe UsersController do
+  let(:group_helper) { Factories::GradingPeriodGroupHelper.new }
 
- describe "external_tool" do
+  describe "external_tool" do
+    let(:account) { Account.default }
 
-   let :account do
-     Account.default
-   end
+    let :tool do
+      tool = account.context_external_tools.new({
+        name: "bob",
+        consumer_key: "bob",
+        shared_secret: "bob",
+        tool_id: 'some_tool',
+        privacy_level: 'public'
+      })
+      tool.url = "http://www.example.com/basic_lti?first=john&last=smith"
+      tool.resource_selection = {
+        :url => "http://#{HostUrl.default_host}/selection_test",
+        :selection_width => 400,
+        :selection_height => 400
+      }
+      user_navigation = {
+        :text => 'example',
+        :labels => {
+          'en' => 'English Label',
+          'sp' => 'Spanish Label'
+        }
+      }
+      tool.settings[:user_navigation] = user_navigation
+      tool.save!
+      tool
+    end
 
-   let :tool do
-     tool = account.context_external_tools.new(
-         name: "bob",
-         consumer_key: "bob",
-         shared_secret: "bob",
-         tool_id: 'some_tool',
-         privacy_level: 'public'
-     )
-     tool.url = "http://www.example.com/basic_lti?first=john&last=smith"
-     tool.resource_selection = {
-         :url => "http://#{HostUrl.default_host}/selection_test",
-         :selection_width => 400,
-         :selection_height => 400
-     }
-     user_navigation = {
-         :text => 'example',
-         :labels => {
-             'en' => 'English Label',
-             'sp' => 'Spanish Label'
-         }
-     }
-     tool.settings[:user_navigation] = user_navigation
-     tool.save!
-     tool
-   end
+    it "removes query string when post_only = true" do
+      u = user_factory(active_all: true)
+      account.account_users.create!(user: u)
+      user_session(@user)
+      tool.user_navigation = { text: "example" }
+      tool.settings['post_only'] = 'true'
+      tool.save!
 
-   it "removes query string when post_only = true" do
-     u = user(:active_all => true)
-     account.account_users.create!(user: u)
-     user_session(@user)
-     tool.user_navigation = {
-         :text => "example"
-     }
-     tool.settings['post_only'] = 'true'
-     tool.save!
+      get :external_tool, {id:tool.id, user_id:u.id}
+      expect(assigns[:lti_launch].resource_url).to eq 'http://www.example.com/basic_lti'
+    end
 
-     get :external_tool, {id:tool.id, user_id:u.id}
-     expect(assigns[:lti_launch].resource_url).to eq 'http://www.example.com/basic_lti'
-   end
+    it "does not remove query string from url" do
+      u = user_factory(active_all: true)
+      account.account_users.create!(user: u)
+      user_session(@user)
+      tool.user_navigation = { text: "example" }
+      tool.save!
 
-   it "does not remove query string from url" do
-     u = user(:active_all => true)
-     account.account_users.create!(user: u)
-     user_session(@user)
-     tool.user_navigation = {
-         :text => "example"
-     }
-     tool.save!
+      get :external_tool, {id:tool.id, user_id:u.id}
+      expect(assigns[:lti_launch].resource_url).to eq 'http://www.example.com/basic_lti?first=john&last=smith'
+    end
 
-     get :external_tool, {id:tool.id, user_id:u.id}
-     expect(assigns[:lti_launch].resource_url).to eq 'http://www.example.com/basic_lti?first=john&last=smith'
-   end
+    it "uses localized labels" do
+      u = user_factory(active_all: true)
+      account.account_users.create!(user: u)
+      user_session(@user)
 
-   it "uses localized labels" do
-     u = user(:active_all => true)
-     account.account_users.create!(user: u)
-     user_session(@user)
-
-     get :external_tool, {id:tool.id, user_id:u.id}
-     expect(tool.label_for(:user_navigation, :en)).to eq 'English Label'
-   end
- end
+      get :external_tool, {id:tool.id, user_id:u.id}
+      expect(tool.label_for(:user_navigation, :en)).to eq 'English Label'
+    end
+  end
 
   describe "index" do
     before :each do
       @a = Account.default
-      @u = user(:active_all => true)
+      @u = user_factory(active_all: true)
       @a.account_users.create!(user: @u)
       user_session(@user)
       @t1 = @a.default_enrollment_term
@@ -137,7 +131,7 @@ describe UsersController do
       settings_mock.stubs(:settings).returns({})
       settings_mock.stubs(:enabled?).returns(true)
 
-      user(:active_all => true)
+      user_factory(active_all: true)
       user_session(@user)
 
       Canvas::Plugin.stubs(:find).returns(settings_mock)
@@ -245,164 +239,6 @@ describe UsersController do
     expect(courses.map { |c| c['label'] }).to eq %w(a B c d)
   end
 
-  describe "GET 'delete'" do
-    it "should fail when the user doesn't exist" do
-      account_admin_user
-      user_session(@admin)
-      assert_page_not_found do
-        get 'delete', :user_id => (User.all.map(&:id).max + 1)
-      end
-    end
-
-    it "should fail when the current user doesn't have user manage permissions" do
-      course_with_teacher_logged_in
-      student_in_course :course => @course
-      get 'delete', :user_id => @student.id
-      assert_status(401)
-    end
-
-    it "should succeed when the current user has the :manage permission and is not deleting any system-generated pseudonyms" do
-      account_admin_user_with_role_changes(role_changes: {manage_sis: false})
-      user_session(@user)
-      course_with_student
-      get 'delete', :user_id => @student.id
-      expect(response).to be_success
-    end
-
-    it "should fail when the current user won't be able to delete managed pseudonyms" do
-      account_admin_user_with_role_changes(role_changes: {manage_sis: false})
-      user_session(@admin)
-      course_with_student
-      managed_pseudonym @student, account: @course.account
-      get 'delete', :user_id => @student.id
-      assert_unauthorized
-    end
-
-    it "should not fail when the only managed pseudonyms are in another account" do
-      account_admin_user_with_role_changes(role_changes: {manage_sis: false})
-      user_session(@user)
-      course_with_student
-      pseudonym @student, account: @course.account
-      managed_pseudonym @student, account: account_model
-      get 'delete', :user_id => @student.id
-      expect(response).to be_success
-    end
-
-    it "should succeed when the current user has enough permissions to delete any system-generated pseudonyms" do
-      account_admin_user
-      user_session(@admin)
-      course_with_student
-      managed_pseudonym @student, account: @course.account
-      get 'delete', :user_id => @student.id
-      expect(flash[:error]).to be_nil
-      expect(response).to be_success
-    end
-  end
-
-  describe "POST 'destroy'" do
-    it "should fail when the user doesn't exist" do
-      account_admin_user
-      user_session(@admin)
-      PseudonymSession.find(1).stubs(:destroy).returns(nil)
-      assert_page_not_found do
-        post 'destroy', :id => (User.all.map(&:id).max + 1)
-      end
-    end
-
-    it "should fail when the current user doesn't have user manage permissions" do
-      course_with_teacher_logged_in
-      student_in_course :course => @course
-      PseudonymSession.find(1).stubs(:destroy).returns(nil)
-      post 'destroy', :id => @student.id
-      assert_status(401)
-      expect(@student.associated_accounts.map(&:id)).to include(@course.account_id)
-    end
-
-    it "should succeed when the current user has the :manage permission and is not deleting any system-generated pseudonyms" do
-      account_admin_user_with_role_changes(role_changes: {manage_sis: false})
-      user_session(@admin)
-      course_with_student
-      PseudonymSession.find(1).stubs(:destroy).returns(nil)
-      post 'destroy', :id => @student.id
-      expect(response).to redirect_to(users_url)
-      expect(@student.associated_accounts.map(&:id)).to_not include(@course.account_id)
-    end
-
-    it "should fail when the current user won't be able to delete managed pseudonyms" do
-      account_admin_user_with_role_changes(role_changes: {manage_sis: false})
-      user_session(@admin)
-      course_with_student
-      managed_pseudonym @student, account: @course.account
-      PseudonymSession.find(1).stubs(:destroy).returns(nil)
-      post 'destroy', :id => @student.id
-      assert_unauthorized
-      expect(@student.associated_accounts.map(&:id)).to include(@course.account_id)
-    end
-
-    it "should fail when the user has a SIS ID and uses canvas authentication" do
-      user_with_pseudonym
-      course_with_student_logged_in user: @user
-      @student.pseudonym.update_attribute :sis_user_id, 'kzarn'
-      post 'destroy', id: @student.id
-      assert_status(401)
-      expect(@student.associated_accounts.map(&:id)).to include(@course.account_id)
-    end
-
-    it "should succeed when the current user has enough permissions to delete any system-generated pseudonyms" do
-      account_admin_user
-      user_session(@admin)
-      course_with_student
-      managed_pseudonym @student, account: @course.account
-      PseudonymSession.find(1).stubs(:destroy).returns(nil)
-      post 'destroy', :id => @student.id
-      expect(response).to redirect_to(users_url)
-      expect(@student.associated_accounts.map(&:id)).to_not include(@course.account_id)
-    end
-
-    it "should succeed when the system-generated pseudonyms are on another account" do
-      account_admin_user_with_role_changes(role_changes: {managed_sis: false})
-      user_session(@admin)
-      course_with_student
-      managed_pseudonym @student, account: account_model
-      PseudonymSession.find(1).stubs(:destroy).returns(nil)
-      post 'destroy', :id => @student.id
-      expect(response).to redirect_to(users_url)
-      expect(@student.associated_accounts.map(&:id)).to_not include(@course.account_id)
-    end
-
-    it "should clear the session and log the user out when the current user deletes himself, with managed pseudonyms and :manage_login permissions" do
-      account_admin_user
-      user_session(@admin)
-      managed_pseudonym @admin
-      PseudonymSession.find(1).expects(:destroy).returns(nil)
-      post 'destroy', :id => @admin.id
-      expect(response).to redirect_to(root_url)
-      expect(@admin.associated_accounts.map(&:id)).to_not include(Account.default.id)
-    end
-
-    it "should clear the session and log the user out when the current user deletes himself, without managed pseudonyms and :manage_login permissions" do
-      account_admin_user(user: @user)
-      pseudonym(@admin, account: Account.default)
-      user_session(@admin, @pseudonym)
-      PseudonymSession.find(1).expects(:destroy).returns(nil)
-      post 'destroy', :id => @admin.id
-      expect(response).to redirect_to(root_url)
-      expect(@admin.associated_accounts(true).map(&:id)).to_not include(Account.default.id)
-    end
-
-    it "should not remove the user from their other root accounts, if any" do
-      other_account = account_model
-      account_admin_user
-      user_session(@admin)
-      course_with_student account: Account.default
-      course_with_student account: other_account, user: @student
-      post 'destroy', :id => @student.id
-      expect(response).to redirect_to(users_url)
-      expect(@student.associated_accounts.map(&:id)).to_not include(Account.default.id)
-      expect(@student.associated_accounts.map(&:id)).to include(other_account.id)
-    end
-  end
-
   describe "POST 'create'" do
     it "should not allow creating when self_registration is disabled and you're not an admin'" do
       post 'create', :pseudonym => { :unique_id => 'jacob@instructure.com' }, :user => { :name => 'Jacob Fugal' }
@@ -425,18 +261,18 @@ describe UsersController do
         end
 
         it "should not allow students to self register" do
-          course(:active_all => true)
+          course_factory(active_all: true)
           @course.update_attribute(:self_enrollment, true)
 
-          post 'create', :pseudonym => { :unique_id => 'jane@example.com', :password => 'lolwut', :password_confirmation => 'lolwut' }, :user => { :name => 'Jane Student', :terms_of_use => '1', :self_enrollment_code => @course.self_enrollment_code, :initial_enrollment_type => 'student' }, :pseudonym_type => 'username', :self_enrollment => '1', :format => 'json'
+          post 'create', :pseudonym => { :unique_id => 'jane@example.com', :password => 'lolwut12', :password_confirmation => 'lolwut12' }, :user => { :name => 'Jane Student', :terms_of_use => '1', :self_enrollment_code => @course.self_enrollment_code, :initial_enrollment_type => 'student' }, :pseudonym_type => 'username', :self_enrollment => '1', :format => 'json'
           assert_status(403)
         end
 
         it "should allow observers to self register" do
-          user_with_pseudonym(:active_all => true, :password => 'lolwut')
+          user_with_pseudonym(:active_all => true, :password => 'lolwut12')
           course_with_student(:user => @user, :active_all => true)
 
-          post 'create', :pseudonym => { :unique_id => 'jane@example.com' }, :observee => { :unique_id => @pseudonym.unique_id, :password => 'lolwut' }, :user => { :name => 'Jane Observer', :terms_of_use => '1', :initial_enrollment_type => 'observer' }, :format => 'json'
+          post 'create', :pseudonym => { :unique_id => 'jane@example.com' }, :observee => { :unique_id => @pseudonym.unique_id, :password => 'lolwut12' }, :user => { :name => 'Jane Observer', :terms_of_use => '1', :initial_enrollment_type => 'observer' }, :format => 'json'
           expect(response).to be_success
           new_pseudo = Pseudonym.where(unique_id: 'jane@example.com').first
           new_user = new_pseudo.user
@@ -595,7 +431,7 @@ describe UsersController do
       context "self enrollment" do
         before(:once) do
           Account.default.allow_self_enrollment!
-          course(:active_all => true)
+          course_factory(active_all: true)
           @course.update_attribute(:self_enrollment, true)
         end
 
@@ -631,7 +467,7 @@ describe UsersController do
       end
 
       it "should validate the observee's credentials" do
-        user_with_pseudonym(:active_all => true, :password => 'lolwut')
+        user_with_pseudonym(:active_all => true, :password => 'lolwut12')
 
         post 'create', :pseudonym => { :unique_id => 'jacob@instructure.com' }, :observee => { :unique_id => @pseudonym.unique_id, :password => 'not it' }, :user => { :name => 'Jacob Fugal', :terms_of_use => '1', :initial_enrollment_type => 'observer' }
         assert_status(400)
@@ -640,9 +476,9 @@ describe UsersController do
       end
 
       it "should link the user to the observee" do
-        user_with_pseudonym(:active_all => true, :password => 'lolwut')
+        user_with_pseudonym(:active_all => true, :password => 'lolwut12')
 
-        post 'create', :pseudonym => { :unique_id => 'jacob@instructure.com' }, :observee => { :unique_id => @pseudonym.unique_id, :password => 'lolwut' }, :user => { :name => 'Jacob Fugal', :terms_of_use => '1', :initial_enrollment_type => 'observer' }
+        post 'create', :pseudonym => { :unique_id => 'jacob@instructure.com' }, :observee => { :unique_id => @pseudonym.unique_id, :password => 'lolwut12' }, :user => { :name => 'Jacob Fugal', :terms_of_use => '1', :initial_enrollment_type => 'observer' }
         expect(response).to be_success
         u = User.where(name: 'Jacob Fugal').first
         expect(u).to be_pre_registered
@@ -683,6 +519,12 @@ describe UsersController do
           expect(p.user).to be_pre_registered
         end
 
+        it "should create users with non-email pseudonyms and an email" do
+          post 'create', format: 'json', account_id: account.id, pseudonym: { unique_id: 'testid', path: 'testemail@example.com' }, user: { name: 'test' }
+          expect(response).to be_success
+          p = Pseudonym.where(unique_id: 'testid').first
+          expect(p.user.email).to eq "testemail@example.com"
+        end
 
         it "should not require acceptance of the terms" do
           post 'create', :account_id => account.id, :pseudonym => { :unique_id => 'jacob@instructure.com' }, :user => { :name => 'Jacob Fugal' }
@@ -770,15 +612,14 @@ describe UsersController do
 
   describe "GET 'grades_for_student'" do
     let(:test_course) do
-      test_course = course(active_all: true)
-      test_course.root_account.enable_feature!(:multiple_grading_periods)
+      test_course = course_factory(active_all: true)
       test_course
     end
-    let(:student) { user(active_all: true) }
+    let(:student) { user_factory(active_all: true) }
     let!(:student_enrollment) do
       course_with_user('StudentEnrollment', course: test_course, user: student, active_all: true)
     end
-    let(:grading_period_group) { test_course.grading_period_groups.create! }
+    let(:grading_period_group) { group_helper.legacy_create_for_course(test_course) }
     let(:grading_period) do
       grading_period_group.grading_periods.create!(
         title: "Some Semester",
@@ -787,31 +628,32 @@ describe UsersController do
     end
     let!(:assignment1) do
       assignment = assignment_model(course: test_course, due_at: Time.zone.now, points_possible: 10)
-      assignment.grade_student(student, grade: '40%')
+      assignment.grade_student(student, grade: '40%', grader: @teacher)
     end
 
     let!(:assignment2) do
       assignment = assignment_model(course: test_course, due_at: 3.months.from_now, points_possible: 100)
-      assignment.grade_student(student, grade: '100%')
+      assignment.grade_student(student, grade: '100%', grader: @teacher)
     end
 
     context "as a student" do
-      it "returns the grade and the total for the student, filtered by the grading period" do
+      it "returns the grade for the student, filtered by the grading period" do
         user_session(student)
         get('grades_for_student', grading_period_id: grading_period.id,
           enrollment_id: student_enrollment.id)
 
         expect(response).to be_ok
-        expected_response = {'grade' => 40, 'total' => 4, 'possible' => 10, 'hide_final_grades' => false}
+        expected_response = {'grade' => 40.0, 'hide_final_grades' => false}
         expect(json_parse(response.body)).to eq expected_response
 
         grading_period.end_date = 4.months.from_now
+        grading_period.close_date = 4.months.from_now
         grading_period.save!
         get('grades_for_student', grading_period_id: grading_period.id,
           enrollment_id: student_enrollment.id)
 
         expect(response).to be_ok
-        expected_response = {'grade' => 94.55, 'total' => 104, 'possible' => 110, 'hide_final_grades' => false}
+        expected_response = {'grade' => 94.55, 'hide_final_grades' => false}
         expect(json_parse(response.body)).to eq expected_response
       end
 
@@ -823,13 +665,13 @@ describe UsersController do
           enrollment_id: student_enrollment.id)
 
         expect(response).to be_ok
-        expected_response = {'grade' => 94.55, 'total' => 104, 'possible' => 110, 'hide_final_grades' => false}
+        expected_response = {'grade' => 94.55, 'hide_final_grades' => false}
         expect(json_parse(response.body)).to eq expected_response
       end
 
       it "returns unauthorized if a student is trying to get grades for " \
       "another student (and is not observing that student)" do
-        snooping_student = user(active_all: true)
+        snooping_student = user_factory(active_all: true)
         course_with_user('StudentEnrollment', course: test_course, user: snooping_student, active_all: true)
         user_session(snooping_student)
         get('grades_for_student', grading_period_id: grading_period.id,
@@ -849,16 +691,17 @@ describe UsersController do
           grading_period_id: grading_period.id)
 
         expect(response).to be_ok
-        expected_response = {'grade' => 40, 'total' => 4, 'possible' => 10, 'hide_final_grades' => false}
+        expected_response = {'grade' => 40.0, 'hide_final_grades' => false}
         expect(json_parse(response.body)).to eq expected_response
 
         grading_period.end_date = 4.months.from_now
+        grading_period.close_date = 4.months.from_now
         grading_period.save!
         get('grades_for_student', grading_period_id: grading_period.id,
           enrollment_id: student_enrollment.id)
 
         expect(response).to be_ok
-        expected_response = {'grade' => 94.55, 'total' => 104, 'possible' => 110, 'hide_final_grades' => false}
+        expected_response = {'grade' => 94.55, 'hide_final_grades' => false}
         expect(json_parse(response.body)).to eq expected_response
       end
 
@@ -871,7 +714,7 @@ describe UsersController do
           enrollment_id: student_enrollment.id)
 
         expect(response).to be_ok
-        expected_response = {'grade' => 94.55, 'total' => 104, 'possible' => 110, 'hide_final_grades' => false}
+        expected_response = {'grade' => 94.55, 'hide_final_grades' => false}
         expect(json_parse(response.body)).to eq expected_response
       end
 
@@ -887,16 +730,30 @@ describe UsersController do
 
   describe "GET 'grades'" do
     context "grading periods" do
-      let(:test_course) { course(active_all: true) }
-      let(:student1) { user(active_all: true) }
-      let(:student2) { user(active_all: true) }
-      let(:grading_period_group) { test_course.grading_period_groups.create! }
+      let(:test_course) { course_factory(active_all: true) }
+      let(:student1) { user_factory(active_all: true) }
+      let(:student2) { user_factory(active_all: true) }
+      let(:grading_period_group) { group_helper.legacy_create_for_course(test_course) }
       let!(:grading_period) do
         grading_period_group.grading_periods.create!(
           title: "Some Semester",
           start_date: 3.months.ago,
           end_date: 2.months.from_now)
       end
+      let(:assignment_due_in_grading_period) do
+        test_course.assignments.create!(
+          due_at: 10.days.from_now(grading_period.start_date),
+          points_possible: 10
+        )
+      end
+      let(:assignment_due_outside_of_grading_period) do
+        test_course.assignments.create!(
+          due_at: 10.days.ago(grading_period.start_date),
+          points_possible: 10
+        )
+      end
+      let(:teacher) { test_course.teachers.active.first }
+
       context "as an observer" do
         let(:observer) do
           observer = user_with_pseudonym(active_all: true)
@@ -907,35 +764,36 @@ describe UsersController do
           observer
         end
 
-        context "with Multiple Grading periods disabled" do
-          it "returns grades of observees" do
-            user_session(observer)
-            get 'grades'
-
-            grades = assigns[:grades][:observed_enrollments][test_course.id]
-            expect(grades.length).to eq 2
-            expect(grades.key?(student1.id)).to eq true
-            expect(grades.key?(student2.id)).to eq true
-          end
-
-          it "returns an empty hash for grading periods" do
-            user_session(observer)
-            get 'grades'
-
-            grading_periods = assigns[:grading_periods]
-            expect(grading_periods).to be_empty
-          end
-        end
-
-        context "with Multiple Grading Periods enabled" do
-          before(:once) { course.root_account.enable_feature!(:multiple_grading_periods) }
-
+        context "with grading periods" do
           it "returns the grading periods" do
             user_session(observer)
             get 'grades'
 
             grading_periods = assigns[:grading_periods][test_course.id][:periods]
             expect(grading_periods).to include grading_period
+          end
+
+          it "returns the grade for the current grading period for observed students" do
+            user_session(observer)
+            assignment_due_in_grading_period.grade_student(student1, grade: 5, grader: teacher)
+            assignment_due_outside_of_grading_period.grade_student(student1, grade: 10, grader: teacher)
+            get 'grades'
+
+            grade = assigns[:grades][:observed_enrollments][test_course.id][student1.id]
+            # 5/10 on assignment in grading period -> 50%
+            expect(grade).to eq(50.0)
+          end
+
+          it "returns the course grade for observed students if there is no current grading period" do
+            user_session(observer)
+            assignment_due_in_grading_period.grade_student(student1, grade: 5, grader: teacher)
+            assignment_due_outside_of_grading_period.grade_student(student1, grade: 10, grader: teacher)
+            grading_period.update!(end_date: 1.month.ago)
+            get 'grades'
+
+            grade = assigns[:grades][:observed_enrollments][test_course.id][student1.id]
+            # 5/10 on assignment in grading period + 10/10 on assignment outside of grading period -> 15/20 -> 75%
+            expect(grade).to eq(75.0)
           end
 
           context "selected_period_id" do
@@ -945,7 +803,7 @@ describe UsersController do
               get 'grades'
 
               selected_period_id = assigns[:grading_periods][test_course.id][:selected_period_id]
-              expect(selected_period_id).to eq grading_period.id
+              expect(selected_period_id).to eq grading_period.global_id
             end
 
             it "returns 0 (signifying 'All Grading Periods') if no current " \
@@ -971,37 +829,15 @@ describe UsersController do
       end
 
       context "as a student" do
-        let(:another_test_course) { course(active_all: true) }
+        let(:another_test_course) { course_factory(active_all: true) }
         let(:test_student) do
-          student = user(active_all: true)
+          student = user_factory(active_all: true)
           course_with_user('StudentEnrollment', course: test_course, user: student, active_all: true)
           course_with_user('StudentEnrollment', course: another_test_course, user: student, active_all: true)
           student
         end
-        context "with Multiple Grading periods disabled" do
-          it "returns grades" do
-            user_session(test_student)
-            get 'grades'
 
-            grades = assigns[:grades][:student_enrollments]
-
-            expect(grades.length).to eq 2
-            expect(grades.key?(test_course.id)).to eq true
-            expect(grades.key?(another_test_course.id)).to eq true
-          end
-
-          it "returns an empty hash for grading periods" do
-            user_session(test_student)
-            get 'grades'
-
-            grading_periods = assigns[:grading_periods]
-            expect(grading_periods).to be_empty
-          end
-        end
-
-        context "with Multiple Grading Periods enabled" do
-          before(:once) { course.root_account.enable_feature!(:multiple_grading_periods) }
-
+        context "with grading periods" do
           it "returns the grading periods" do
             user_session(test_student)
             get 'grades'
@@ -1017,7 +853,19 @@ describe UsersController do
               get 'grades'
 
               selected_period_id = assigns[:grading_periods][test_course.id][:selected_period_id]
-              expect(selected_period_id).to eq grading_period.id
+              expect(selected_period_id).to eq grading_period.global_id
+            end
+
+            it "returns the grade for the current grading period, if one exists " \
+              "and no grading period is passed in" do
+              assignment = test_course.assignments.create!(
+                due_at: 3.days.from_now(grading_period.end_date),
+                points_possible: 10
+              )
+              assignment.grade_student(test_student, grader: test_course.teachers.first, grade: 10)
+              user_session(test_student)
+              get :grades
+              expect(assigns[:grades][:student_enrollments][test_course.id]).to be_nil
             end
 
             it "returns 0 (signifying 'All Grading Periods') if no current " \
@@ -1031,12 +879,50 @@ describe UsersController do
               expect(selected_period_id).to eq 0
             end
 
+            it "returns the grade for 'All Grading Periods' if no current " \
+              "grading period exists and no grading period is passed in" do
+              grading_period.update!(start_date: 1.month.from_now)
+              assignment = test_course.assignments.create!(
+                due_at: 3.days.from_now(grading_period.end_date),
+                points_possible: 10
+              )
+              assignment.grade_student(test_student, grader: test_course.teachers.first, grade: 10)
+              user_session(test_student)
+              get :grades
+              expect(assigns[:grades][:student_enrollments][test_course.id]).to eq(100.0)
+            end
+
             it "returns the grading_period_id passed in, if one is provided along with a course_id" do
               user_session(test_student)
               get 'grades', course_id: test_course.id, grading_period_id: 2939
 
               selected_period_id = assigns[:grading_periods][test_course.id][:selected_period_id]
               expect(selected_period_id).to eq 2939
+            end
+
+            context 'across shards' do
+              specs_require_sharding
+
+              it 'uses global ids for grading periods' do
+                course_with_user('StudentEnrollment', course: test_course, user: student1, active_all: true)
+                @shard1.activate do
+                  account = Account.create!
+                  @course2 = course_factory(active_all: true, account: account)
+                  course_with_user('StudentEnrollment', course: @course2, user: student1, active_all: true)
+                  grading_period_group2 = group_helper.legacy_create_for_course(@course2)
+                  @grading_period2 = grading_period_group2.grading_periods.create!(
+                    title: "Some Semester",
+                    start_date: 3.months.ago,
+                    end_date: 2.months.from_now)
+                end
+
+                user_session(student1)
+
+                get 'grades'
+                expect(response).to be_success
+                selected_period_id = assigns[:grading_periods][@course2.id][:selected_period_id]
+                expect(selected_period_id).to eq @grading_period2.id
+              end
             end
           end
         end
@@ -1046,10 +932,10 @@ describe UsersController do
     it "does not include designers in the teacher enrollments" do
       # teacher needs to be in two courses to get to the point where teacher
       # enrollments are queried
-      @course1 = course(:active_all => true)
-      @course2 = course(:active_all => true)
-      @teacher = user(:active_all => true)
-      @designer = user(:active_all => true)
+      @course1 = course_factory(active_all: true)
+      @course2 = course_factory(active_all: true)
+      @teacher = user_factory(active_all: true)
+      @designer = user_factory(active_all: true)
       @course1.enroll_teacher(@teacher).accept!
       @course2.enroll_teacher(@teacher).accept!
       @course2.enroll_designer(@designer).accept!
@@ -1066,9 +952,9 @@ describe UsersController do
     end
 
     it "does not redirect to an observer enrollment with no observee" do
-      @course1 = course(:active_all => true)
-      @course2 = course(:active_all => true)
-      @user = user(:active_all => true)
+      @course1 = course_factory(active_all: true)
+      @course2 = course_factory(active_all: true)
+      @user = user_factory(active_all: true)
       @course1.enroll_user(@user, 'ObserverEnrollment')
       @course2.enroll_student(@user).accept!
 
@@ -1084,9 +970,9 @@ describe UsersController do
       @s2 = student_in_course(:active_user => true).user
       @test_student = @course.student_view_student
       @assignment = assignment_model(:course => @course, :points_possible => 5)
-      @assignment.grade_student(@s1, :grade => 3)
-      @assignment.grade_student(@s2, :grade => 4)
-      @assignment.grade_student(@test_student, :grade => 5)
+      @assignment.grade_student(@s1, grade: 3, grader: @teacher)
+      @assignment.grade_student(@s2, grade: 4, grader: @teacher)
+      @assignment.grade_student(@test_student, grade: 5, grader: @teacher)
 
       get 'grades'
       expect(assigns[:presenter].course_grade_summaries[@course.id]).to eq({ :score => 70, :students => 2 })
@@ -1109,7 +995,6 @@ describe UsersController do
         enrollments = assigns[:presenter].teacher_enrollments
         expect(enrollments).to include(@e2)
       end
-
     end
   end
 
@@ -1446,8 +1331,8 @@ describe UsersController do
 
   describe '#toggle_recent_activity_dashboard' do
     it 'updates user preference based on value provided' do
-      course
-      user(active_all: true)
+      course_factory
+      user_factory(active_all: true)
       user_session(@user)
 
       expect(@user.preferences[:recent_activity_dashboard]).to be_falsy
@@ -1459,4 +1344,157 @@ describe UsersController do
       expect(JSON.parse(response.body)).to be_empty
     end
   end
+
+  describe '#toggle_hide_dashcard_color_overlays' do
+    it 'updates user preference based on value provided' do
+      course_factory
+      user_factory(active_all: true)
+      user_session(@user)
+
+      expect(@user.preferences[:hide_dashcard_color_overlays]).to be_falsy
+
+      post :toggle_hide_dashcard_color_overlays
+
+      expect(@user.reload.preferences[:hide_dashcard_color_overlays]).to be_truthy
+      expect(response).to be_success
+      expect(JSON.parse(response.body)).to be_empty
+    end
+  end
+
+  describe '#dashboard_view' do
+    before(:each) do
+      course_factory
+      user_factory(active_all: true)
+      user_session(@user)
+    end
+
+    it 'sets the proper user preference on PUT requests' do
+      put :dashboard_view, :dashboard_view => 'cards'
+      expect(@user.preferences[:dashboard_view]).to eql('cards')
+    end
+
+    it 'does not allow arbitrary values to be set' do
+      put :dashboard_view, :dashboard_view => 'a non-whitelisted value'
+      assert_status(400)
+    end
+  end
+
+  describe "show_planner?" do
+    before(:each) do
+      course_factory
+      user_factory(active_all: true)
+      user_session(@user)
+      subject.instance_variable_set(:@current_user, @user)
+    end
+
+    it "should be false if preferences[:dashboard_view] is not set" do
+      @user.preferences.delete(:dashboard_view)
+      expect(subject.show_planner?).to be_falsey
+    end
+
+    it "should be false if preferences[:dashboard_view] is not planner" do
+      @user.preferences[:dashboard_view] = 'something_that_isnt_planner'
+      expect(subject.show_planner?).to be_falsey
+    end
+
+    it "should be true if preferences[:dashboard_view] is planner" do
+      @user.preferences[:dashboard_view] = 'planner'
+      expect(subject.show_planner?).to be_truthy
+    end
+  end
+
+  describe "#invite_users" do
+    it 'does not work without ability to manage students or admins on course' do
+      Account.default.tap{|a| a.settings[:open_registration] = true; a.save!}
+      course_with_student_logged_in(:active_all => true)
+
+      post 'invite_users', :course_id => @course.id
+
+      assert_unauthorized
+    end
+
+    it 'does not work without open registration or manage_user_logins rights' do
+      course_with_teacher_logged_in(:active_all => true)
+
+      post 'invite_users', :course_id => @course.id
+
+      assert_unauthorized
+    end
+
+    it 'works with an admin with manage_login_rights' do
+      course_factory
+      account_admin_user(:active_all => true)
+      user_session(@user)
+
+      post 'invite_users', :course_id => @course.id
+      expect(response).to be_success # yes, even though we didn't do anything
+    end
+
+    it 'works with a teacher with open_registration' do
+      Account.default.any_instantiation.stubs(:open_registration?).returns(true)
+      course_with_teacher_logged_in(:active_all => true)
+
+      post 'invite_users', :course_id => @course.id
+      expect(response).to be_success
+    end
+
+    it 'invites a bunch of users' do
+      Account.default.any_instantiation.stubs(:open_registration?).returns(true)
+      course_with_teacher_logged_in(:active_all => true)
+
+      user_list = [{'email' => 'example1@example.com'}, {'email' => 'example2@example.com', 'name' => 'Hurp Durp'}]
+
+      post 'invite_users', :course_id => @course.id, :users => user_list
+      expect(response).to be_success
+      json = JSON.parse(response.body)
+      expect(json['invited_users'].count).to eq 2
+
+      new_user1 = User.where(:name => 'example1@example.com').first
+      new_user2 = User.where(:name => 'Hurp Durp').first
+      expect(json['invited_users'].map{|u| u['id']}).to match_array([new_user1.id, new_user2.id])
+    end
+
+    it 'checks for pre-existing users' do
+      existing_user = user_with_pseudonym(:active_all => true, :username => "example1@example.com")
+
+      Account.default.any_instantiation.stubs(:open_registration?).returns(true)
+      course_with_teacher_logged_in(:active_all => true)
+
+      user_list = [{'email' => 'example1@example.com'}]
+
+      post 'invite_users', :course_id => @course.id, :users => user_list
+      expect(response).to be_success
+
+      json = JSON.parse(response.body)
+      expect(json['invited_users']).to be_empty
+      expect(json['errored_users'].count).to eq 1
+      expect(json['errored_users'].first['existing_users'].first['user_id']).to eq existing_user.id
+    end
+  end
+
+  describe "#user_dashboard" do
+    context "with student planner feature enabled" do
+      before(:once) do
+        @account = Account.default
+        @account.enable_feature! :student_planner
+      end
+
+      it "sets ENV.STUDENT_PLANNER_ENABLED to false when user has no student enrollments" do
+        user_factory(active_all: true)
+        user_session(@user)
+        @current_user = @user
+        get 'user_dashboard'
+        expect(assigns[:js_env][:STUDENT_PLANNER_ENABLED]).to be_falsey
+      end
+
+      it "sets ENV.STUDENT_PLANNER_ENABLED to true when user has a student enrollment" do
+        course_with_student_logged_in(active_all: true)
+        @current_user = @user
+        get 'user_dashboard'
+        expect(assigns[:js_env][:STUDENT_PLANNER_ENABLED]).to be_truthy
+      end
+
+    end
+  end
+
 end

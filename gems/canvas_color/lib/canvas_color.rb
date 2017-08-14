@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 # Copyright (c) 2007 McClain Looney
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -31,7 +48,7 @@ module CanvasColor
     # Default value for #darken, #lighten etc.
     BRIGHTNESS_DEFAULT = 0.2
 
-    # Constructor.  Inits to white (#FFFFFF) by default, or accepts any params 
+    # Constructor.  Inits to white (#FFFFFF) by default, or accepts any params
     # supported by #parse.
     def initialize(*args)
       @r = 255
@@ -91,7 +108,7 @@ module CanvasColor
         return val if val.is_a?(Color)
 
         # Single value, assume grayscale
-        return Color.new(val, val, val) if val.is_a?(Fixnum)
+        return Color.new(val, val, val) if val.is_a?(Integer)
 
         # Assume string
         str = val.to_s.upcase

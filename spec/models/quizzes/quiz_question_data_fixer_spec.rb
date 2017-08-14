@@ -1,4 +1,5 @@
-# Copyright (C) 2011 Instructure, Inc.
+#
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -52,7 +53,7 @@ describe Quizzes::QuizQuestionDataFixer do
   end
 
   let_once(:bank) do
-    course
+    course_factory
     bank = @course.assessment_question_banks.create!(:title=>'Test Bank')
   end
 

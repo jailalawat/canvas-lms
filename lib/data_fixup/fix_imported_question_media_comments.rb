@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module DataFixup
   module FixImportedQuestionMediaComments
     def self.get_fixed_hash(bad_yaml)
@@ -43,7 +60,7 @@ module DataFixup
             next
           end
 
-          AssessmentQuestion.where(:id => aq).update_all(:question_data => CANVAS_RAILS4_0 ? hash.to_yaml : hash)
+          AssessmentQuestion.where(:id => aq).update_all(:question_data => hash)
         end
       end
 
@@ -58,7 +75,7 @@ module DataFixup
           end
 
           quiz_ids_to_fix << qq.quiz_id
-          Quizzes::QuizQuestion.where(:id => qq).update_all(:question_data => CANVAS_RAILS4_0 ? hash.to_yaml : hash)
+          Quizzes::QuizQuestion.where(:id => qq).update_all(:question_data => hash)
         end
       end
 
@@ -70,7 +87,7 @@ module DataFixup
             next
           end
 
-          Quizzes::Quiz.where(:id => quiz).update_all(:quiz_data => CANVAS_RAILS4_0 ? hash.to_yaml : hash)
+          Quizzes::Quiz.where(:id => quiz).update_all(:quiz_data => hash)
         end
       end
 

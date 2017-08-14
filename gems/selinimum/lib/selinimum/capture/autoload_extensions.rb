@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require "active_support"
 require "active_record"
 
@@ -41,34 +58,42 @@ module Selinimum
         # dependencies). otherwise load it frd (and its dependencies), and
         # put it in the cache so we can restore it later after a reset
         def cache_constants(file_path, const_names)
-          ret = nil
-          if (cached_autoload = cached_autoloads[file_path])
-            restore_constants_for cached_autoload, file_path
-            ret = cached_autoload.ret
-          else
-            dependencies = track_dependencies(const_names) do
-              ret = yield
-            end
-
-            # we got a const; record it so we can replay it later
-            if (const_name = const_names.find { |c| Object.const_defined?(c) })
-              const = Object.const_get(const_name)
-              cached_autoloads[file_path] = CachedAutoload.new(const, ret, dependencies)
-              current_autoloads[file_path] = const
+          autoload_monitor.synchronize do
+            ret = nil
+            if (cached_autoload = cached_autoloads[file_path])
+              restore_constants_for cached_autoload, file_path
+              ret = cached_autoload.ret
             else
-              # this didn't define a const (e.g. we did require_dependency),
-              # but its dependencies may have
-              if current_dependencies
-                current_dependencies.concat dependencies
+              dependencies = track_dependencies(const_names) do
+                ret = yield
+              end
+
+              # we got a const; record it so we can replay it later
+              if (const_name = const_names.find { |c| Object.const_defined?(c) })
+                const = Object.const_get(const_name)
+                cached_autoloads[file_path] = CachedAutoload.new(const, ret, dependencies)
+                current_autoloads[file_path] = const
+              else
+                # this didn't define a const (e.g. we did require_dependency),
+                # but its dependencies may have
+                if current_dependencies
+                  current_dependencies.concat dependencies
+                end
               end
             end
+
+            # we're being autoloaded within another file being autoloaded,
+            # so we want to let it know it depends on us
+            current_dependencies << file_path if current_dependencies
+
+            ret
           end
+        end
 
-          # we're being autoloaded within another file being autoloaded,
-          # so we want to let it know it depends on us
-          current_dependencies << file_path if current_dependencies
-
-          ret
+        # in selenium land, we have a second thread for the rails server,
+        # so synchronize autoloading to avoid stomping
+        def autoload_monitor
+          @autoload_monitor ||= Monitor.new
         end
 
         def app_path_for(path)
@@ -82,31 +107,23 @@ module Selinimum
         # whenever we first autoload something, keep track of what it
         # autoloads. returns an array of file paths
         def track_dependencies(const_names)
-          nested = !dependencies_stack.empty?
-
           dependencies_stack << []
-
-          if nested
-            # top-most track_dependencies call has us covered wrt resetting
-            yield
-          else
-            # this is a top-level autoload (e.g. the top-most `Foo` in the
-            # stack). to really know what this thing depends on, we need to
-            # reset autoloaded stuff yet again, so we don't get freeloaders
-            # from a previous autoload.
-            #
-            # note that we exempt nesting names, since we want to make sure
-            # we don't create dummy duplicate modules/classes (either due to
-            # redundant definitions, or rails' automatic module-from-
-            # directories), e.g.:
-            #
-            #   # foo/bar/baz.rb
-            #   class Foo::Bar # <- we want Baz to be the previously
-            #     class Baz    #    autoloaded class, not a new one
-            #       ...
-            nesting_names = const_names.map { |c| nesting_names_for(c) }.flatten
-            temporarily_reset_autoloads(nesting_names) { yield }
-          end
+          # when we auto-load something, to really know what it depends on,
+          # we need to reset autoloaded stuff, so we don't get freeloaders
+          # from a previous autoload. this is true both for top-level
+          # autoloads as well as for ones triggered by them.
+          #
+          # note that we exempt nesting names, since we want to make sure
+          # we don't create dummy duplicate modules/classes (either due to
+          # redundant definitions, or rails' automatic module-from-
+          # directories), e.g.:
+          #
+          #   # foo/bar/baz.rb
+          #   class Foo::Bar # <- we want Baz to be the previously
+          #     class Baz    #    autoloaded class, not a new one
+          #       ...
+          nesting_names = const_names.map { |c| nesting_names_for(c) }.flatten
+          temporarily_reset_autoloads(nesting_names) { yield }
           current_dependencies
         ensure
           dependencies_stack.pop
@@ -196,7 +213,7 @@ module Selinimum
           classes_to_remove = Set.new(classes_to_remove)
           classes.each do |klass|
             klass.reflections.each do |_, reflection|
-              next unless reflection.instance_variable_defined? :@klass
+              next unless reflection.instance_variable_get(:@klass)
               next unless classes_to_remove.include?(reflection.klass)
               reflection.remove_instance_variable :@klass
             end

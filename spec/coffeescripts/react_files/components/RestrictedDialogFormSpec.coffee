@@ -1,22 +1,39 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
-  '../mockFilesENV'
+  '../mockFilesENV.coffee'
   'react'
+  'react-dom'
+  'react-addons-test-utils'
   'jquery'
   'jsx/files/RestrictedDialogForm'
   'compiled/models/Folder'
-], (mockFilesENV, React, $, RestrictedDialogForm, Folder) ->
+], (mockFilesENV, React, ReactDOM, {Simulate}, $, RestrictedDialogForm, Folder) ->
 
-  Simulate = React.addons.TestUtils.Simulate
-
-  module 'RestrictedDialogForm Multiple Selected Items',
+  QUnit.module 'RestrictedDialogForm Multiple Selected Items',
     setup: ->
       props =
         models: [new Folder(id: 1000, hidden: false), new Folder(id: 999, hidden: true)]
 
-      @restrictedDialogForm = React.render(React.createElement(RestrictedDialogForm, props), $('<div>').appendTo('#fixtures')[0])
+      @restrictedDialogForm = ReactDOM.render(React.createElement(RestrictedDialogForm, props), $('<div>').appendTo('#fixtures')[0])
 
     teardown: ->
-      React.unmountComponentAtNode(@restrictedDialogForm.getDOMNode().parentNode)
+      ReactDOM.unmountComponentAtNode(@restrictedDialogForm.getDOMNode().parentNode)
       $("#fixtures").empty()
 
   test 'button is disabled but becomes enabled when you select an item', ->
@@ -27,14 +44,14 @@ define [
 
     equal @restrictedDialogForm.refs.updateBtn.props.disabled, false, 'is enabled after an option is selected'
 
-  module 'RestrictedDialogForm#handleSubmit',
+  QUnit.module 'RestrictedDialogForm#handleSubmit',
     setup: ->
       props =
         models: [new Folder(id: 999, hidden: true, lock_at: undefined, unlock_at: undefined)]
 
-      @restrictedDialogForm = React.render(React.createElement(RestrictedDialogForm, props), $('<div>').appendTo('#fixtures')[0])
+      @restrictedDialogForm = ReactDOM.render(React.createElement(RestrictedDialogForm, props), $('<div>').appendTo('#fixtures')[0])
     teardown: ->
-      React.unmountComponentAtNode(@restrictedDialogForm.getDOMNode().parentNode)
+      ReactDOM.unmountComponentAtNode(@restrictedDialogForm.getDOMNode().parentNode)
       $("#fixtures").empty()
 
   test 'calls save on the model with only hidden if calendarOption is false', ->

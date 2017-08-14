@@ -1,4 +1,22 @@
-// TO-DO: Change CSS animation to ReactTransitionGroup once 
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+// TO-DO: Change CSS animation to ReactTransitionGroup once
 // we upgrade to React 0.13
 
 @keyframes color-picker-enter {
@@ -18,7 +36,7 @@
   margin: 0 0 $ic-sp; padding: 0;
   line-height: 1.1;
   @include fontSize($ic-font-size--small);
-  font-weight: 500;
+  font-weight: bold;
 }
 
 .ColorPicker__Container {
@@ -73,7 +91,7 @@
 }
 
 .middle > .ColorPicker__Container {
-  &:after, &:before { top: 50%; } 
+  &:after, &:before { top: 50%; }
 }
 
 .ColorPicker__ColorContainer {
@@ -98,7 +116,7 @@
   text-align: center;
   color: $ic-color-light;
   &:hover { box-shadow: 0 1px 2px rgba(black, 0.25); }
-  &:focus { 
+  &:focus {
     box-shadow: 0 1px 2px rgba(black, 0.25), inset 0 0 0 1px $ic-color-light;
     @if $use_high_contrast == false { outline: none; }
   }
@@ -118,13 +136,17 @@
 
 .ColorPicker__ColorPreview {
   width: $ic-sp*3;
+  i[class*=icon-], i[class^=icon-] {
+    margin: 0 auto;
+    color: $ic-color-alert;
+  }
 }
 
 .ColorPicker__Actions {
   text-align: right;
   body.chrome & {
     // fixes weird Chrome bug, where left border of first button gets cut off
-    .Button:first-of-type { margin-left: 1px; } 
+    .Button:first-of-type { margin-left: 1px; }
   }
-  
+
 }

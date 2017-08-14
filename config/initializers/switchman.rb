@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 Rails.application.config.after_initialize do
   Switchman.cache = -> { MultiCache.cache }
 
@@ -17,9 +34,9 @@ Rails.application.config.after_initialize do
   module Canvas
     module Shard
       module ClassMethods
-        def current(category=:default)
+        def current(category=:primary)
           if category == :delayed_jobs
-            active_shards[category] || super(:default).delayed_jobs_shard
+            active_shards[category] || super(:primary).delayed_jobs_shard
           else
             super
           end
@@ -27,9 +44,9 @@ Rails.application.config.after_initialize do
 
         def activate!(categories)
           if !@skip_delayed_job_auto_activation && !categories[:delayed_jobs] &&
-              categories[:default] && categories[:default] != active_shards[:default] # only activate if it changed
+              categories[:primary] && categories[:primary] != active_shards[:primary] # only activate if it changed
             skip_delayed_job_auto_activation do
-              categories[:delayed_jobs] = categories[:default].delayed_jobs_shard
+              categories[:delayed_jobs] = categories[:primary].delayed_jobs_shard
             end
           end
           super
@@ -151,7 +168,7 @@ Rails.application.config.after_initialize do
     end
 
     def in_region?(region)
-      !config[:region] || config[:region] == region
+      !config[:region] || (region.is_a?(Array) ? region.include?(config[:region]) : config[:region] == region)
     end
 
     def in_current_region?
@@ -162,12 +179,14 @@ Rails.application.config.after_initialize do
     end
 
     def self.send_in_each_region(klass, method, enqueue_args = {}, *args)
-      klass.send(method, *args)
+      run_current_region_asynchronously = enqueue_args.delete(:run_current_region_asynchronously)
+      klass.send(method, *args) unless run_current_region_asynchronously
       regions = Set.new
       regions << Shard.current.database_server.config[:region]
       all.each do |db|
-        next if regions.include?(db.config[:region]) || !db.config[:region]
+        next if (regions.include?(db.config[:region]) || !db.config[:region]) && !run_current_region_asynchronously
         next if db.shards.empty?
+        regions << db.config[:region]
         db.shards.first.activate do
           klass.send_later_enqueue_args(method, enqueue_args, *args)
         end
@@ -210,5 +229,11 @@ Rails.application.config.after_initialize do
 
   if !Shard.default.is_a?(Shard) && Switchman.config[:force_sharding] && !ENV['SKIP_FORCE_SHARDING']
     raise 'Sharding is supposed to be set up, but is not! Use SKIP_FORCE_SHARDING=1 to ignore'
+  end
+
+  if Shard.default.is_a?(Shard)
+    # otherwise the serialized settings attribute method won't be properly defined
+    Shard.define_attribute_methods
+    Shard.default.instance_variable_set(:@attributes, Shard.attributes_builder.build_from_database(Shard.default.attributes_before_type_cast))
   end
 end

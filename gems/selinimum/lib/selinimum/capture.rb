@@ -1,49 +1,56 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative "capture/autoload_extensions"
 
 module Selinimum
   class Capture
     # hooks so we know which templates are rendered in each selenium spec
     module TemplateExtensions
-      def render_with_selinimum(template, *args, &block)
+      def render(*)
         Selinimum::Capture.log_template_render inspect
-        render_without_selinimum(template, *args, &block)
-      end
-
-      def self.included(klass)
-        klass.alias_method_chain :render, :selinimum
+        super
       end
     end
 
     # hooks so we know which controllers, js and css are used in each
     # selenium spec
     module ControllerExtensions
-      def render_with_selinimum(*args)
+      def render(*)
         Selinimum::Capture.log_render self.class
-        render_without_selinimum(*args)
+        super
       end
 
-      def css_bundle_with_selinimum(*args)
+      def css_bundle(*args)
         Selinimum::Capture.log_bundle :css, *args
-        css_bundle_without_selinimum(*args)
+        super
       end
 
-      def js_bundle_with_selinimum(*args)
+      def js_bundle(*args)
         Selinimum::Capture.log_bundle :js, *args
-        js_bundle_without_selinimum(*args)
-      end
-
-      def self.included(klass)
-        klass.alias_method_chain :render, :selinimum
-        klass.alias_method_chain :css_bundle, :selinimum
-        klass.alias_method_chain :js_bundle, :selinimum
+        super
       end
     end
 
     class << self
       def install!
-        ActionView::Template.send :include, TemplateExtensions
-        ApplicationController.send :include, ControllerExtensions
-        ActiveSupport::Dependencies.send :extend, AutoloadExtensions
+        ActionView::Template.prepend TemplateExtensions
+        ApplicationController.prepend ControllerExtensions
+        ActiveSupport::Dependencies.singleton_class.prepend AutoloadExtensions
       end
 
       def dependencies
@@ -83,7 +90,7 @@ module Selinimum
         # anything loaded *before* cannot (yet) have its dependencies traced
         dependencies["__all_autoloads"] = AutoloadExtensions.loaded_paths
 
-        data = Hash[dependencies.map { |k, v| [k, v.to_a] }].to_json
+        data = Hash[dependencies.map { |k, v| [k, v.to_a] }]
 
         StatStore.save_stats(data, batch_name)
       end

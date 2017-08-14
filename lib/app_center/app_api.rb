@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'net/http'
 require 'net/https'
 require 'uri'
@@ -88,6 +105,29 @@ module AppCenter
         json['lti_apps'] = apps
       end
       json
+    end
+
+    def get_app_config_url(app_center_id, config_settings)
+      access_token = @app_center.settings['token']
+      endpoint = "/api/v1/lti_apps/#{app_center_id}?access_token=#{access_token}"
+
+      app_details = fetch_app_center_response(endpoint, 5.minutes, 1, 1)
+
+      if app_details['config_xml_url']
+        user_query_string = ''
+        user_query_string = config_settings.map {|k, v| "#{k}=#{v}"}.join('&') if config_settings
+
+        response_config_url = app_details['config_xml_url']
+
+        uri = URI(response_config_url)
+        response_config_url += (uri.query.present? ? '&' : '?') + user_query_string if user_query_string.present?
+
+        config_url = response_config_url
+      else
+        config_url = nil
+      end
+
+      config_url
     end
   end
 end

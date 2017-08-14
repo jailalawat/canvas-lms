@@ -1,4 +1,5 @@
-# Copyright (C) 2014 Instructure, Inc.
+#
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -65,6 +66,7 @@ module Importers
       item ||= Attachment.where(context_type: context.class.to_s, context_id: context, migration_id: hash[:migration_id]).first # if hash[:migration_id]
       item ||= Attachment.find_from_path(hash[:path_name], context)
       if item
+        item.mark_as_importing!(migration)
         item.context = context
         item.migration_id = hash[:migration_id]
         item.locked = true if hash[:locked]

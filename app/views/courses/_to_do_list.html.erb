@@ -1,4 +1,22 @@
 <%
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
+<%
 # This is rendered both on the dashboard and on the course homepage. On the
 # dashboard, contexts is nil, and so the cache is only based on the user, which
 # does not get touched when an assignment needs_grading count changes. So for
@@ -30,9 +48,11 @@ cache(safe_cache_key([@current_user, contexts, 'to_do_list_view']), cache_opts) 
             </div>
           </div>
           <div class="todo-details">
-            <b><%= t('Grade %{assignment}', assignment: assignment.title) %></b>
+            <b class="todo-details__title"><%= t('Grade %{assignment}', assignment: assignment.title) %></b>
             <% if presenter.show_context? %>
-              <p><%= assignment.context_name %></p>
+              <p class="todo-details__context">
+                <%= assignment.short_context_name %>
+              </p>
             <% end %>
             <p>
               <% if assignment.points_possible %>
@@ -57,9 +77,11 @@ cache(safe_cache_key([@current_user, contexts, 'to_do_list_view']), cache_opts) 
         >
           <i class="<%= icon_class %>" aria-label="<%= icon_aria_label %>"></i>
           <div class="todo-details">
-            <b><%= t('Moderate %{assignment}', assignment: assignment.title) %></b>
+            <b class="todo-details__title"><%= t('Moderate %{assignment}', assignment: assignment.title) %></b>
             <% if presenter.show_context? %>
-              <p><%= assignment.context_name %></p>
+              <p class="todo-details__context">
+                <%= assignment.short_context_name %>
+              </p>
             <% end %>
             <p>
               <% if assignment.points_possible %>
@@ -84,9 +106,11 @@ cache(safe_cache_key([@current_user, contexts, 'to_do_list_view']), cache_opts) 
         >
           <i class="<%= icon_class %>" aria-label="<%= icon_aria_label %>"></i>
           <div class="todo-details">
-            <b><%= assignment.submission_action_string %></b>
+            <b  class="todo-details__title"><%= assignment.submission_action_string %></b>
             <% if presenter.show_context? %>
-              <p><%= assignment.context_name %></p>
+              <p class="todo-details__context">
+                <%= assignment.short_context_name %>
+              </p>
             <% end %>
             <p>
               <% if assignment.points_possible %>
@@ -113,9 +137,11 @@ cache(safe_cache_key([@current_user, contexts, 'to_do_list_view']), cache_opts) 
           <%# Don't need aria-label here because we say that this is a peer review in the text immediately following %>
           <i class="icon-peer-review"></i>
           <div class="todo-details">
-            <b><%= t('Peer Review for %{assignment}', assignment: assignment.title) %></b>
+            <b class="todo-details__title"><%= t('Peer Review for %{assignment}', assignment: assignment.title) %></b>
             <% if presenter.show_context? %>
-              <p><%= assessment_request.context_name %></p>
+              <p class="todo-details__context">
+                <%= assessment_request.short_context_name %>
+              </p>
             <% end %>
             <p>
               <% if assignment.try(:points_possible) %>

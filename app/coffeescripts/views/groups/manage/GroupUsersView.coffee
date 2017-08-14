@@ -1,4 +1,22 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
+  'i18n!GroupUsersView'
   'jquery'
   'underscore'
   'compiled/collections/GroupCollection'
@@ -9,7 +27,7 @@ define [
   'jst/groups/manage/groupUsers'
   'jqueryui/draggable'
   'jqueryui/droppable'
-], ($, _, GroupCollection, PaginatedCollectionView, GroupUserView, EditGroupAssignmentView, GroupCategoryCloneView, template) ->
+], (I18n, $, _, GroupCollection, PaginatedCollectionView, GroupUserView, EditGroupAssignmentView, GroupCategoryCloneView, template) ->
 
   class GroupUsersView extends PaginatedCollectionView
 
@@ -59,7 +77,7 @@ define [
       e.preventDefault()
       e.stopPropagation()
       $target = $(e.currentTarget)
-      user = @collection.get($target.data('user-id'))
+      user = @collection.getUser($target.data('user-id'))
 
       if @model.get("has_submission")
         @cloneCategoryView = new GroupCategoryCloneView
@@ -77,18 +95,27 @@ define [
         @moveUser(e, $target)
 
     moveUser: (e, $target) ->
-      @collection.get($target.data('user-id')).save 'group', null
+      $target.prev().focus()
+      @collection.getUser($target.data('user-id')).save 'group', null
 
     removeLeader: (e) ->
       e.preventDefault()
       e.stopPropagation()
-      @model.save(leader: null)
+      $target = $(e.currentTarget)
+      user_id = $target.data('user-id').toString().replace("user_", "")
+      user_name = @model.get('leader').display_name
+      @model.save {leader: null}, success: =>
+        $.screenReaderFlashMessage(I18n.t('Removed %{user} as group leader', {user: user_name}))
+        $(".group-user-actions[data-user-id='user_#{user_id}']", @el).focus()
 
     setLeader: (e) ->
       e.preventDefault()
       e.stopPropagation()
       $target = $(e.currentTarget)
-      @model.save(leader: {id: $target.data('user-id').toString()})
+      user_id = $target.data('user-id').toString().replace("user_", "")
+      @model.save {leader: {id: user_id}}, success: =>
+        $.screenReaderFlashMessage(I18n.t('%{user} is now group leader', {user: @model.get('leader').display_name}))
+        $(".group-user-actions[data-user-id='user_#{user_id}']", @el).focus()
 
     editGroupAssignment: (e) ->
       e.preventDefault()
@@ -98,7 +125,7 @@ define [
         group: @model
       # configure the dialog view with user specific model data
       $target = $(e.currentTarget)
-      user = @collection.get($target.data('user-id'))
+      user = @collection.getUser($target.data('user-id'))
       @editGroupAssignmentView.model = user
       selector = "[data-focus-returns-to='group-#{@model.id}-user-#{user.id}-actions']"
       @editGroupAssignmentView.setTrigger selector

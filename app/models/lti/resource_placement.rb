@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -25,8 +25,35 @@ module Lti
     LINK_SELECTION = 'link_selection'
     POST_GRADES = 'post_grades'
     RESOURCE_SELECTION = 'resource_selection'
+    SIMILARITY_DETECTION = 'similarity_detection'
+
+    SIMILARITY_DETECTION_LTI2 = 'Canvas.placements.similarityDetection'
 
     DEFAULT_PLACEMENTS = [ASSIGNMENT_SELECTION, LINK_SELECTION].freeze
+
+    PLACEMENTS = [:account_navigation,
+                  :similarity_detection,
+                  :assignment_menu,
+                  :assignment_selection,
+                  :collaboration,
+                  :course_assignments_menu,
+                  :course_home_sub_navigation,
+                  :course_navigation,
+                  :course_settings_sub_navigation,
+                  :discussion_topic_menu,
+                  :editor_button,
+                  :file_menu,
+                  :global_navigation,
+                  :homework_submission,
+                  :link_selection,
+                  :migration_selection,
+                  :module_menu,
+                  :post_grades,
+                  :quiz_menu,
+                  :resource_selection,
+                  :tool_configuration,
+                  :user_navigation,
+                  :wiki_page_menu].freeze
 
     PLACEMENT_LOOKUP = {
       'Canvas.placements.accountNavigation' => ACCOUNT_NAVIGATION,
@@ -34,9 +61,8 @@ module Lti
       'Canvas.placements.courseNavigation' => COURSE_NAVIGATION,
       'Canvas.placements.linkSelection' => LINK_SELECTION,
       'Canvas.placements.postGrades' => POST_GRADES,
+      SIMILARITY_DETECTION_LTI2 => SIMILARITY_DETECTION,
     }.freeze
-
-    attr_accessible :placement, :message_handler, :resource_handler
 
     belongs_to :message_handler, class_name: 'Lti::MessageHandler'
     belongs_to :resource_handler, class_name: 'Lti::ResourceHandler'

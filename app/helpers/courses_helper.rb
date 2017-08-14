@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -26,6 +26,7 @@ module CoursesHelper
     student_only = opts[:student_only]
     show_assignment_type_icon = opts[:show_assignment_type_icon]
 
+    return [nil, "Quiz", 'icon-quiz'] if recent_event.is_a?(Quizzes::Quiz)
     return [nil, "Event", "icon-calendar-day"] unless recent_event.is_a?(Assignment)
 
     event_type = ['Assignment', 'icon-assignment']
@@ -98,14 +99,24 @@ module CoursesHelper
          submission.assignment.respond_to?(:points_possible)
          score_out_of_points_possible(submission.grade, submission.assignment.points_possible)
       else
-        submission.grade.to_s.capitalize
+        i18n_grade(submission.grade, submission.grading_type).to_s.capitalize
       end
-    else
-      nil
     end
   end
 
   def skip_custom_role?(cr)
     cr[:count] == 0 && cr[:workflow_state] == 'inactive'
+  end
+
+  def why_cant_i_enable_master_course(course)
+    return nil if MasterCourses::MasterTemplate.is_master_course?(course)
+
+    if course.student_enrollments.not_fake.exists?
+      t("Cannot have a blueprint course with students")
+    elsif MasterCourses::ChildSubscription.is_child_course?(course)
+      t('Course is already associated with a blueprint')
+    else
+      nil
+    end
   end
 end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011-2012 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -115,7 +115,59 @@ describe CollaborationsController do
     end
 
   end
-  describe "GET 'lti_index" do
+
+  describe "GET 'members'" do
+    before(:each) do
+      @collab = @course.collaborations.create!(
+        title: "accessible",
+        user: @student,
+        url: 'http://www.example.com'
+      )
+      @collab.reload
+    end
+
+    it "should require authorization" do
+      get 'members', id: @collab.id
+      assert_unauthorized
+    end
+
+    context "with user access token" do
+      before(:each) do
+        pseudonym(@student)
+        @student.save!
+        token = @student.access_tokens.create!(purpose: 'test').full_token
+        @request.headers['Authorization'] = "Bearer #{token}"
+      end
+
+      it "should return back collaboration members" do
+        get 'members', id: @collab.id
+        hash = JSON.parse(@response.body).first
+
+        expect(hash['id']).to eq @collab.collaborators.first.id
+        expect(hash['type']).to eq 'user'
+        expect(hash['name']).to eq @student.sortable_name
+        expect(hash['collaborator_id']).to eq @student.id
+      end
+
+      it "should include collaborator_lti_id" do
+        get 'members', id: @collab.id, include: ['collaborator_lti_id']
+        @student.reload
+        hash = JSON.parse(@response.body).first
+
+        expect(hash['collaborator_lti_id']).to eq @student.lti_context_id
+      end
+
+      it "should include avatar_image_url" do
+        get 'members', id: @collab.id, include: ['avatar_image_url']
+        @student.avatar_image_url = 'https://www.example.com/awesome-avatar.png'
+        hash = JSON.parse(@response.body).first
+
+        expect(hash['avatar_image_url']).to eq @student.lti_context_id
+      end
+    end
+  end
+
+  describe "GET 'lti_index'" do
     it "should require authorization for the course" do
       get 'lti_index', :course_id => @course.id
       assert_unauthorized
@@ -139,7 +191,7 @@ describe CollaborationsController do
     it 'redirects to the lti launch url for ExternalToolCollaborations' do
       course_with_teacher(:active_all => true)
       user_session(@teacher)
-      collab = ExternalToolCollaboration.create!(
+      collab = ExternalToolCollaboration.new(
         title: "my collab",
         user: @teacher,
         url: 'http://www.example.com'
@@ -279,7 +331,7 @@ describe CollaborationsController do
 
       it "adds groups if sent" do
         user_session(@teacher)
-        group = group_model
+        group = group_model(:context => @course)
         group.add_user(@teacher, 'active')
         content_items.first['ext_canvas_visibility'] = {groups: [Lti::Asset.opaque_identifier_for(group)]}
         post 'create', :course_id => @course.id, :contentItems => content_items.to_json
@@ -293,7 +345,6 @@ describe CollaborationsController do
 
   describe "PUT #update" do
     context "content_items" do
-
       let(:collaboration) do
         collab = @course.collaborations.create!(
           title: "a collab",
@@ -363,7 +414,7 @@ describe CollaborationsController do
 
       it "adds groups if sent" do
         user_session(@teacher)
-        group = group_model
+        group = group_model(:context => @course)
         group.add_user(@teacher, 'active')
         content_items.first['ext_canvas_visibility'] = {groups: [Lti::Asset.opaque_identifier_for(group)]}
         put 'update', id: collaboration.id, :course_id => @course.id, :contentItems => content_items.to_json
@@ -371,6 +422,21 @@ describe CollaborationsController do
         expect(collaboration.collaborators.map(&:group_id).compact).to match_array([group.id])
       end
 
+      it "adds each group only once on multiple requests" do
+        user_session(@teacher)
+        group = group_model(:context => @course)
+        group.add_user(@teacher, 'active')
+        content_items.first['ext_canvas_visibility'] = {
+          groups: [Lti::Asset.opaque_identifier_for(group)],
+          users: [Lti::Asset.opaque_identifier_for(@teacher)]
+        }
+        2.times {
+          put 'update', id: collaboration.id, :course_id => @course.id, :contentItems => content_items.to_json
+        }
+        collaboration = Collaboration.find(assigns[:collaboration].id)
+
+        expect(collaboration.collaborators.map(&:group_id).compact).to match_array([group.id])
+      end
     end
   end
 

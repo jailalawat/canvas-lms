@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -86,7 +86,7 @@ describe FilesController do
   end
 
   before :once do
-    @other_user = user(active_all: true)
+    @other_user = user_factory(active_all: true)
     course_with_teacher active_all: true
     student_in_course active_all: true
   end
@@ -150,25 +150,17 @@ describe FilesController do
       expect(assigns[:contexts][0]).to eql(@course)
     end
 
-    it "should return data for sub_folder if specified" do
+    it "should return a json format for wiki sidebar" do
       user_session(@teacher)
+      r1 = Folder.root_folders(@course).first
       f1 = course_folder
       a1 = folder_file
       get 'index', :course_id => @course.id, :format => 'json'
       expect(response).to be_success
       data = json_parse
       expect(data).not_to be_nil
-      expect(data['contexts'].length).to eql(1)
-      expect(data['contexts'][0]['course']['id']).to eql(@course.id)
-
-      f2 = course_folder
-      a2 = folder_file
-      get 'index', :course_id => @course.id, :folder_id => f2.id, :format => 'json'
-      expect(response).to be_success
-      expect(assigns[:current_folder]).to eql(f2)
-      expect(assigns[:current_attachments]).not_to be_nil
-      expect(assigns[:current_attachments]).not_to be_empty
-      expect(assigns[:current_attachments][0]).to eql(a2)
+      # order expected
+      expect(data["folders"].map{|x| x["folder"]["id"]}).to eql([r1.id, f1.id])
     end
 
     it "should work for a user context, too" do
@@ -194,7 +186,7 @@ describe FilesController do
 
     context "file menu tool visibility" do
       before do
-        course(:active_all => true)
+        course_factory(active_all: true)
         @tool = @course.context_external_tools.create!(:name => "a", :url => "http://google.com", :consumer_key => '12345', :shared_secret => 'secret')
         @tool.file_menu = {
           :visibility => "admins"
@@ -204,7 +196,7 @@ describe FilesController do
       end
 
       before :each do
-        user(:active_all => true)
+        user_factory(active_all: true)
         user_session(@user)
       end
 
@@ -228,7 +220,7 @@ describe FilesController do
 
       before :once do
         @shard2.activate do
-          user(:active_all => true)
+          user_factory(active_all: true)
         end
       end
 
@@ -275,6 +267,14 @@ describe FilesController do
         expect(json_parse['attachment']).to_not be_nil
         expect(json_parse['attachment']['md5']).to be_nil
       end
+
+      it "should not redirect to terms-acceptance page" do
+        user_session(@teacher)
+        session[:require_terms] = true
+        verifier = Attachments::Verification.new(@file).verifier_for_user(@teacher)
+        get 'show', :course_id => @course.id, :id => @file.id, :verifier => verifier, :format => 'json'
+        expect(response).to be_success
+      end
     end
 
     it "should assign variables" do
@@ -294,16 +294,16 @@ describe FilesController do
     it "should force download when download_frd is set" do
       user_session(@teacher)
       # this call should happen inside of FilesController#send_attachment
-      FilesController.any_instance.expects(:send_stored_file).with(@file, false, true)
+      FilesController.any_instance.expects(:send_stored_file).with(@file, false)
       get 'show', :course_id => @course.id, :id => @file.id, :download => 1, :verifier => @file.uuid, :download_frd => 1
     end
 
     it "should remember most recent sf_verifier in session" do
-      user1 = user(:active_all => true)
+      user1 = user_factory(active_all: true)
       file1 = user_file
       ts1, sf_verifier1 = user1.access_verifier
 
-      user2 = user(:active_all => true)
+      user2 = user_factory(active_all: true)
       file2 = user_file
       ts2, sf_verifier2 = user2.access_verifier
 
@@ -404,14 +404,6 @@ describe FilesController do
       it "should mark files as viewed for module progressions if the file is downloaded" do
         file_in_a_module
         get 'show', :course_id => @course.id, :id => @file.id, :download => 1
-        @module.reload
-        expect(@module.evaluate_for(@student).state).to eql(:completed)
-      end
-
-      it "should mark files as viewed for module progressions if the file is previewed inline" do
-        file_in_a_module
-        get 'show', :course_id => @course.id, :id => @file.id, :inline => 1
-        expect(json_parse).to eq({'ok' => true})
         @module.reload
         expect(@module.evaluate_for(@student).state).to eql(:completed)
       end
@@ -543,46 +535,60 @@ describe FilesController do
       file_in_a_module
     end
 
-    before(:each) do
-      user_session(@student)
-    end
+    context "as student" do
+      before(:each) do
+        user_session(@student)
+      end
 
-    it "should find files by relative path" do
-      get "show_relative", :course_id => @course.id, :file_path => @file.full_display_path
-      expect(response).to be_redirect
-      get "show_relative", :course_id => @course.id, :file_path => @file.full_path
-      expect(response).to be_redirect
-
-      def test_path(path)
-        file_with_path(path)
+      it "should find files by relative path" do
         get "show_relative", :course_id => @course.id, :file_path => @file.full_display_path
         expect(response).to be_redirect
         get "show_relative", :course_id => @course.id, :file_path => @file.full_path
         expect(response).to be_redirect
+
+        def test_path(path)
+          file_with_path(path)
+          get "show_relative", :course_id => @course.id, :file_path => @file.full_display_path
+          expect(response).to be_redirect
+          get "show_relative", :course_id => @course.id, :file_path => @file.full_path
+          expect(response).to be_redirect
+        end
+
+        test_path("course files/unfiled/test1.txt")
+        test_path("course files/blah")
+        test_path("course files/a/b/c%20dude/d/e/f.gif")
       end
 
-      test_path("course files/unfiled/test1.txt")
-      test_path("course files/blah")
-      test_path("course files/a/b/c%20dude/d/e/f.gif")
+      it "should render unauthorized access page if the file path doesn't match" do
+        get "show_relative", :course_id => @course.id, :file_path => @file.full_display_path+"blah"
+        expect(response).to render_template("shared/errors/file_not_found")
+        get "show_relative", :file_id => @file.id, :course_id => @course.id, :file_path => @file.full_display_path+"blah"
+        expect(response).to render_template("shared/errors/file_not_found")
+      end
+
+      it "should render file_not_found even if the format is non-html" do
+        get "show_relative", :file_id => @file.id, :course_id => @course.id, :file_path => @file.full_display_path+".css", :format => 'css'
+        expect(response).to render_template("shared/errors/file_not_found")
+      end
+
+      it "should ignore bad file_ids" do
+        get "show_relative", :file_id => @file.id + 1, :course_id => @course.id, :file_path => @file.full_display_path
+        expect(response).to be_redirect
+        get "show_relative", :file_id => "blah", :course_id => @course.id, :file_path => @file.full_display_path
+        expect(response).to be_redirect
+      end
     end
 
-    it "should render unauthorized access page if the file path doesn't match" do
-      get "show_relative", :course_id => @course.id, :file_path => @file.full_display_path+"blah"
-      expect(response).to render_template("shared/errors/file_not_found")
-      get "show_relative", :file_id => @file.id, :course_id => @course.id, :file_path => @file.full_display_path+"blah"
-      expect(response).to render_template("shared/errors/file_not_found")
-    end
+    context "unauthenticated user" do
+      it "renders unauthorized if the file exists" do
+        get "show_relative", :course_id => @course.id, :file_path => @file.full_display_path
+        assert_unauthorized
+      end
 
-    it "should render file_not_found even if the format is non-html" do
-      get "show_relative", :file_id => @file.id, :course_id => @course.id, :file_path => @file.full_display_path+".css", :format => 'css'
-      expect(response).to render_template("shared/errors/file_not_found")
-    end
-
-    it "should ignore bad file_ids" do
-      get "show_relative", :file_id => @file.id + 1, :course_id => @course.id, :file_path => @file.full_display_path
-      expect(response).to be_redirect
-      get "show_relative", :file_id => "blah", :course_id => @course.id, :file_path => @file.full_display_path
-      expect(response).to be_redirect
+      it "renders unauthorized if the file doesn't exist" do
+        get "show_relative", :course_id => @course.id, :file_path => "course files/nope"
+        assert_unauthorized
+      end
     end
   end
 
@@ -616,6 +622,26 @@ describe FilesController do
       expect(response.body).to include 'quota exceeded'
     end
 
+    it "does not check quota for local-storage submission uploads" do
+      local_storage!
+      user_session(@student)
+      Setting.set('user_default_quota', 7)
+      file = @student.attachments.build
+      file.file_state = 'deleted'
+      file.workflow_state = 'unattached'
+      file.save!
+      post 'create', :user_id => @student.id,
+           :format => 'json',
+           :check_quota_after => '0',
+           :filename => 'submission.doc',
+           :attachment => {
+             :unattached_attachment_id => file.id,
+             :uploaded_data => io
+           }
+      expect(response).to be_success
+      expect(file.reload).to be_available
+    end
+
     it "refuses to create a file in a submissions folder" do
       user_session(@student)
       post 'create', :user_id => @student.id, :format => :json, :attachment => {:display_name => 'blah', :uploaded_data => io, :folder_id => @student.submissions_folder.id}
@@ -631,7 +657,7 @@ describe FilesController do
         root_attachment.save!
 
         @shard1.activate do
-          @student = user(:active_user => true)
+          @student = user_factory(active_user: true)
           @attachment = factory_with_protected_attributes(Attachment, :context => @student, :file_state => 'deleted', :workflow_state => 'unattached', :filename => 'test.txt', :content_type => 'text')
         end
 
@@ -768,8 +794,11 @@ describe FilesController do
       end
 
       before :once do
-        user_session(@student)
         submit_file
+      end
+
+      before :each do
+        user_session(@student)
       end
 
       it "should not delete" do
@@ -827,7 +856,7 @@ describe FilesController do
       expect(json['id']).to eql(assigns[:attachment].id)
       expect(json['upload_url']).not_to be_nil
       expect(json['upload_params']).to be_present
-      expect(json['upload_params']['AWSAccessKeyId']).to eq 'stub_id'
+      expect(json['upload_params']['x-amz-credential']).to start_with('stub_id')
     end
 
     it "should not allow going over quota for file uploads" do
@@ -861,7 +890,7 @@ describe FilesController do
       expect(json['id']).to eql(assigns[:attachment].id)
       expect(json['upload_url']).not_to be_nil
       expect(json['upload_params']).to be_present
-      expect(json['upload_params']['AWSAccessKeyId']).to eq 'stub_id'
+      expect(json['upload_params']['x-amz-credential']).to start_with('stub_id')
     end
 
     it "should associate assignment submission for a group assignment with the group" do
@@ -954,6 +983,26 @@ describe FilesController do
       expect(assigns[:attachment].folder).to be_for_submissions
     end
 
+    it "does not require usage rights for group submissions to be visible to students" do
+      @course.root_account.enable_feature! :submissions_folder
+      @course.root_account.enable_feature! :usage_rights_required
+      user_session(@student)
+      category = group_category
+      assignment = @course.assignments.create(:group_category => category, :submission_types => 'online_upload')
+      group = category.groups.create(:context => @course)
+      group.add_user(@student)
+      user_session(@student)
+      post 'create_pending', {:attachment => {
+        :context_code => @course.asset_string,
+        :asset_string => assignment.asset_string,
+        :intent => 'submit',
+        :filename => "bob.txt"
+      }}
+      expect(response).to be_success
+      expect(assigns[:attachment]).not_to be_nil
+      expect(assigns[:attachment]).not_to be_locked
+    end
+
     context "sharding" do
       specs_require_sharding
 
@@ -983,9 +1032,9 @@ describe FilesController do
         local_storage!
         account = Account.create!
         @shard1.activate do
-          @student = user(:active_user => true)
+          @student = user_factory(active_user: true)
         end
-        course(:active_all => true, :account => account)
+        course_factory(active_all: true, :account => account)
         @course.enroll_user(@student, "StudentEnrollment").accept!
         @assignment = @course.assignments.create!(:title => 'upload_assignment', :submission_types => 'online_upload')
 
@@ -1113,6 +1162,16 @@ describe FilesController do
         otherfile = attachment_model
         get "public_url", :id => otherfile, :submission_id => @submission.id
         assert_unauthorized
+      end
+
+      it "allows downloading an attachment to a previous version" do
+        old_file = @attachment
+        new_file = attachment_model(:context => @student)
+        @assignment.submit_homework @student, :attachments => [new_file]
+        get "public_url", :id => old_file.id, :submission_id => @submission.id
+        expect(response).to be_success
+        data = json_parse
+        expect(data).to eq({ "public_url" => old_file.authenticated_s3_url })
       end
     end
   end

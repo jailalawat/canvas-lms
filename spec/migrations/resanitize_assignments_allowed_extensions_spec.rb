@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,7 +21,7 @@ require 'lib/data_fixup/resanitize_assignments_allowed_extensions.rb'
 
 describe 'DataFixup::ResanitizeAssignmentsAllowedExtensions' do
   it "should correct only assignments that aren't sanitized" do
-    course(:active_course => true)
+    course_factory(active_course: true)
     a1 = Assignment.create!(context: @course, title: 'hi1')
     a2 = Assignment.create!(context: @course, title: 'hi2')
     a3 = Assignment.create!(context: @course, title: 'hi3')

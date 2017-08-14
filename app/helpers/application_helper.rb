@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -172,72 +172,12 @@ module ApplicationHelper
     @wiki_sidebar_data
   end
 
-  # js_block captures the content of what you pass it and render_js_blocks will
-  # render all of the blocks that were captured by js_block inside of a <script> tag
-  # if you are in the development environment it will also print out a javascript // comment
-  # that shows the file and line number of where this block of javascript came from.
-  def js_block(options = {}, &block)
-    js_blocks << options.merge(
-      :file_and_line => block.to_s,
-      :contents => capture(&block)
-    )
-  end
-
-  def js_blocks; @js_blocks ||= []; end
-
-  def render_js_blocks
-    output = js_blocks.inject('') do |str, e|
-      # print file and line number for debugging in development mode.
-      value = ""
-      value << "<!-- BEGIN SCRIPT BLOCK FROM: " + e[:file_and_line] + " --> \n" if Rails.env.development?
-      value << e[:contents]
-      value << "<!-- END SCRIPT BLOCK FROM: " + e[:file_and_line] + " --> \n" if Rails.env.development?
-      str << value
-    end
-    raw(output)
-  end
-
-  def hidden_dialog(id, &block)
-    content = capture(&block)
-    if !Rails.env.production? && hidden_dialogs[id] && hidden_dialogs[id] != content
-      raise "Attempted to capture a hidden dialog with #{id} and different content!"
-    end
-    hidden_dialogs[id] = capture(&block)
-  end
-
-  def hidden_dialogs; @hidden_dialogs ||= {}; end
-
-  def render_hidden_dialogs
-    output = hidden_dialogs.keys.sort.inject('') do |str, id|
-      str << "<div id='#{id}' style='display: none;''>" << hidden_dialogs[id] << "</div>"
-    end
-    raw(output)
-  end
-
-  class << self
-    attr_accessor :cached_translation_blocks
-  end
-
-  def include_js_translations?
-    !!(params[:include_js_translations] || use_optimized_js?)
-  end
-
   # See `js_base_url`
   def use_optimized_js?
-    if ENV['USE_OPTIMIZED_JS'] == 'true' || ENV['USE_OPTIMIZED_JS'] == 'True'
-      # allows overriding by adding ?debug_assets=1 or ?debug_js=1 to the url
-      use_webpack? || !(params[:debug_assets] || params[:debug_js])
+    if params.key?(:optimized_js)
+      params[:optimized_js] == 'true' || params[:optimized_js] == '1'
     else
-      # allows overriding by adding ?optimized_js=1 to the url
-      params[:optimized_js] || false
-    end
-  end
-
-  def use_webpack?
-    if CANVAS_WEBPACK
-      !(params[:require_js])
-    else
-      params[:webpack]
+      ENV['USE_OPTIMIZED_JS'] == 'true' || ENV['USE_OPTIMIZED_JS'] == 'True'
     end
   end
 
@@ -252,25 +192,41 @@ module ApplicationHelper
   #   * when ENV['USE_OPTIMIZED_JS'] is false
   #   * or when ?debug_assets=true is present in the url
   def js_base_url
-    if use_webpack?
-      use_optimized_js? ? "/webpack-dist-optimized" : "/webpack-dist"
-    else
-      use_optimized_js? ? '/optimized' : '/javascripts'
-    end.freeze
+    (use_optimized_js? ? '/dist/webpack-production' : '/dist/webpack-dev').freeze
+  end
+
+  def include_head_js
+    # This contains the webpack runtime, it needs to be loaded first
+    paths = ["#{js_base_url}/vendor"]
+
+    # We preemptive load these timezone/locale data files so they are ready
+    # by the time our app-code runs and so webpack doesn't need to know how to load them
+    paths << "/timezone/#{js_env[:TIMEZONE]}.js" if js_env[:TIMEZONE]
+    paths << "/timezone/#{js_env[:CONTEXT_TIMEZONE]}.js" if js_env[:CONTEXT_TIMEZONE]
+    paths << "/timezone/#{js_env[:BIGEASY_LOCALE]}.js" if js_env[:BIGEASY_LOCALE]
+    paths << "#{js_base_url}/moment/locale/#{js_env[:MOMENT_LOCALE]}" if js_env[:MOMENT_LOCALE] && js_env[:MOMENT_LOCALE] != 'en'
+
+    paths << "#{js_base_url}/appBootstrap"
+    paths << "#{js_base_url}/common"
+
+    js_bundles.each do |(bundle, plugin)|
+      paths << "#{js_base_url}/#{plugin ? "#{plugin}-" : ''}#{bundle}"
+    end
+    # now that we've rendered out a script tag for each bundle we were told about in controllers,
+    # empty out the js_bundles array so we don't re-render them later
+    @js_bundles_included_in_head = js_bundles.dup
+    js_bundles.clear
+
+    javascript_include_tag(*paths, defer: true)
   end
 
   # Returns a <script> tag for each registered js_bundle
   def include_js_bundles
     paths = []
-    paths = ["#{js_base_url}/vendor.bundle.js", "#{js_base_url}/instructure-common.bundle.js"] if use_webpack?
-    js_bundles.each do |(bundle, plugin)|
-      if use_webpack?
-        paths << "#{js_base_url}/#{plugin ? "#{plugin}-" : ''}#{bundle}.bundle.js"
-      else
-        paths << "#{js_base_url}#{plugin ? "/plugins/#{plugin}" : ''}/compiled/bundles/#{bundle}.js"
-      end
+    (js_bundles - (@js_bundles_included_in_head || [])).each do |(bundle, plugin)|
+      paths << "#{js_base_url}/#{plugin ? "#{plugin}-" : ''}#{bundle}"
     end
-    javascript_include_tag(*paths, type: nil)
+    javascript_include_tag(*paths, defer: true)
   end
 
   def include_css_bundles
@@ -289,13 +245,8 @@ module ApplicationHelper
   end
 
   def css_variant
-    if use_new_styles?
-      variant = 'new_styles'
-    else
-      variant = 'legacy'
-    end
     use_high_contrast = @current_user && @current_user.prefers_high_contrast?
-    variant + (use_high_contrast ? '_high_contrast' : '_normal_contrast')
+    'new_styles' + (use_high_contrast ? '_high_contrast' : '_normal_contrast')
   end
 
   def css_url_for(bundle_name, plugin=false)
@@ -371,19 +322,25 @@ module ApplicationHelper
   end
 
   def active_external_tool_by_id(tool_id)
-    # don't use for groups. they don't have account_chain_ids
-    tool = @context.context_external_tools.active.where(tool_id: tool_id).first
-    return tool if tool
+    @cached_external_tools ||= {}
+    @cached_external_tools[tool_id] ||= Rails.cache.fetch(['active_external_tool_for', @context, tool_id].cache_key, :expires_in => 1.hour) do
+      # don't use for groups. they don't have account_chain_ids
+      tool = @context.context_external_tools.active.where(tool_id: tool_id).first
 
-    # account_chain_ids is in the order we need to search for tools
-    # unfortunately, the db will return an arbitrary one first.
-    # so, we pull all the tools (probably will only have one anyway) and look through them here
-    tools = ContextExternalTool.active.where(:context_type => 'Account', :context_id => @context.account_chain, :tool_id => tool_id).to_a
-    @context.account_chain.each do |account|
-      tool = tools.find {|t| t.context_id == account.id}
-      return tool if tool
+      unless tool
+        # account_chain_ids is in the order we need to search for tools
+        # unfortunately, the db will return an arbitrary one first.
+        # so, we pull all the tools (probably will only have one anyway) and look through them here
+        account_chain_ids = @context.account_chain_ids
+
+        tools = ContextExternalTool.active.where(:context_type => 'Account', :context_id => account_chain_ids, :tool_id => tool_id).to_a
+        account_chain_ids.each do |account_id|
+          tool = tools.find {|t| t.context_id == account_id}
+          break if tool
+        end
+      end
+      tool
     end
-    nil
   end
 
   def external_tool_tab_visible(tool_id)
@@ -394,7 +351,14 @@ module ApplicationHelper
 
   def license_help_link
     @include_license_dialog = true
+    css_bundle('license_help')
+    js_bundle('license_help')
     link_to(image_tag('help.png', :alt => I18n.t("Help with content licensing")), '#', :class => 'license_help_link no-hover', :title => I18n.t("Help with content licensing"))
+  end
+
+  def visibility_help_link
+    js_bundle('visibility_help')
+    link_to(image_tag('help.png', :alt => I18n.t("Help with course visibilities")), '#', :class => 'visibility_help_link no-hover', :title => I18n.t("Help with course visibilities"))
   end
 
   def equella_enabled?
@@ -564,7 +528,7 @@ module ApplicationHelper
     parts.join(t('#title_separator', ': '))
   end
 
-  def cache(name = {}, options = nil, &block)
+  def cache(name = {}, options = {}, &block)
     unless options && options[:no_locale]
       name = name.cache_key if name.respond_to?(:cache_key)
       name = name + "/#{I18n.locale}" if name.is_a?(String)
@@ -575,57 +539,15 @@ module ApplicationHelper
   def map_courses_for_menu(courses, opts={})
     mapped = courses.map do |course|
       tabs = opts[:include_section_tabs] && available_section_tabs(course)
-      presenter = CourseForMenuPresenter.new(course, tabs, @current_user)
+      presenter = CourseForMenuPresenter.new(course, tabs, @current_user, @domain_root_account)
       presenter.to_h
     end
 
-    mapped
-  end
-
-  def menu_courses_locals
-    courses = @current_user.menu_courses
-    all_courses_count = @current_user.courses_with_primary_enrollment.size
-
-    {
-      :collection             => map_courses_for_menu(courses),
-      :collection_size        => all_courses_count,
-      :more_link_for_over_max => courses_path,
-      :title                  => t('#menu.my_courses', "My Courses"),
-      :link_text              => t('#layouts.menu.view_all_or_customize', 'View All or Customize'),
-      :edit                   => t("#menu.customize", "Customize")
-    }
-  end
-
-  def menu_groups_locals
-    {
-      :collection => @current_user.menu_data[:group_memberships],
-      :collection_size => @current_user.menu_data[:group_memberships_count],
-      :partial => "shared/menu_group_membership",
-      :max_to_show => 8,
-      :more_link_for_over_max => groups_path,
-      :title => t('#menu.current_groups', "Current Groups"),
-      :link_text => t('#layouts.menu.view_all_groups', 'View all groups')
-    }
-  end
-
-  def menu_accounts_locals
-    {
-      :collection => @current_user.menu_data[:accounts],
-      :collection_size => @current_user.menu_data[:accounts_count],
-      :partial => "shared/menu_account",
-      :max_to_show => 8,
-      :more_link_for_over_max => accounts_path,
-      :title => t('#menu.managed_accounts', "Managed Accounts"),
-      :link_text => t('#layouts.menu.view_all_accounts', 'View all accounts')
-    }
-  end
-
-  def cache_if(cond, *args)
-    if cond
-      cache(*args) { yield }
-    else
-      yield
+    if @domain_root_account.feature_enabled?(:dashcard_reordering)
+      mapped = mapped.sort_by {|h| h[:position] || ::CanvasSort::Last}
     end
+
+    mapped
   end
 
   def show_feedback_link?
@@ -642,7 +564,7 @@ module ApplicationHelper
   end
 
   def show_help_link?
-    show_feedback_link? || support_url
+    show_feedback_link? || support_url.present?
   end
 
   def help_link_classes(additional_classes = [])
@@ -651,6 +573,14 @@ module ApplicationHelper
     css_classes << "help_dialog_trigger" if show_feedback_link?
     css_classes.concat(additional_classes) if additional_classes
     css_classes.join(" ")
+  end
+
+  def help_link_icon
+    (@domain_root_account && @domain_root_account.settings[:help_link_icon]) || 'help'
+  end
+
+  def help_link_name
+    (@domain_root_account && @domain_root_account.settings[:help_link_name]) || I18n.t('Help')
   end
 
   def help_link_data
@@ -662,7 +592,7 @@ module ApplicationHelper
 
   def help_link
     if show_help_link?
-      link_content = t('Help')
+      link_content = help_link_name
       link_to link_content.html_safe, help_link_url,
         :class => help_link_classes,
         :data => help_link_data
@@ -676,7 +606,7 @@ module ApplicationHelper
   def active_brand_config(opts={})
     return active_brand_config_cache[opts] if active_brand_config_cache.key?(opts)
 
-    ignore_branding = !use_new_styles? || (@current_user.try(:prefers_high_contrast?) && !opts[:ignore_high_contrast_preference])
+    ignore_branding = (@current_user.try(:prefers_high_contrast?) && !opts[:ignore_high_contrast_preference])
     active_brand_config_cache[opts] = if ignore_branding
       nil
     else
@@ -700,11 +630,17 @@ module ApplicationHelper
   def active_brand_config_json_url(opts={})
     path = active_brand_config(opts).try(:public_json_path)
     path ||= BrandableCSS.public_default_json_path
-    "/#{path}"
+    "#{Canvas::Cdn.config.host}/#{path}"
+  end
+
+  def active_brand_config_js_url(opts={})
+    path = active_brand_config(opts).try(:public_js_path)
+    path ||= BrandableCSS.public_default_js_path
+    "#{Canvas::Cdn.config.host}/#{path}"
   end
 
   def brand_config_for_account(opts={})
-    account = Context.get_account(@context)
+    account = Context.get_account(@context || @course)
 
     # for finding which values to show in the theme editor
     if opts[:ignore_parents]
@@ -730,70 +666,18 @@ module ApplicationHelper
   end
   private :brand_config_for_account
 
-  def get_global_includes
-    return @global_includes if defined?(@global_includes)
-    @global_includes = if @domain_root_account.try(:sub_account_includes?)
-      # get the deepest account to start looking for branding
-      if (acct = Context.get_account(@context))
-
-        # cache via the id because it could be that the root account js changes
-        # but the cache is for the sub-account, and we'd rather have everything
-        # reset after 15 minutes then have some places update immediately and
-        # some places wait.
-        key = [acct.id, 'account_context_global_includes'].cache_key
-        Rails.cache.fetch(key, :expires_in => 15.minutes) do
-          acct.account_chain(include_site_admin: true).
-            reverse.map(&:global_includes_hash)
-        end
-      elsif @current_user.present?
-        key = [
-          @domain_root_account.id,
-          'common_account_global_includes',
-          @current_user.id
-        ].cache_key
-        Rails.cache.fetch(key, :expires_in => 15.minutes) do
-          chain = @domain_root_account.account_chain(include_site_admin: true).reverse
-          chain.concat(@current_user.common_account_chain(@domain_root_account))
-          chain.uniq.map(&:global_includes_hash)
-        end
-      end
-    end
-
-    @global_includes ||= (@domain_root_account || Account.site_admin).
-      account_chain(include_site_admin: true).
-      reverse.map(&:global_includes_hash)
-    @global_includes.uniq!
-    @global_includes.compact!
-    @global_includes
-  end
-
   def include_account_js(options = {})
-    return if params[:global_includes] == '0'
-    includes = if use_new_styles?
-      if @domain_root_account.allow_global_includes? && (abc = active_brand_config(ignore_high_contrast_preference: true))
-        abc.css_and_js_overrides[:js_overrides]
-      end
+    return if params[:global_includes] == '0' || !@domain_root_account
+
+    includes = if @domain_root_account.allow_global_includes? && (abc = active_brand_config(ignore_high_contrast_preference: true))
+      abc.css_and_js_overrides[:js_overrides]
     else
-      get_global_includes.each_with_object([]) do |global_include, memo|
-        memo << global_include[:js] if global_include[:js].present?
-      end
+      Account.site_admin.brand_config.try(:css_and_js_overrides).try(:[], :js_overrides)
     end
+
     if includes.present?
-      if options[:raw]
-        includes = ["/optimized/vendor/jquery-1.7.2.js"] + includes
-        javascript_include_tag(*includes)
-      else
-        str = <<-ENDSCRIPT
-          require(['jquery'], function () {
-            #{includes.to_json}.forEach(function (src) {
-              var s = document.createElement('script');
-              s.src = src;
-              document.body.appendChild(s);
-            });
-          });
-        ENDSCRIPT
-        javascript_tag(str)
-      end
+      includes.unshift("/node_modules/jquery/jquery.js") if options[:raw]
+      javascript_include_tag(*includes, defer: true)
     end
   end
 
@@ -804,20 +688,16 @@ module ApplicationHelper
   end
 
   def disable_account_css?
-    @disable_account_css || params[:global_includes] == '0'
+    @disable_account_css || params[:global_includes] == '0' || !@domain_root_account
   end
 
   def include_account_css
     return if disable_account_css?
 
-    includes = if use_new_styles?
-      if @domain_root_account.allow_global_includes? && (abc = active_brand_config(ignore_high_contrast_preference: true))
-        abc.css_and_js_overrides[:css_overrides]
-      end
+    includes = if @domain_root_account.allow_global_includes? && (abc = active_brand_config(ignore_high_contrast_preference: true))
+      abc.css_and_js_overrides[:css_overrides]
     else
-      get_global_includes.each_with_object([]) do |global_include, css_includes|
-        css_includes << global_include[:css] if global_include[:css].present?
-      end
+      Account.site_admin.brand_config.try(:css_and_js_overrides).try(:[], :css_overrides)
     end
 
     if includes.present?
@@ -904,16 +784,16 @@ module ApplicationHelper
 
   def translated_due_date(assignment)
     if assignment.multiple_due_dates_apply_to?(@current_user)
-      t('#due_dates.multiple_due_dates', 'due: Multiple Due Dates')
+      t('Due: Multiple Due Dates')
     else
       assignment = assignment.overridden_for(@current_user)
 
       if assignment.due_at
-        t('#due_dates.due_at', 'due: %{assignment_due_date_time}', {
-          :assignment_due_date_time => datetime_string(force_zone(assignment.due_at))
-        })
+        t('Due: %{assignment_due_date_time}',
+          assignment_due_date_time: datetime_string(force_zone(assignment.due_at))
+        )
       else
-        t('#due_dates.no_due_date', 'due: No Due Date')
+        t('Due: No Due Date')
       end
     end
   end
@@ -954,12 +834,17 @@ module ApplicationHelper
   end
 
   def include_custom_meta_tags
+    output = []
     if @meta_tags.present?
-      @meta_tags.
-        map{ |meta_attrs| tag("meta", meta_attrs) }.
-        join("\n").
-        html_safe
+      output = @meta_tags.map{ |meta_attrs| tag("meta", meta_attrs) }
     end
+
+    # set this if you want android users of your site to be prompted to install an android app
+    # you can see an example of the one that instructure uses in public/web-app-manifest/manifest.json
+    manifest_url = Setting.get('web_app_manifest_url', '')
+    output << tag("link", rel: 'manifest', href: manifest_url) if manifest_url.present?
+
+    output.join("\n").html_safe.presence
   end
 
   # Returns true if the current_path starts with the given value
@@ -972,10 +857,35 @@ module ApplicationHelper
     end
   end
 
+  # Determine if url is the current state for the groups sub-nav switcher
+  def group_homepage_pathfinder(group)
+    request.fullpath =~ /groups\/#{group.id}/
+  end
+
   def link_to_parent_signup(auth_type)
     template = auth_type.present? ? "#{auth_type.downcase}Dialog" : "parentDialog"
     path = auth_type.present? ? external_auth_validation_path : users_path
     link_to(t("Parents sign up here"), '#', id: "signup_parent", class: "signup_link",
             data: {template: template, path: path}, title: t("Parent Signup"))
   end
+
+  def tutorials_enabled?
+    @domain_root_account&.feature_enabled?(:new_user_tutorial) &&
+    @current_user&.feature_enabled?(:new_user_tutorial_on_off)
+  end
+
+  def set_tutorial_js_env
+    return if @js_env && @js_env[:NEW_USER_TUTORIALS]
+
+    is_enabled = @context.is_a?(Course) &&
+      tutorials_enabled? &&
+      @context.grants_right?(@current_user, session, :manage)
+
+    js_env NEW_USER_TUTORIALS: {is_enabled: is_enabled}
+  end
+
+  def planner_enabled?
+    @domain_root_account&.feature_enabled?(:student_planner) && @current_user.participating_student_course_ids.any?
+  end
+
 end

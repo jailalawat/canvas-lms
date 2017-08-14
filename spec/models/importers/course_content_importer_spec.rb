@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,7 +21,7 @@ require File.expand_path(File.dirname(__FILE__) + '../../../import_helper')
 describe Course do
   describe "import_content" do
     before(:once) do
-      @course = course()
+      @course = course_factory()
     end
 
     it "should import a whole json file" do
@@ -34,6 +34,7 @@ describe Course do
         'file_path' => File.join(IMPORT_JSON_DIR, 'import_from_migration_small.zip')
       }
       migration = ContentMigration.create!(:context => @course)
+      migration.stubs(:canvas_import?).returns(true)
 
       params = {:copy => {
         :topics => {'1864019689002' => true, '1865116155002' => true},
@@ -111,6 +112,9 @@ describe Course do
       expect(assignment.description).to match(Regexp.new("USE THE TEXT BOX!  DO NOT ATTACH YOUR ASSIGNMENT!!"))
       # The old due date (Fri Mar 27 23:55:00 -0600 2009) should have been adjusted to new time frame
       expect(assignment.due_at.year).to eq 2011
+      # overrides
+      expect(assignment.assignment_overrides.count).to eq 1
+      expect(assignment.assignment_overrides.first.due_at.year).to eq 2011
 
       # discussion topic assignment
       assignment = @course.assignments.where(migration_id: "1865116155002").first
@@ -267,7 +271,7 @@ describe Course do
 
   describe "shift_date" do
     it "should round sanely" do
-      course
+      course_factory
       @course.root_account.default_time_zone = Time.zone
       options = Importers::CourseContentImporter.shift_date_options(@course, {
           old_start_date: '2014-3-2',  old_end_date: '2014-4-26',
@@ -337,7 +341,7 @@ describe Course do
 
   describe "audit logging" do
     it "should log content migration in audit logs" do
-      course
+      course_factory
 
       json = File.open(File.join(IMPORT_JSON_DIR, 'assessments.json')).read
       data = JSON.parse(json).with_indifferent_access
@@ -358,7 +362,7 @@ describe Course do
   end
 
   it 'should be able to i18n without keys' do
-    Importers::CourseContentImporter.translate('stuff')
+    expect { Importers::CourseContentImporter.translate('stuff') }.not_to raise_error
   end
 end
 

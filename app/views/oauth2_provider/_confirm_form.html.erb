@@ -1,6 +1,24 @@
-<h2<% if use_new_styles? %> class="ic-Login-confirmation__headline"<% end %>>
+<%
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
+<h2 class="ic-Login-confirmation__headline">
   <% if @provider.icon_url %>
-    <%= image_tag @provider.icon_url, :alt => t("Provider icon"), :class => use_new_styles? ? 'ic-Login-confirmation__auth-icon' : 'icon_url' %>
+    <%= image_tag @provider.icon_url, :alt => t("Provider icon"), :class => 'ic-Login-confirmation__auth-icon' %>
   <% end %>
   <%= @provider.app_name %>
 </h2>
@@ -15,14 +33,14 @@
   <% end %>
 </p>
 <%= form_tag oauth2_auth_accept_path, id: "oauth2_accept_form" do %>
-  <div class="button_box<% if use_new_styles? %> ic-Login-confirmation__actions<% end %>">
+  <div class="button_box ic-Login-confirmation__actions">
     <%= link_to(t(:cancel, "Cancel"), oauth2_auth_deny_path, :class => "btn") %>
-    <%=  submit_tag(t("Authorize"),  class: "btn btn-primary", disable_with: t('Please wait...')) %>
+    <%=  submit_tag(t("Authorize"),  class: "btn btn-primary", data: {disable_with: t('Please wait...')}) %>
   </div>
   <% unless @provider.scopes.blank? %>
     <div class="control-group">
       <%= check_box_tag(:remember_access, "1", false, :class => "checkbox") %>
-      <%= label_tag(:remember_access, :en => "Remember my authorization for this service", :class => "checkbox") %>
+      <%= label_tag :remember_access, t('labels.remember_access', "Remember my authorization for this service"), class: "checkbox" %>
     </div>
   <% end %>
 <% end %>

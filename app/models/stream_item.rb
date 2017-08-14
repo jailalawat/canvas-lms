@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -30,7 +30,6 @@ class StreamItem < ActiveRecord::Base
       :discussion_topic, :message, :submission, :web_conference, :assessment_request]
   validates_presence_of :asset_type, :data
 
-  attr_accessible :context, :asset
   after_destroy :destroy_stream_item_instances
   attr_accessor :unread, :participant, :invalidate_immediately
 
@@ -59,6 +58,7 @@ class StreamItem < ActiveRecord::Base
       root_discussion_entries = root_discussion_entries.map { |entry| reconstitute_ar_object('DiscussionEntry', entry) }
       res.association(:root_discussion_entries).target = root_discussion_entries
       res.attachment = reconstitute_ar_object('Attachment', data.delete(:attachment))
+      res.total_root_discussion_entries = data.delete(:total_root_discussion_entries)
     when 'Submission'
       data['body'] = nil
     end
@@ -78,9 +78,7 @@ class StreamItem < ActiveRecord::Base
       data['updated_at'] = Time.now.utc
     end
 
-    unless CANVAS_RAILS4_0
-      data = res.class.attributes_builder.build_from_database(data) # @attributes is now an AttributeSet
-    end
+    data = res.class.attributes_builder.build_from_database(data) # @attributes is now an AttributeSet
 
     res.instance_variable_set(:@attributes, data)
     res.instance_variable_set(:@attributes_cache, {})
@@ -249,10 +247,6 @@ class StreamItem < ActiveRecord::Base
     res = StreamItem.generate_or_update(object)
     prepare_object_for_unread(object)
 
-    # set the hidden flag if an assignment and muted
-    hidden = object.is_a?(Submission) && object.assignment.muted? ? true : false
-
-
     l_context_type = res.context_type
     Shard.partition_by_shard(user_ids) do |user_ids_subset|
       #these need to be determined per shard
@@ -267,11 +261,17 @@ class StreamItem < ActiveRecord::Base
         {
           :stream_item_id => stream_item_id,
           :user_id => user_id,
-          :hidden => hidden,
+          :hidden => false,
           :workflow_state => object_unread_for_user(object, user_id),
           :context_type => l_context_type,
           :context_id => l_context_id,
         }
+      end
+      if object.is_a?(Submission) && object.assignment.muted?
+        # set the hidden flag if an assignment and muted (for the owner of the submission)
+        if owner_insert = inserts.detect{|i| i[:user_id] == object.user_id}
+          owner_insert[:hidden] = true
+        end
       end
 
       StreamItemInstance.unique_constraint_retry do
@@ -407,6 +407,7 @@ class StreamItem < ActiveRecord::Base
           res.id = original_res.id
           res.association(:root_discussion_entries).target = []
           res.user_has_posted = false
+          res.total_root_discussion_entries = original_res.total_root_discussion_entries
           res.readonly!
         end
       end

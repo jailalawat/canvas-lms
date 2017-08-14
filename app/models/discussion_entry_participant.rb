@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,9 +18,6 @@
 
 class DiscussionEntryParticipant < ActiveRecord::Base
   include Workflow
-
-  # Be more restrictive if this is ever updatable from user params
-  attr_accessible :discussion_entry, :user, :workflow_state, :forced_read_state
 
   belongs_to :discussion_entry
   belongs_to :user

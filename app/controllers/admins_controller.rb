@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -45,8 +45,8 @@
 #       }
 #    }
 class AdminsController < ApplicationController
-  before_filter :require_user
-  before_filter :get_context
+  before_action :require_user
+  before_action :get_context
 
   include Api::V1::Admin
 
@@ -71,7 +71,7 @@ class AdminsController < ApplicationController
   # @returns Admin
   def create
     user = api_find(User, params[:user_id])
-    raise(ActiveRecord::RecordNotFound, "Couldn't find User with API id '#{params[:user_id]}'") unless user.find_pseudonym_for_account(@context.root_account, true)
+    raise(ActiveRecord::RecordNotFound, "Couldn't find User with API id '#{params[:user_id]}'") unless SisPseudonym.for(user, @context, type: :implicit, require_sis: false)
 
     require_role
     admin = @context.account_users.where(user_id: user.id, role_id: @role.id).first_or_initialize
@@ -95,7 +95,7 @@ class AdminsController < ApplicationController
     end
     render :json => admin_json(admin, @current_user, session)
   end
-  
+
   # @API Remove account admin
   #
   # Remove the rights associated with an account admin role from a user.
@@ -129,9 +129,9 @@ class AdminsController < ApplicationController
   # @returns [Admin]
   def index
     if authorized_action(@context, @current_user, :manage_account_memberships)
-      users = api_find_all(User, Array(params[:user_id])) if params[:user_id]
+      user_ids = api_find_all(User, Array(params[:user_id])).pluck(:id) if params[:user_id]
       scope = @context.account_users
-      scope = scope.where(user_id: users) if users
+      scope = scope.where(user_id: user_ids) if user_ids
       route = polymorphic_url([:api_v1, @context, :admins])
       admins = Api.paginate(scope.order(:id), self, route)
       render :json => admins.collect{ |admin| admin_json(admin, @current_user, session) }

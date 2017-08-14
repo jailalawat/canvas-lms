@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative 'common'
 require_relative 'helpers/announcements_common'
 require_relative 'helpers/conferences_common'
@@ -23,11 +40,18 @@ describe "groups" do
   setup_group_page_urls
 
   context "as a student" do
-    before do
-      course_with_student_logged_in(active_all: true)
+    before :once do
+      @student = User.create!(name: "Student 1")
+      @teacher = User.create!(name: "Teacher 1")
+      course_with_student({user: @student, :active_course => true, :active_enrollment => true})
+      @course.enroll_teacher(@teacher).accept!
       group_test_setup(4,1,1)
       # adds all students to the group
-      add_users_to_group(@students + [@user],@testgroup.first)
+      add_users_to_group(@students + [@student],@testgroup.first)
+    end
+
+    before :each do
+      user_session(@student)
     end
 
     #-------------------------------------------------------------------------------------------------------------------
@@ -38,6 +62,16 @@ describe "groups" do
         get url
         expect(f('.recent-activity-header')).to be_displayed
         verify_no_course_user_access(url)
+      end
+
+      it "hides groups for inaccessible courses in groups list", priority: "2", test_id: 927757 do
+        term = EnrollmentTerm.find(@course.enrollment_term_id)
+        term.end_at = Time.zone.now-2.days
+        term.save!
+        @course.restrict_student_past_view = true
+        @course.save
+        get '/groups'
+        expect(f('#content')).not_to contain_css('.previous_groups')
       end
     end
 
@@ -112,6 +146,17 @@ describe "groups" do
         # Checks that all students and teachers created in setup are listed on page
         expect(ff('.student_roster .user_name').size).to eq 5
         expect(ff('.teacher_roster .user_name').size).to eq 1
+      end
+
+      it "shows only active members in groups to students", priority: "2", test_id: 840142 do
+        get people_page
+        student_enrollment = StudentEnrollment.last
+        student = User.find(student_enrollment.user_id)
+        expect(f('.student_roster')).to contain_css("a[href*='#{student.id}']")
+        student_enrollment.workflow_state = "inactive"
+        student_enrollment.save!
+        refresh_page
+        expect(f('.student_roster')).not_to contain_css("a[href*='#{student.id}']")
       end
 
       it "should allow access to people page only within the scope of a group", priority: "1", test_id: 319906 do
@@ -233,14 +278,14 @@ describe "groups" do
       it "should allow group members to add a new folder", priority: "1", test_id: 273625 do
         get files_page
         add_folder
-        expect(ff('.media-body').first.text).to eq 'new folder'
+        expect(ff('.ef-name-col__text').first.text).to eq 'new folder'
       end
 
       it "should allow group members to delete a folder", priority: "1", test_id: 273631 do
         get files_page
         add_folder
         delete(0, :cog_icon)
-        expect(all_files_folders.count).to eq 0
+        expect(f("body")).not_to contain_css('.ef-item-row')
       end
 
       it "should allow group members to move a folder", priority: "1", test_id: 273632 do
@@ -262,7 +307,7 @@ describe "groups" do
         expect(all_files_folders.count).to eq 1
         # Now try to delete the other one using toolbar menu
         delete(0, :toolbar_menu)
-        expect(all_files_folders.count).to eq 0
+        expect(f("body")).not_to contain_css('.ef-item-row')
       end
 
       it "should allow group members to move a file", priority: "1", test_id: 273633 do
@@ -272,26 +317,24 @@ describe "groups" do
         move_file_to_folder('example.pdf','destination_folder')
       end
 
-      it "should allow group members to publish and unpublish a file", priority: "1", test_id: 273628 do
+      it "should hide the publish cloud", priority: "1", test_id: 273628 do
         add_test_files
         get files_page
-        set_item_permissions(:unpublish,:toolbar_menu)
-        expect(f('.btn-link.published-status.unpublished')).to be_displayed
-        set_item_permissions(:publish,:toolbar_menu)
-        expect(f('.btn-link.published-status.published')).to be_displayed
+        expect(f('#content')).not_to contain_css('.btn-link.published-status')
       end
 
-      it "should allow group members to restrict access to a file", priority: "1", test_id: 304672 do
+      it "does not allow group members to restrict access to a file", priority: "1", test_id: 304672 do
         add_test_files
         get files_page
-        set_item_permissions(:restricted_access, :available_with_link, :cloud_icon)
-        expect(f('.btn-link.published-status.hiddenState')).to be_displayed
+        f('.ef-item-row .ef-date-created-col').click
+        expect(f('.ef-header')).to contain_css('.ef-header__secondary')
+        expect(f('.ef-header__secondary')).not_to contain_css('.btn-restrict')
       end
     end
 
     #-------------------------------------------------------------------------------------------------------------------
     describe "conferences page" do
-      before(:once) do
+      before :once do
         PluginSetting.create!(name: "wimba", settings: {"domain" => "wimba.instructure.com"})
       end
 
@@ -302,10 +345,25 @@ describe "groups" do
         expect(f('.new-conference-btn')).to be_displayed
         verify_no_course_user_access(conferences_page)
       end
+
+      it "should not allow inviting users with inactive enrollments" do
+        inactive_student = @students.first
+        inactive_student.update_attribute(:name, "inactivee")
+        inactive_student.enrollments.first.deactivate
+        active_student = @students.last
+        active_student.update_attribute(:name, "imsoactive")
+
+        get conferences_page
+        f('.new-conference-btn').click
+        f('.all_users_checkbox').click
+
+        expect(f('#members_list')).to_not include_text(inactive_student.name)
+        expect(f('#members_list')).to include_text(active_student.name)
+      end
     end
     #-------------------------------------------------------------------------------------------------------------------
     describe "collaborations page" do
-      before(:each) do
+      before :each do
         setup_google_drive
         unless PluginSetting.where(name: 'google_drive').exists?
           PluginSetting.create!(name: 'google_drive', settings: {})
@@ -342,6 +400,15 @@ describe "groups" do
         @students.each do |student|
           expect(users).not_to contain_jqcss("li:contains(#{student.sortable_name}) .icon-user")
         end
+      end
+
+      it 'cannot invite students with inactive enrollments' do
+        inactive_student = @students.first
+        inactive_student.update_attribute(:name, "inactivee")
+        inactive_student.enrollments.first.deactivate
+
+        get collaborations_page
+        expect(f(".available-users")).not_to contain_jqcss("li:contains(#{inactive_student.sortable_name}) .icon-user")
       end
 
       it "should only allow group members to access the group collaborations page", priority: "1", test_id: 319904 do

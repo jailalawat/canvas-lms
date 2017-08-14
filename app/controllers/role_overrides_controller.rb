@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -109,9 +109,9 @@
 #     }
 #
 class RoleOverridesController < ApplicationController
-  before_filter :require_context
-  before_filter :require_role, :only => [:activate_role, :remove_role, :update, :show]
-  before_filter :set_js_env_for_current_account
+  before_action :require_context
+  before_action :require_role, :only => [:activate_role, :remove_role, :update, :show]
+  before_action :set_js_env_for_current_account
 
   # @API List roles
   # List the roles available to an account.
@@ -266,7 +266,7 @@ class RoleOverridesController < ApplicationController
   #     manage_students                  -- [ TAD ] Add/remove students for the course
   #     manage_user_notes                -- [ TA  ] Manage faculty journal entries
   #     manage_rubrics                   -- [ TAD ] Edit assessing rubrics
-  #     manage_wiki                      -- [ TADo] Manage wiki (add / edit / delete pages)
+  #     manage_wiki                      -- [ TADo] Manage (add / edit / delete) pages
   #     read_forum                       -- [STADO] View discussions
   #     moderate_forum                   -- [sTADo] Moderate discussions (delete/edit others' posts, lock topics)
   #     post_to_forum                    -- [STADo] Post to discussions
@@ -279,6 +279,7 @@ class RoleOverridesController < ApplicationController
   #     send_messages_all                -- [sTADo] Send messages to the entire class
   #     view_all_grades                  -- [ TAd ] View all grades
   #     view_group_pages                 -- [sTADo] View the group pages of all student groups
+  #     lti_add_edit                     -- [ TAD ] LTI add and edit
   #
   #   Some of these permissions are applicable only for roles on the site admin
   #   account, on a root account, or for course-level roles with a particular base role type;
@@ -485,7 +486,7 @@ class RoleOverridesController < ApplicationController
         RoleOverride.permissions.keys.each do |key|
           if params[:permissions][key]
             roles.each do |role|
-              if settings = params[:permissions][key][role.id]
+              if (settings = params[:permissions][key][role.id.to_s] || params[:permissions][key][role.id])
                 override = settings[:override] == 'checked' if ['checked', 'unchecked'].include?(settings[:override])
                 locked = settings[:locked] == 'true' if settings[:locked]
                 RoleOverride.manage_role_override(@context, role, key.to_s, :override => override, :locked => locked)

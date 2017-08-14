@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,8 +17,8 @@
 #
 
 class InfoController < ApplicationController
-  skip_before_filter :load_account, :only => :health_check
-  skip_before_filter :load_user, :only => [:health_check, :browserconfig]
+  skip_before_action :load_account, :only => :health_check
+  skip_before_action :load_user, :only => [:health_check, :browserconfig]
 
   def styleguide
     js_bundle :styleguide
@@ -35,7 +35,15 @@ class InfoController < ApplicationController
   end
 
   def help_links
-    render :json => @domain_root_account && @domain_root_account.help_links
+    current_user_roles = @current_user.try(:roles, @domain_root_account) || []
+    links = @domain_root_account && @domain_root_account.help_links
+
+    links = links.select do |link|
+      available_to = link[:available_to] || []
+      available_to.detect { |role| role == 'user' || current_user_roles.include?(role) }
+    end
+
+    render :json => links
   end
 
   def health_check
@@ -47,7 +55,7 @@ class InfoController < ApplicationController
     Tempfile.open("heartbeat", ENV['TMPDIR'] || Dir.tmpdir) { |f| f.write("heartbeat"); f.flush }
 
     respond_to do |format|
-      format.html { render :text => 'canvas ok' }
+      format.html { render plain: 'canvas ok' }
       format.json { render json:
                                { status: 'canvas ok',
                                  revision: Canvas.revision,

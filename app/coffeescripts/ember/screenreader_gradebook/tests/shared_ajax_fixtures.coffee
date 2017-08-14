@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'ic-ajax'
   'ember'
@@ -247,69 +264,69 @@ define [
   students = [
         {
           user_id: '1'
-          user: { id: '1', name: 'Bob' }
+          user: { id: '1', name: 'Bob', group_ids: [], sections: [] }
           course_section_id: '1'
         }
         {
           user_id: '2'
-          user: { id: '2', name: 'Fred' }
+          user: { id: '2', name: 'Fred', group_ids: [], sections: [] }
           course_section_id: '1'
         }
         {
           user_id: '3'
-          user: { id: '3', name: 'Suzy' }
+          user: { id: '3', name: 'Suzy', group_ids: [], sections: [] }
           course_section_id: '1'
         }
         {
           user_id: '4'
-          user: { id: '4', name: 'Buffy' }
+          user: { id: '4', name: 'Buffy', group_ids: [], sections: [] }
           course_section_id: '2'
         }
         {
           user_id: '5'
-          user: { id: '5', name: 'Willow' }
+          user: { id: '5', name: 'Willow', group_ids: [], sections: [] }
           course_section_id: '2'
         }
         {
           user_id: '5'
-          user: { id: '5', name: 'Willow' }
+          user: { id: '5', name: 'Willow', group_ids: [], sections: [] }
           course_section_id: '1'
         }
         {
           user_id: '6'
-          user: { id: '6', name: 'Giles' }
+          user: { id: '6', name: 'Giles', group_ids: [], sections: [] }
           course_section_id: '2'
         }
         {
           user_id: '7'
-          user: { id: '7', name: 'Xander' }
+          user: { id: '7', name: 'Xander', group_ids: [], sections: [] }
           course_section_id: '2'
         }
         {
           user_id: '8'
-          user: { id: '8', name: 'Cordelia' }
+          user: { id: '8', name: 'Cordelia', group_ids: [], sections: [] }
           course_section_id: '2'
         }
         {
           user_id: '9'
-          user: { id: '9', name: 'Drusilla' }
+          user: { id: '9', name: 'Drusilla', group_ids: [], sections: [] }
           course_section_id: '1'
         }
         {
           user_id: '10'
-          user: { id: '10', name: 'Spike' }
+          user: { id: '10', name: 'Spike', group_ids: [], sections: [] }
           course_section_id: '2'
         }
         {
           user_id: '10'
-          user: { id: '10', name: 'Spike' }
+          user: { id: '10', name: 'Spike', group_ids: [], sections: [] }
           course_section_id: '1'
         }
       ]
 
   concludedStudents = [
         {
-          user: { id: '105', name: 'Lyra' }
+          user: { id: '105', name: 'Lyra', group_ids: [], sections: [] }
           course_section_id: '1'
           user_id: '105'
           workflow_state: 'completed'
@@ -554,6 +571,23 @@ define [
     { outcome_id: '2', user_id: '2', score: 3 }
   ]
 
+  effectiveDueDates =
+    1:
+      1:
+        due_at: '2013-09-15T10:00:00Z'
+        grading_period_id: '2'
+        in_closed_grading_period: true
+    2:
+      2:
+        due_at: '2013-09-15T10:00:00Z'
+        grading_period_id: '2'
+        in_closed_grading_period: true
+    3:
+      1:
+        due_at: '2013-12-01T10:00:00Z'
+        grading_period_id: '3'
+        in_closed_grading_period: false
+
   custom_columns: customColumns
   set_default_grade_response: default_grade_response
   students: students
@@ -563,6 +597,7 @@ define [
   sections: sections
   outcomes: outcomes
   outcome_rollups: outcomeRollups
+  effectiveDueDates: effectiveDueDates
   create: (overrides) ->
 
     window.ENV =
@@ -570,6 +605,7 @@ define [
         current_user_id: 1
         context_asset_string: 'course_1'
         GRADEBOOK_OPTIONS: {
+          effective_due_dates_url: '/api/v1/courses/1/effective_due_dates'
           enrollments_url: '/api/v1/enrollments'
           enrollments_with_concluded_url: '/api/v1/concluded_enrollments'
           assignment_groups_url: '/api/v1/assignment_groups'
@@ -585,8 +621,39 @@ define [
           outcome_gradebook_enabled: true
           outcome_links_url: 'api/v1/courses/1/outcome_group_links'
           outcome_rollups_url: 'api/v1/courses/1/outcome_rollups'
+          active_grading_periods: [
+            {
+              id: '1'
+              title: 'Fall Period 1'
+              start_date: '2013-08-01T00:00:00Z'
+              end_date: '2013-09-01T00:00:00Z'
+              close_date: '2013-09-08T00:00:00Z'
+              is_closed: true
+            }
+            {
+              id: '2'
+              title: 'Fall Period 2'
+              start_date: '2013-09-01T00:00:00Z'
+              end_date: '2013-11-01T00:00:00Z'
+              close_date: '2013-11-08T00:00:00Z'
+              is_closed: true
+            }
+            {
+              id: '3'
+              title: 'Fall Period 3'
+              start_date: '2013-11-01T00:00:00Z'
+              end_date: '2014-01-01T00:00:00Z'
+              close_date: '2014-01-08T00:00:00Z'
+              is_closed: false
+            }
+          ]
         }
       }
+
+    ajax.defineFixture window.ENV.GRADEBOOK_OPTIONS.effective_due_dates_url,
+      response: clone effectiveDueDates
+      jqXHR: { getResponseHeader: -> {} }
+      textStatus: 'success'
 
     ajax.defineFixture window.ENV.GRADEBOOK_OPTIONS.enrollments_url,
       response: clone students

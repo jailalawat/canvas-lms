@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -27,8 +27,37 @@ describe GroupsController do
   end
 
   describe "GET context_index" do
+    context "student context cards" do
+      before(:once) do
+        @course.root_account.enable_feature! :student_context_cards
+      end
+
+      it "is disabled when feature_flag is off" do
+        @course.root_account.disable_feature! :student_context_cards
+        user_session(@teacher)
+        get 'index', :course_id => @course.id
+        expect(assigns[:js_env][:STUDENT_CONTEXT_CARDS_ENABLED]).to be_falsey
+      end
+
+      it "is enabled for teachers when feature_flag is on" do
+        %w[manage_students manage_admin_users].each do |perm|
+          RoleOverride.manage_role_override(Account.default, teacher_role, perm, override: false)
+        end
+        user_session(@teacher)
+        get 'index', :course_id => @course.id
+        expect(assigns[:js_env][:STUDENT_CONTEXT_CARDS_ENABLED]).to be true
+      end
+
+      it "is always disabled for students" do
+        user_session(@student)
+        get 'index', :course_id => @course.id
+        cards_enabled = assigns[:js_env] && assigns[:js_env][:STUDENT_CONTEXT_CARDS_ENABLED]
+        expect(cards_enabled).to be_falsey
+      end
+    end
+
     it "should require authorization" do
-      user_session(user) # logged in user without course access
+      user_session(user_factory) # logged in user_factory without course access
       category1 = @course.group_categories.create(:name => "category 1")
       category2 = @course.group_categories.create(:name => "category 2")
       g1 = @course.groups.create(:name => "some group", :group_category => category1)
@@ -134,6 +163,15 @@ describe GroupsController do
       expect(assigns[:previous_groups]).to eq([])
     end
 
+    it 'should put groups in courses in terms concluded for students in "previous groups"' do
+      @course.enrollment_term.set_overrides(@course.account, 'StudentEnrollment' => {end_at: 1.week.ago})
+      group_with_user(group_context: @course, user: @student, active_all: true)
+      user_session(@student)
+      get 'index'
+      expect(assigns[:current_groups]).to eq([])
+      expect(assigns[:previous_groups]).to eq([@group])
+    end
+
     describe 'pagination' do
       before :once do
         group_with_user(:group_context => @course, :user => @student, :active_all => true)
@@ -223,6 +261,18 @@ describe GroupsController do
       g1.reload
       expect(g1.users.map(&:id)).not_to include @student.id
     end
+
+    it "should allow teachers to view after conclusion" do
+      @teacher.enrollments.first.conclude
+      user_session(@teacher)
+      category = @course.group_categories.create(:name => "category")
+      group = @course.groups.create(:name => "some group", :group_category => category)
+
+      get 'show', :id => group.id
+
+      expect(response).to be_success
+      expect(assigns[:group]).to eql(group)
+    end
   end
 
   describe "GET new" do
@@ -243,7 +293,7 @@ describe GroupsController do
     it "should add user" do
       user_session(@teacher)
       @group = @course.groups.create!(:name => "PG 1", :group_category => @category)
-      @user = user(:active_all => true)
+      @user = user_factory(active_all: true)
       post 'add_user', :group_id => @group.id, :user_id => @user.id
       expect(response).to be_success
       expect(assigns[:membership]).not_to be_nil
@@ -273,7 +323,7 @@ describe GroupsController do
   describe "DELETE remove_user" do
     it "should require authorization" do
       @group = Account.default.groups.create!(:name => "some group")
-      @user = user(:active_all => true)
+      @user = user_factory(active_all: true)
       @group.add_user(@user)
       delete 'remove_user', :group_id => @group.id, :user_id => @user.id, :id => @user.id
       assert_unauthorized
@@ -391,6 +441,15 @@ describe GroupsController do
       @group = @course.groups.create!(:name => "some group", :group_category => group_category)
       put 'update', :course_id => @course.id, :id => @group.id, :group => {:group_category_id => 11235}
       expect(response).not_to be_success
+    end
+
+    it "should be able to unset a leader" do
+      user_session(@teacher)
+      @group = @course.groups.create!(:name => "some group")
+      @group.add_user(@student1)
+      @group.update_attribute(:leader, @student1)
+      put 'update', :course_id => @course.id, :id => @group.id, :group => {:leader => nil}
+      expect(@group.reload.leader).to be_nil
     end
 
     describe "quota" do
@@ -588,7 +647,7 @@ describe GroupsController do
     before :once do
       @communities = GroupCategory.communities_for(Account.default)
       group_model(:group_category => @communities)
-      user(:active_user => true)
+      user_factory(active_user: true)
       @membership = @group.add_user(@user, 'invited', false)
     end
 

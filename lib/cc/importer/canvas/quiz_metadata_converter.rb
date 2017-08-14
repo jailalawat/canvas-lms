@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module CC::Importer::Canvas
   module QuizMetadataConverter
     include AssignmentConverter
@@ -35,18 +52,43 @@ module CC::Importer::Canvas
       quiz['hide_correct_answers_at'] = get_time_val(doc, 'hide_correct_answers_at')
       quiz['time_limit'] = get_int_val(doc, 'time_limit')
       quiz['allowed_attempts'] = get_int_val(doc, 'allowed_attempts')
-      ['could_be_locked','anonymous_submissions','show_correct_answers',
-       'require_lockdown_browser','require_lockdown_browser_for_results',
-       'shuffle_answers','available', 'cant_go_back', 'one_question_at_a_time',
-       'require_lockdown_browser_monitor',
-       'one_time_results', 'show_correct_answers_last_attempt'
-      ].each do |bool_val|
+      %w(
+        could_be_locked
+        anonymous_submissions
+        show_correct_answers
+        require_lockdown_browser
+        require_lockdown_browser_for_results
+        shuffle_answers
+        available
+        cant_go_back
+        one_question_at_a_time
+        require_lockdown_browser_monitor
+        one_time_results
+        show_correct_answers_last_attempt
+        only_visible_to_overrides
+      ).each do |bool_val|
         val = get_bool_val(doc, bool_val)
         quiz[bool_val] = val unless val.nil?
       end
 
       if asmnt_node = doc.at_css('assignment')
         quiz['assignment'] = parse_canvas_assignment_data(asmnt_node)
+      end
+
+      if doc.at_css("assignment_overrides override")
+        quiz['assignment_overrides'] = []
+        doc.css("assignment_overrides override").each do |override_node|
+          override = {
+            set_type: override_node["set_type"],
+            set_id: override_node["set_id"],
+            title: override_node["title"]
+          }
+          AssignmentOverride.overridden_dates.each do |field|
+            next unless override_node.has_attribute?(field.to_s)
+            override[field] = override_node[field.to_s]
+          end
+          quiz['assignment_overrides'] << override
+        end
       end
 
       quiz

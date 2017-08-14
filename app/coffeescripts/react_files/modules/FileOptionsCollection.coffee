@@ -1,7 +1,25 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'underscore'
   '../modules/UploadQueue'
-], (_, UploadQueue) ->
+  'react-dom'
+], (_, UploadQueue, ReactDOM) ->
 
   ###
   Manages buckets of FileOptions (resolved, nameCollisions, zipOptions)
@@ -32,7 +50,7 @@ define [
     toFilesOptionArray: (fList) ->
       [].slice.call(fList, 0).map((file) -> {file})
 
-    fileNameExists: (name) ->
+    findMatchingFile: (name) ->
       _.find @folder.files.models, (f) -> f.get('display_name') is name
 
     isZipFile: (file) ->
@@ -42,22 +60,26 @@ define [
     segregateOptionBuckets: (selectedFiles) ->
       [collisions, resolved, zips] = [[], [], []]
       for file in selectedFiles
-        nameToTest = file.name || file.file.name
         if (@isZipFile(file.file) and typeof file.expandZip is 'undefined')
           zips.push file
         # only mark as collision if it is a collision that hasn't been resolved, or is is a zip that will be expanded
-        else if @fileNameExists(nameToTest) && (file.dup != 'overwrite' && (!file.expandZip? || file.expandZip is false))
-          collisions.push file
         else
-          resolved.push file
+          nameToTest = file.name || file.file.name
+          matchingFile = @findMatchingFile(nameToTest)
+          if matchingFile && (file.dup != 'overwrite' && (!file.expandZip? || file.expandZip is false))
+            if matchingFile.get('restricted_by_master_course')
+              file.cannotOverwrite = true
+            collisions.push file
+          else
+            resolved.push file
 
       {collisions, resolved, zips}
 
     handleAddFilesClick: ->
-      this.refs.addFileInput.getDOMNode().click()
+      ReactDOM.findDOMNode(this.refs.addFileInput).click()
 
     handleFilesInputChange: (e) ->
-      selectedFiles = @toFilesOptionArray(this.refs.addFileInput.getDOMNode().files)
+      selectedFiles = @toFilesOptionArray(ReactDOM.findDOMNode(this.refs.addFileInput).files)
       {resolved, collisions, zips} = @segregateOptionBuckets(selectedFiles)
       @setState({nameCollisions: collisions, resolvedNames: resolved, zipOptions: zips})
 

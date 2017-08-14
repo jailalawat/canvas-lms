@@ -1,7 +1,25 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'underscore'
   'i18n!react_files'
   'react'
+  'react-dom'
   'page'
   'jsx/files/UsageRightsDialog'
   '../utils/downloadStuffAsAZip'
@@ -14,7 +32,7 @@ define [
   'classnames'
   'jquery'
   'compiled/jquery.rails_flash_notifications'
-], (_, I18n, React, page, UsageRightsDialog, downloadStuffAsAZip, deleteStuff, customPropTypes, RestrictedDialogForm, preventDefault, FocusStore, Folder, classnames, $) ->
+], (_, I18n, React, ReactDOM, page, UsageRightsDialog, downloadStuffAsAZip, deleteStuff, customPropTypes, RestrictedDialogForm, preventDefault, FocusStore, Folder, classnames, $) ->
 
   Toolbar =
     displayName: 'Toolbar'
@@ -64,11 +82,11 @@ define [
         width: 800
         minHeight: 400
         close: ->
-          React.unmountComponentAtNode this
+          ReactDOM.unmountComponentAtNode this
           $(this).remove()
 
       # This should technically be in JSX land, but ¯\_(ツ)_/¯
-      React.render(React.createElement(RestrictedDialogForm, {
+      ReactDOM.render(React.createElement(RestrictedDialogForm, {
         models: @props.selectedItems
         usageRightsRequiredForContext: @props.usageRightsRequiredForContext
         closeDialog: -> $dialog.dialog('close')
@@ -81,6 +99,7 @@ define [
       contents = React.createElement(UsageRightsDialog, {
           closeModal: @props.modalOptions.closeModal
           itemsToManage: @props.selectedItems
+          userCanRestrictFilesForContext: @props.userCanRestrictFilesForContext
       })
 
-      @props.modalOptions.openModal(contents, => @refs.usageRightsBtn.getDOMNode().focus())
+      @props.modalOptions.openModal(contents, => ReactDOM.findDOMNode(@refs.usageRightsBtn).focus())

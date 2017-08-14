@@ -1,12 +1,33 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 
 describe "people" do
   include_context "in-process server selenium tests"
 
+  before(:once) do
+    driver.manage.window.maximize
+  end
+
   def add_user(option_text, username, user_list_selector)
     click_option('#enrollment_type', option_text)
     f('textarea.user_list').send_keys(username)
-    fj('.verify_syntax_button').click
+    f('.verify_syntax_button').click
     wait_for_ajax_requests
     expect(f('#user_list_parsed')).to include_text(username)
     f('.add_users_button').click
@@ -15,7 +36,7 @@ describe "people" do
   end
 
   def open_student_group_dialog
-    f('.add_category_link').click
+    f('#add-group-set').click
     dialog = fj('.ui-dialog:visible')
     expect(dialog).to be_displayed
     dialog
@@ -27,11 +48,10 @@ describe "people" do
       fln('View User Groups').click
     end
     open_student_group_dialog
-    inputs = ffj('input:visible')
-    replace_content(inputs[0], group_text)
-    submit_form('#add_category_form')
+    replace_content(f('#new_category_name'), group_text)
+    submit_form('.group-category-create')
     wait_for_ajaximations
-    expect(f('#category_list')).to include_text(group_text)
+    expect(f('.collectionViewItems')).to include_text(group_text)
   end
 
   def enroll_student(student)
@@ -51,7 +71,7 @@ describe "people" do
   def create_user(student_name)
     user = User.create!(:name => student_name)
     user.register!
-    user.pseudonyms.create!(:unique_id => student_name, :password => 'qwerty', :password_confirmation => 'qwerty')
+    user.pseudonyms.create!(:unique_id => student_name, :password => 'qwertyuiop', :password_confirmation => 'qwertyuiop')
     @course.reload
     user
   end
@@ -98,8 +118,6 @@ describe "people" do
 
       #add first student
       @student_1 = create_user('student@test.com')
-      Account.default.settings[:enable_manage_groups2] = false
-      Account.default.save!
 
       enroll_student(@student_1)
 
@@ -120,7 +138,7 @@ describe "people" do
     end
 
     it "should have tabs" do
-      expect(fj('.collectionViewItems>li:first').text).to match "Everyone"
+      expect(f('.collectionViewItems>li:first-child').text).to match "Everyone"
     end
 
     it "should display a dropdown menu when item cog is clicked" do
@@ -184,19 +202,10 @@ describe "people" do
       driver.execute_script("$('.collectionViewItems > li:last a').focus()")
       active = driver.execute_script("return document.activeElement")
       active.send_keys(:tab)
-      check_element_has_focus(fj('.group-categories-actions .btn-primary'))
+      check_element_has_focus(f('.group-categories-actions .btn-primary'))
     end
 
-    it "should make sure focus is set to the 'Done' button when adding users" do
-      f('#addUsers').click
-      wait_for_ajaximations
-      f('#user_list_textarea').send_keys('student2@test.com')
-      f('#next-step').click
-      wait_for_ajaximations
-      f('#createUsersAddButton').click
-      wait_for_ajaximations
-      check_element_has_focus(f('.dialog_closer'))
-    end
+    # focus test removed. delegated to inst-ui which now implements the modal
 
     it "should validate the main page" do
       users = ff('.roster_user_name')
@@ -215,22 +224,13 @@ describe "people" do
       create_student_group
     end
 
-    it "should test self sign up help functionality" do
-      f("#people-options .Button").click
-      expect_new_page_load { fln('View User Groups').click }
-      open_student_group_dialog
-      fj('.self_signup_help_link:visible').click
-      help_dialog = f('#self_signup_help_dialog')
-      expect(help_dialog).to be_displayed
-    end
-
     it "should test self sign up functionality" do
       f("#people-options .Button").click
       expect_new_page_load { fln('View User Groups').click }
       dialog = open_student_group_dialog
-      dialog.find_element(:css, '#category_enable_self_signup').click
-      expect(dialog.find_element(:css, '#category_split_group_count')).not_to be_displayed
-      expect(dialog.find_element(:css, '#category_create_group_count')).to be_displayed
+      dialog.find_element(:css, '#enable_self_signup').click
+      expect(dialog.find_element(:css, '#split_groups')).not_to be_displayed
+      expect(dialog).to include_text("groups now")
     end
 
     it "should test self sign up / group structure functionality" do
@@ -240,12 +240,13 @@ describe "people" do
         fln('View User Groups').click
       end
       dialog = open_student_group_dialog
-      dialog.find_element(:css, '#category_enable_self_signup').click
-      dialog.find_element(:css, '#category_create_group_count').send_keys(group_count)
-      submit_form('#add_category_form')
+      replace_content(f('#new_category_name'), 'new group')
+      dialog.find_element(:css, '#enable_self_signup').click
+      replace_content(fj('input[name="create_group_count"]:visible'), group_count)
+      submit_form('.group-category-create')
       wait_for_ajaximations
       expect(@course.groups.count).to eq 4
-      expect(f('.group_count')).to include_text("#{group_count} Groups")
+      expect(f('.groups-with-count')).to include_text("Groups (#{group_count})")
     end
 
     it "should test group structure functionality" do
@@ -257,29 +258,34 @@ describe "people" do
         fln('View User Groups').click
       end
       dialog = open_student_group_dialog
-      dialog.find_element(:css, '#category_split_groups').click
-      replace_content(f('#category_split_group_count'), group_count)
+      replace_content(f('#new_category_name'), 'new group')
+      dialog.find_element(:css, '#split_groups').click
+      replace_content(fj('input[name="create_group_count"]:visible'), group_count)
       expect(@course.groups.count).to eq 0
-      submit_form('#add_category_form')
+      submit_form('.group-category-create')
+      wait_for_ajaximations
+      run_jobs
       wait_for_ajaximations
       expect(@course.groups.count).to eq group_count.to_i
-      expect(ffj('.left_side .group_name:visible').count).to eq group_count.to_i
+      expect(f('.groups-with-count')).to include_text("Groups (#{group_count})")
     end
 
     it "should edit a student group" do
       new_group_name = "new group edit name"
       create_student_group
-      f('.edit_category_link').click
-      edit_form = f('#edit_category_form')
-      edit_form.find_element(:css, 'input#category_name').send_keys(new_group_name)
+      fj('.group-category-actions:visible a:visible').click
+      f('.edit-category').click
+      edit_form = f('.group-category-edit')
+      edit_form.find_element(:css, 'input[name="name"]').send_keys(new_group_name)
       submit_form(edit_form)
       wait_for_ajaximations
-      expect(fj(".category_name").text).to eq new_group_name
+      expect(f(".collectionViewItems")).to include_text(new_group_name)
     end
 
     it "should delete a student group" do
       create_student_group
-      f('.delete_category_link').click
+      fj('.group-category-actions:visible a:visible').click
+      f('.delete-category').click
       keep_trying_until do
         expect(driver.switch_to.alert).not_to be_nil
         driver.switch_to.alert.accept
@@ -287,36 +293,7 @@ describe "people" do
       end
       wait_for_ajaximations
       refresh_page
-      expect(f('#no_groups_message')).to be_displayed
-    end
-
-    it "should randomly assign students" do
-      expected_student_count = "0 students"
-
-      enroll_more_students
-
-      group_count = 4
-      expect_new_page_load do
-        f("#people-options .Button").click
-        fln('View User Groups').click
-      end
-      open_student_group_dialog
-      submit_form('#add_category_form')
-      wait_for_ajaximations
-      group_count.times do
-        f('.add_group_link').click
-        f('.button-container > .btn-small').click
-        wait_for_ajaximations
-      end
-      f('.assign_students_link').click
-      keep_trying_until do
-        expect(driver.switch_to.alert).not_to be_nil
-        driver.switch_to.alert.accept
-        true
-      end
-      wait_for_ajax_requests
-      assert_flash_notice_message /Students assigned to groups/
-      expect(f('.right_side .user_count').text).to eq expected_student_count
+      expect(f('.empty-groupset-instructions')).to be_displayed
     end
 
     it "should test prior enrollment functionality" do
@@ -386,25 +363,22 @@ describe "people" do
       f('#addUsers').click
       wait_for_ajaximations
 
-      expect(f('#create-users-step-1')).to be_displayed
-      replace_content(f('#user_list_textarea'), 'student@example.com')
-      click_option('#role_id', ta_role.id.to_s, :value)
-      click_option('#course_section_id', 'Unnamed Course', :text)
-      scroll_page_to_bottom
-      move_to_click('#limit_privileges_to_course_section')
-      f('#next-step').click
+      expect(f(".addpeople")).to be_displayed
+      replace_content(f(".addpeople__peoplesearch textarea"),'student@example.com')
+      click_option('#peoplesearch_select_role', ta_role.id.to_s, :value)
+      click_option('#peoplesearch_select_section', 'Unnamed Course', :text)
+      f('#addpeople_next').click
       wait_for_ajaximations
 
-      expect(f('#create-users-step-2')).to be_displayed
-      f('.btn.createUsersStartOver').click
+      expect(f(".peoplevalidationissues__missing")).to be_displayed
+      f('#addpeople_back').click
       wait_for_ajaximations
 
       #verify form and options have not changed
-      expect(f('#create-users-step-1')).to be_displayed
-      expect(f('#user_list_textarea').text).to eq 'student@example.com'
-      expect(first_selected_option(f('#role_id')).text).to eq 'TA'
-      expect(first_selected_option(f('#course_section_id')).text).to eq 'Unnamed Course'
-      is_checked('#limit_privileges_to_course_section') == true
+      expect(f('.addpeople__peoplesearch')).to be_displayed
+      expect(f('.addpeople__peoplesearch textarea').text).to eq 'student@example.com'
+      expect(first_selected_option(f('#peoplesearch_select_role')).text).to eq 'TA'
+      expect(first_selected_option(f('#peoplesearch_select_section')).text).to eq 'Unnamed Course'
     end
 
     it "should add a student to a section", priority: "1", test_id: 296460 do
@@ -424,7 +398,7 @@ describe "people" do
     end
 
     it "should remove a student from a section", priority: "1", test_id: 296461 do
-     @student = user
+     @student = user_factory
      @course.enroll_student(@student, allow_multiple_enrollments: true)
      @course.enroll_student(@student, section: @section2, allow_multiple_enrollments: true)
      get "/courses/#{@course.id}/users"
@@ -434,6 +408,22 @@ describe "people" do
      ff('.ui-button-text')[1].click
      wait_for_ajaximations
      expect(ff(".StudentEnrollment")[0]).not_to include_text("section2")
+    end
+
+    it "removes students linked to an observer" do
+      @student1 = user_factory; @course.enroll_student(@student1, enrollment_state: :active)
+      @student2 = user_factory; @course.enroll_student(@student2, enrollment_state: :active)
+      @observer = user_factory
+      @course.enroll_user(@observer, 'ObserverEnrollment', enrollment_state: :active, associated_user_id: @student1.id, allow_multiple_enrollments: true)
+      @course.enroll_user(@observer, 'ObserverEnrollment', enrollment_state: :active, associated_user_id: @student2.id, allow_multiple_enrollments: true)
+      get "/courses/#{@course.id}/users"
+      f(".ObserverEnrollment .icon-settings").click
+      fln("Link to Students").click
+      fln("Remove linked student #{@student1.name}", f("#token_#{@student1.id}")).click
+      f('.ui-dialog-buttonset .btn-primary').click
+      wait_for_ajax_requests
+      expect(@observer.enrollments.not_deleted.map(&:associated_user_id)).not_to include @student1.id
+      expect(@observer.enrollments.not_deleted.map(&:associated_user_id)).to include @student2.id
     end
 
     it "should gray out sections the user doesn't have permission to remove" do
@@ -468,13 +458,13 @@ describe "people" do
     course_with_admin_logged_in
     sec1 = @course.course_sections.create!(name: "section1")
     sec2 = @course.course_sections.create!(name: "section2")
-    @student = user
+    @student = user_factory
     e1 = @course.enroll_student(@student, section: sec1, allow_multiple_enrollments: true)
     @course.enroll_student(@student, section: sec2, allow_multiple_enrollments: true)
     Enrollment.where(:id => e1).update_all(:total_activity_time => 900)
     get "/courses/#{@course.id}/users"
     wait_for_ajaximations
-    expect(fj("#user_#{@student.id} td:nth-child(8)").text.strip).to eq "15:00"
+    expect(f("#user_#{@student.id} td:nth-child(8)").text.strip).to eq "15:00"
   end
 
   it "should filter by role ids" do
@@ -498,7 +488,7 @@ describe "people" do
 
   context "editing role" do
     before :once do
-      course
+      course_factory
       @section = @course.course_sections.create!(name: "section1")
 
       @teacher = user_with_pseudonym(:active_all => true)
@@ -519,7 +509,7 @@ describe "people" do
     end
 
     it "should not let observers with associated users have their roles changed" do
-      student = user
+      student = user_factory
       @course.enroll_student(student)
       @course.enroll_user(@teacher, "ObserverEnrollment", :allow_multiple_enrollments => true, :associated_user_id => student.id)
 
@@ -567,7 +557,7 @@ describe "people" do
       click_option("#edit_roles #role_id", role.id.to_s, :value)
       f('.ui-dialog-buttonpane .btn-primary').click
       wait_for_ajaximations
-      assert_flash_notice_message /Role successfully updated/
+      assert_flash_notice_message "Role successfully updated"
 
       expect(f("#user_#{@teacher.id}")).to include_text(role_name)
       @enrollment.reload
@@ -587,7 +577,7 @@ describe "people" do
       click_option("#edit_roles #role_id", ta_role.id.to_s, :value)
       f('.ui-dialog-buttonpane .btn-primary').click
       wait_for_ajaximations
-      assert_flash_notice_message /Role successfully updated/
+      assert_flash_notice_message "Role successfully updated"
 
       expect(@enrollment.reload).to be_deleted
       expect(enrollment2.reload).to be_deleted
@@ -608,7 +598,7 @@ describe "people" do
       click_option("#edit_roles #role_id", ta_role.id.to_s, :value)
       f('.ui-dialog-buttonpane .btn-primary').click
       wait_for_ajaximations
-      assert_flash_notice_message /Role successfully updated/
+      assert_flash_notice_message "Role successfully updated"
 
       expect(@enrollment.reload).to be_deleted
       expect(enrollment2.reload).to_not be_deleted
@@ -625,7 +615,7 @@ describe "people" do
       click_option("#edit_roles #role_id", student_role.id.to_s, :value)
       f('.ui-dialog-buttonpane .btn-primary').click
       wait_for_ajaximations
-      assert_flash_notice_message /Role successfully updated/
+      assert_flash_notice_message "Role successfully updated"
 
       expect(@enrollment.reload).to be_deleted
       expect(enrollment2.reload).to be_deleted
@@ -656,6 +646,18 @@ describe "people" do
       get "/courses/#{@course.id}/users"
       open_dropdown_menu("#user_#{student.id}")
       expect_no_dropdown_item('editRoles', "#user_#{student.id}")
+    end
+
+    it "should redirect to groups page " do
+      user_session(@teacher)
+
+      get "/courses/#{@course.id}/users"
+
+      group_link = ff('#group_categories_tabs .ui-tabs-nav li').last
+      expect(group_link).to include_text("Groups")
+
+      expect_new_page_load { group_link.click }
+      expect(driver.current_url).to include("/courses/#{@course.id}/groups")
     end
   end
 end

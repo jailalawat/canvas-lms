@@ -1,13 +1,30 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 class BrandConfigsController < ApplicationController
 
   include Api::V1::Progress
   include Api::V1::Account
 
-  before_filter :require_account_context
-  before_filter :require_user
-  before_filter :require_account_management
-  before_filter :require_account_branding, except: [:destroy]
-  before_filter { |c| c.active_tab = "brand_configs" }
+  before_action :require_account_context
+  before_action :require_user
+  before_action :require_account_management
+  before_action :require_account_branding, except: [:destroy]
+  before_action { |c| c.active_tab = "brand_configs" }
 
   def index
     add_crumb t('Themes')
@@ -15,14 +32,17 @@ class BrandConfigsController < ApplicationController
     css_bundle :brand_config_index
     js_bundle :brand_configs_index
 
+    base_brand_config = @account.parent_account.try(:effective_brand_config)
+    base_brand_config ||= BrandConfig.k12_config if k12?
 
     js_env brandConfigStuff: {
+      baseBrandableVariables: BrandableCSS.all_brand_variable_values(base_brand_config),
       brandableVariableDefaults: BrandableCSS.variables_map,
       accountID: @account.id.to_s,
       sharedBrandConfigs: visible_shared_brand_configs.as_json(include_root: false, include: 'brand_config'),
       activeBrandConfig: active_brand_config(ignore_parents: true).as_json(include_root: false)
     }
-    render text: '', layout: true
+    render html: '', layout: true
   end
 
   def new
@@ -36,7 +56,7 @@ class BrandConfigsController < ApplicationController
            variableSchema: default_schema,
            allowGlobalIncludes: @account.allow_global_includes?,
            account_id: @account.id
-    render text: '', layout: 'layouts/bare'
+    render html: '', layout: 'layouts/bare'
   end
 
   def show
@@ -104,7 +124,6 @@ class BrandConfigsController < ApplicationController
     end
   end
 
-
   # Activiate a given brandConfig for the current users's session.
   # this is what is called after the user pushes "Preview"
   # and after the progress of generating and pushing the css files to the CDN.
@@ -144,10 +163,8 @@ class BrandConfigsController < ApplicationController
   # When you close the theme editor, it will send a DELETE to this action to
   # clear out the session brand_config that you were prevewing.
   def destroy
-    if session.delete(:brand_config_md5).presence
-      session.delete(:brand_config_md5)
-      BrandConfig.destroy_if_unused(session.delete(:brand_config_md5))
-    end
+    old_md5 = session.delete(:brand_config_md5).presence
+    BrandConfig.destroy_if_unused(old_md5)
     redirect_to account_brand_configs_path(@account), notice: t('Theme editor changes have been cancelled.')
   end
 
@@ -196,15 +213,20 @@ class BrandConfigsController < ApplicationController
   end
 
   def upload_file(file)
-    attachment = Attachment.create(uploaded_data: file, context: @account)
     expires_in = 15.years
-    attachment.authenticated_s3_url({
-      # this is how long the s3 verifier token will work
-      expires: expires_in,
-      # these are the http cache headers that will be set on the response
-      response_expires: expires_in,
-      response_cache_control: "Cache-Control:max-age=#{expires_in}, public"
-    })
-  end
+    attachment = Attachment.new(attachment_options: {
+                                  s3_access: 'public-read',
+                                  skip_sis: true,
+                                  cache_control: "Cache-Control:max-age=#{expires_in.to_i}, public",
+                                  expires: expires_in.from_now.httpdate },
+                                context: @account)
+    attachment.uploaded_data = file
+    attachment.save!
 
+    if Attachment.s3_storage?
+      attachment.s3_url
+    else
+      attachment.authenticated_s3_url
+    end
+  end
 end

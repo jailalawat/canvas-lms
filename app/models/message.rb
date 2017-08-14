@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2015 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -41,11 +41,7 @@ class Message < ActiveRecord::Base
   include NotificationPreloader
   belongs_to :user
   belongs_to :root_account, :class_name => 'Account'
-  has_many   :attachments, :as => :context
-
-  attr_accessible :to, :from, :subject, :body, :delay_for, :context, :path_type,
-    :from_name, :reply_to_name, :sent_at, :notification, :user, :communication_channel,
-    :notification_name, :asset_context, :data, :root_account_id
+  has_many   :attachments, :as => :context, :inverse_of => :context
 
   attr_writer :delayed_messages
   attr_accessor :output_buffer
@@ -266,15 +262,17 @@ class Message < ActiveRecord::Base
   def link_root_account
     @root_account ||= begin
       context = self.context
+      context = self.asset_context if context.is_a?(CommunicationChannel) && self.asset_context
+
       context = context.assignment if context.respond_to?(:assignment) && context.assignment
       context = context.rubric_association.context if context.respond_to?(:rubric_association) && context.rubric_association
       context = context.appointment_group.contexts.first if context.respond_to?(:appointment_group) && context.appointment_group
+      context = context.master_template.course if context.respond_to?(:master_template) && context.master_template
       context = context.context if context.respond_to?(:context)
       context = context.account if context.respond_to?(:account)
       context = context.root_account if context.respond_to?(:root_account)
       if context
-        p = SisPseudonym.for(user, context)
-        p ||= user.find_pseudonym_for_account(context, true)
+        p = SisPseudonym.for(user, context, type: :implicit, require_sis: false)
         context = p.account if p
       else
         # nothing? okay, just something the user can log in to
@@ -560,7 +558,8 @@ class Message < ActiveRecord::Base
       return nil
     end
 
-    if user && user.account.feature_enabled?(:notification_service) && path_type != "yo"
+    check_acct = (user && user.account) || Account.site_admin
+    if check_acct.feature_enabled?(:notification_service) && path_type != "yo"
       enqueue_to_sqs
     else
       send(delivery_method)
@@ -580,7 +579,7 @@ class Message < ActiveRecord::Base
       )
       complete_dispatch
     end
-  rescue AWS::SQS::Errors::Base => e
+  rescue Aws::SQS::Errors::ServiceError => e
     Canvas::Errors.capture(
       e,
       message: 'Message delivery failed',
@@ -627,7 +626,11 @@ class Message < ActiveRecord::Base
       truncated_body = HtmlTextHelper.strip_and_truncate(body, max_length: message_length)
       "#{truncated_body} #{url}"
     else
-      body
+      if to =~ /^\+[0-9]+$/
+        body
+      else
+        Mailer.create_message(self).to_s
+      end
     end
   end
 
@@ -789,7 +792,7 @@ class Message < ActiveRecord::Base
     res = nil
     logger.info "Delivering mail: #{self.inspect}"
     begin
-      res = Mailer.create_message(self).deliver
+      res = Mailer.create_message(self).deliver_now
     rescue Net::SMTPServerBusy => e
       @exception = e
       logger.error "Exception: #{e.class}: #{e.message}\n\t#{e.backtrace.join("\n\t")}"

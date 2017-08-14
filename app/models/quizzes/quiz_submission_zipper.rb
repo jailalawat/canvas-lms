@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 class Quizzes::QuizSubmissionZipper < ContentZipper
 
   attr_reader :submissions, :attachments, :zip_attachment, :quiz, :filename
@@ -70,10 +87,12 @@ class Quizzes::QuizSubmissionZipper < ContentZipper
   def find_submissions
     submissions = quiz.quiz_submissions
     if zip_attachment.user && quiz.context.enrollment_visibility_level_for(zip_attachment.user) != :full
-      visible_student_ids = quiz.context.apply_enrollment_visibility(quiz.context.student_enrollments, zip_attachment.user).pluck(:user_id)
+      visible_student_ids = quiz.context.apply_enrollment_visibility(
+        quiz.context.student_enrollments, zip_attachment.user
+      ).pluck(:user_id)
       submissions = submissions.where(:user_id => visible_student_ids)
     end
-    @submissions = submissions.map(&:latest_submitted_attempt).compact
+    @submissions = submissions.reject(&:was_preview).map(&:latest_submitted_attempt).compact
   end
 
   def quiz_zip_filename(quiz)

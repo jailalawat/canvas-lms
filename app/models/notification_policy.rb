@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,8 +21,6 @@ class NotificationPolicy < ActiveRecord::Base
   include NotificationPreloader
   belongs_to :communication_channel
   has_many :delayed_messages, :dependent => :destroy
-
-  attr_accessible :notification, :communication_channel, :frequency, :notification_id, :communication_channel_id
 
   validates_presence_of :communication_channel_id, :frequency
   validates_inclusion_of :frequency, in: [Notification::FREQ_IMMEDIATELY,

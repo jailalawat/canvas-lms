@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -60,7 +60,7 @@ describe Auditors::GradeChange do
     it "should include event for nil grader" do
       # We don't want to index events for nil graders.
 
-      @submission = @assignment.grade_student(@student, grade: 6).first
+      @submission = @assignment.grade_student(@student, grade: 6, grader: @teacher).first
       @event = Auditors::GradeChange.record(@submission)
 
       expect(Auditors::GradeChange.for_assignment(@assignment).paginate(:per_page => 5)).to include(@event)
@@ -138,6 +138,25 @@ describe Auditors::GradeChange do
     expect(@event.grade_after).to be_nil
     expect(@event.excused_before).to eql(true)
     expect(@event.excused_after).to eql(false)
+  end
+
+  it "records regraded submissions" do
+    @submission.score = 5
+    @submission.with_versioning(:explicit => true, &:save!)
+    @event = Auditors::GradeChange.record(@submission)
+
+    expect(@event.score_before).to eq 8
+    expect(@event.score_after).to eq 5
+  end
+
+  it "records grades affected by assignment update" do
+    @assignment.points_possible = 15
+    @assignment.save!
+    @submission.assignment_changed_not_sub = true
+    @event = Auditors::GradeChange.record(@submission)
+
+    expect(@event.points_possible_before).to eq 10
+    expect(@event.points_possible_after).to eq 15
   end
 
   describe "options forwarding" do

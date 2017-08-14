@@ -40,10 +40,13 @@ for a full list of options for getting help.
 
 ## Submitting Pull Requests
 
-In order for us to continue to dual-license our Canvas product to best serve all
-of our customers, we need you to sign [our contributor agreement](https://github.com/instructure/canvas-lms/wiki/ica.pdf)
-before we can accept a pull request from you. Please read our [FAQ](https://github.com/instructure/canvas-lms/wiki/FAQ)
-for more information.
+In order for us to continue to dual-license our Canvas product to best serve
+all of our customers, we need you to sign our contributor agreement before we
+can accept a pull request from you. After submitting a pull request, you'll see
+a status check that indicates if a signature is required or not. If the CLAHub
+check fails, click on Details and then complete the web form. Once finished,
+the CLA check on the pull request will pass successfully. Please read our
+[FAQ](https://github.com/instructure/canvas-lms/wiki/FAQ) for more information.
 
 To save yourself a considerable headache, please consider doing development against
 our master branch, instead of the default stable branch. Our stable branch is
@@ -91,3 +94,4 @@ Guidelines
 ----------
 
 - All new UI should be built in [React](https://github.com/instructure/canvas-lms/tree/stable/app/jsx) using the documented [API](https://canvas.instructure.com/doc/api/).
+- Contributed code should pass our linters, but sweeping changes solely to correct lint errors in existing code should be avoided. The following scripts can be used to run the linters against changes in your code: `script/eslint` for JavaScript code, `script/rlint` for Ruby code, and `script/stylelint` for (S)CSS code.

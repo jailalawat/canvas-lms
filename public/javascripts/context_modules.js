@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2012 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,52 +12,59 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'underscore',
-  'compiled/models/ModuleFile',
-  'jsx/shared/PublishCloud',
-  'react',
-  'compiled/models/PublishableModuleItem',
-  'compiled/views/PublishIconView',
-  'INST' /* INST */,
-  'i18n!context_modules',
-  'jquery' /* $ */,
-  'compiled/views/context_modules/context_modules' /* handles the publish/unpublish state */,
-  'compiled/views/modules/RelockModulesDialog',
-  'compiled/util/vddTooltip',
-  'jst/_vddTooltip',
-  'compiled/models/Publishable',
-  'compiled/views/PublishButtonView',
-  'str/htmlEscape',
-  'jquery.ajaxJSON' /* ajaxJSON */,
-  'jquery.instructure_date_and_time' /* dateString, datetimeString, time_field, datetime_field */,
-  'jquery.instructure_forms' /* formSubmit, fillFormData, formErrors, errorBox */,
-  'jqueryui/dialog',
-  'compiled/jquery/fixDialogButtons' /* fix dialog formatting */,
-  'jquery.instructure_misc_helpers' /* /\$\.underscore/ */,
-  'jquery.instructure_misc_plugins' /* .dim, confirmDelete, fragmentChange, showIf */,
-  'jquery.keycodes' /* keycodes */,
-  'jquery.loadingImg' /* loadingImage */,
-  'jquery.templateData' /* fillTemplateData, getTemplateData */,
-  'vendor/date' /* Date.parse */,
-  'vendor/jquery.scrollTo' /* /\.scrollTo/ */,
-  'jqueryui/sortable' /* /\.sortable/ */,
-  'compiled/jquery.rails_flash_notifications'
-], function(_, ModuleFile, PublishCloud, React, PublishableModuleItem, PublishIconView, INST, I18n, $, ContextModulesView, RelockModulesDialog, vddTooltip, vddTooltipView, Publishable, PublishButtonView, htmlEscape) {
+import _ from 'underscore'
+import ModuleFile from 'compiled/models/ModuleFile'
+import PublishCloud from 'jsx/shared/PublishCloud'
+import React from 'react'
+import ReactDOM from 'react-dom'
+import PublishableModuleItem from 'compiled/models/PublishableModuleItem'
+import PublishIconView from 'compiled/views/PublishIconView'
+import LockIconView from 'compiled/views/LockIconView'
+import MasterCourseModuleLock from 'jsx/blueprint_courses/apps/MasterCourseModuleLock'
+import INST from './INST'
+import I18n from 'i18n!context_modules'
+import $ from 'jquery'
+import Helper from './context_modules_helper'
+import CyoeHelper from 'jsx/shared/conditional_release/CyoeHelper'
+import ContextModulesView from 'compiled/views/context_modules/context_modules' /* handles the publish/unpublish state */
+import RelockModulesDialog from 'compiled/views/modules/RelockModulesDialog'
+import vddTooltip from 'compiled/util/vddTooltip'
+import vddTooltipView from 'jst/_vddTooltip'
+import Publishable from 'compiled/models/Publishable'
+import PublishButtonView from 'compiled/views/PublishButtonView'
+import htmlEscape from './str/htmlEscape'
+import setupContentIds from 'jsx/modules/utils/setupContentIds'
+import get from 'lodash/get'
+import './jquery.ajaxJSON'
+import './jquery.instructure_date_and_time' /* dateString, datetimeString, time_field, datetime_field */
+import './jquery.instructure_forms' /* formSubmit, fillFormData, formErrors, errorBox */
+import 'jqueryui/dialog'
+import 'compiled/jquery/fixDialogButtons'
+import './jquery.instructure_misc_helpers' /* /\$\.underscore/ */
+import './jquery.instructure_misc_plugins' /* .dim, confirmDelete, fragmentChange, showIf */
+import './jquery.keycodes'
+import './jquery.loadingImg'
+import './jquery.templateData' /* fillTemplateData, getTemplateData */
+import './vendor/date' /* Date.parse */
+import './vendor/jquery.scrollTo'
+import 'jqueryui/sortable'
+import 'compiled/jquery.rails_flash_notifications'
 
   // TODO: AMD don't export global, use as module
+  /*global modules*/
   window.modules = (function() {
     return {
       updateTaggedItems: function() {
       },
+
       currentIndent: function($item) {
         var classes = $item.attr('class').split(/\s/);
         var indent = 0;
-        for (idx = 0; idx < classes.length; idx++) {
+        for (var idx = 0; idx < classes.length; idx++) {
           if(classes[idx].match(/^indent_/)) {
             var new_indent = parseInt(classes[idx].substring(7), 10);
             if(!isNaN(new_indent)) {
@@ -66,6 +73,20 @@ define([
           }
         }
         return indent;
+      },
+
+      addModule: function() {
+        var $module = $("#context_module_blank").clone(true).attr('id', 'context_module_new');
+        $("#context_modules").append($module);
+        var opts = modules.sortable_module_options;
+        opts['update'] = modules.updateModuleItemPositions;
+        $module.find(".context_module_items").sortable(opts);
+        $("#context_modules.ui-sortable").sortable('refresh');
+        $("#context_modules .context_module .context_module_items.ui-sortable").each(function() {
+          $(this).sortable('refresh');
+          $(this).sortable('option', 'connectWith', '.context_module_items');
+        });
+        modules.editModule($module);
       },
 
       updateModulePositions: function() {
@@ -112,12 +133,14 @@ define([
         );
       },
 
-      updateProgressions: function(user_id, callback) {
-        if (!ENV.IS_STUDENT) return;
-        var url = $(".progression_list_url").attr('href');
-        if(user_id) {
-          url = url + "?user_id=" + user_id;
+      updateProgressions: function(callback) {
+        if (!ENV.IS_STUDENT) {
+          if (callback) {
+            callback();
+          }
+          return;
         }
+        var url = $(".progression_list_url").attr('href');
         if($(".context_module_item.progression_requirement:visible").length > 0) {
           $(".loading_module_progressions_link").show().attr('disabled', true);
         }
@@ -171,24 +194,35 @@ define([
           if(callback) { callback(); }
         });
       },
+
       updateAssignmentData: function(callback) {
         return $.ajaxJSON($(".assignment_info_url").attr('href'), 'GET', {}, function(data) {
           $.each(data, function(id, info) {
-            $context_module_item = $("#context_module_item_" + id);
+            var $context_module_item = $("#context_module_item_" + id);
             var data = {};
             if (info["points_possible"] != null) {
-              data["points_possible_display"] = I18n.t('points_possible_short', '%{points} pts', { 'points': "" + info["points_possible"]});
+              data["points_possible_display"] = I18n.t('points_possible_short', '%{points} pts', {'points': I18n.n(info["points_possible"])});
             }
             if (info["due_date"] != null) {
               if (info["past_due"] != null) {
                 $context_module_item.data('past_due', true);
               }
               data["due_date_display"] = $.dateString(info["due_date"])
+            } else if (info['has_many_overrides'] != null) {
+              data["due_date_display"] = I18n.t("Multiple Due Dates");
             } else if (info["vdd_tooltip"] != null) {
               info['vdd_tooltip']['link_href'] = $context_module_item.find('a.title').attr('href');
               $context_module_item.find('.due_date_display').html(vddTooltipView(info["vdd_tooltip"]));
+            } else {
+              $context_module_item.find('.due_date_display').remove();
             }
-            $context_module_item.fillTemplateData({data: data, htmlValues: ['points_possible_display']})
+            $context_module_item.fillTemplateData({data: data, htmlValues: ['points_possible_display']});
+
+            // clean up empty elements so they don't show borders in updated item group design
+            if (info["points_possible"] === null) {
+              $context_module_item.find('.points_possible_display').remove();
+            }
+
           });
           vddTooltip();
           if (callback) { callback(); }
@@ -196,16 +230,37 @@ define([
           if (callback) { callback(); }
         });
       },
+
+      loadMasterCourseData: function(tag_id) {
+        if (ENV.MASTER_COURSE_SETTINGS) {
+          // Grab the stuff for master courses if needed
+          $.ajaxJSON(ENV.MASTER_COURSE_SETTINGS.MASTER_COURSE_DATA_URL, 'GET', {tag_id: tag_id}, function (data) {
+            if (data.tag_restrictions) {
+              $.each(data.tag_restrictions, function (id, restriction) {
+                var $item = $('#context_module_item_' + id).not('.master_course_content');
+                $item.addClass('master_course_content');
+                if (Object.keys(restriction).some(function (r) { return restriction[r] })) {
+                  $item.attr('data-master_course_restrictions', JSON.stringify(restriction));  // need it if user selects Edit from cog menu
+                }
+                this.initMasterCourseLockButton($item, restriction);
+              }.bind(this));
+            }
+          }.bind(this));
+        }
+      },
+
       itemClass: function(content_tag) {
         return (content_tag.content_type || "").replace(/^[A-Za-z]+::/, '') + "_" + content_tag.content_id;
       },
+
       updateAllItemInstances: function(content_tag) {
         $(".context_module_item."+modules.itemClass(content_tag)+" .title").each(function() {
-          $this = $(this);
+          var $this = $(this);
           $this.text(content_tag.title);
           $this.attr('title', content_tag.title);
         });
       },
+
       showMoveModuleItem: function ($item, returnFocusTo) {
         var $currentModule = $item.closest(".context_module");
         var $form = $('#move_module_item_form');
@@ -242,8 +297,6 @@ define([
             returnFocusTo.focus()
           }
         }).dialog('open');
-
-
       },
       showMoveModule: function ($module, returnFocusTo) {
         var $form = $('#move_context_module_form');
@@ -381,7 +434,7 @@ define([
           .find(".completion_entry .no_items_message").hide().end()
           .find(".add_completion_criterion_link").showIf(!no_items);
 
-        // Set no items or criteria message plus diasable elements if there are no items or no requirements
+        // Set no items or criteria message plus disable elements if there are no items or no requirements
         if (no_items) {
           $form.find(".completion_entry .no_items_message").show();
         }
@@ -413,6 +466,10 @@ define([
           close: function() {
             modules.hideEditModule(true);
             $toFocus.focus();
+            var $contextModules = $("#context_modules .context_module");
+            if ($contextModules.length) {
+              $('#context_modules_sortable_container').removeClass('item-group-container--is-empty');
+            }
           },
           open: function(){
             $(this).find('input[type=text],textarea,select').first().focus();
@@ -420,6 +477,7 @@ define([
         }).dialog('open');
         $module.removeClass('dont_remove');
       },
+
       hideEditModule: function(remove) {
         var $module = $("#add_context_module_form").data('current_module'); //.parents(".context_module");
         if(remove && $module && $module.attr('id') == 'context_module_new' && !$module.hasClass('dont_remove')) {
@@ -427,25 +485,27 @@ define([
         }
         $("#add_context_module_form:visible").dialog('close');
       },
+
       addItemToModule: function($module, data) {
-        if(!data) { return $("<div/>"); }
+        if (!data) { return $('<div/>'); }
         data.id = data.id || 'new'
         data.type = data.type || data['item[type]'] || $.underscore(data.content_type);
         data.title = data.title || data['item[title]'];
         data.new_tab = data.new_tab ? '1' : '0';
         data.graded = data.graded ? '1' : '0';
-        var $item, $olditem = (data.id != 'new') ? $("#context_module_item_" + data.id) : [];
-        if($olditem.length) {
+        var $item, $olditem = (data.id !== 'new') ? $('#context_module_item_' + data.id) : [];
+        if ($olditem.length) {
           var $admin = $olditem.find('.ig-admin');
           if ($admin.length) { $admin.detach(); }
           $item = $olditem.clone(true);
           if ($admin.length) {
             $item.find('.ig-row').append($admin)
-          };
+          }
         } else {
-          $item = $("#context_module_item_blank").clone(true).removeAttr('id');
+          $item = $('#context_module_item_blank').clone(true).removeAttr('id');
+          modules.evaluateItemCyoe($item, data)
         }
-        $item.addClass(data.type + "_" + data.id);
+        $item.addClass(data.type + '_' + data.id);
         $item.addClass(data.type);
         $item.attr('aria-label', data.title);
         $item.find('.title').attr('title', data.title);
@@ -454,32 +514,80 @@ define([
           id: 'context_module_item_' + data.id,
           hrefValues: ['id', 'context_module_id', 'content_id']
         });
-        for(var idx = 0; idx < 10; idx++) {
+        for (var idx = 0; idx < 10; idx++) {
           $item.removeClass('indent_' + idx);
         }
         $item.addClass('indent_' + (data.indent || 0));
         $item.addClass(modules.itemClass(data));
+
         // don't just tack onto the bottom, put it in its correct position
         var $before = null;
-        $module.find(".context_module_items").children().each(function() {
+        $module.find('.context_module_items').children().each(function() {
           var position = parseInt($(this).getTemplateData({textValues: ['position']}).position, 10);
-          if((data.position || data.position === 0) && (position || position === 0)) {
-            if($before == null && (position - data.position >= 0)) {
+          if ((data.position || data.position === 0) && (position || position === 0)) {
+            if ($before == null && (position - data.position >= 0)) {
               $before = $(this);
             }
           }
         });
-        if($olditem.length) {
+        if ($olditem.length) {
           $olditem.replaceWith($item.show());
         } else {
-          if(!$before) {
-            $module.find(".context_module_items").append($item.show());
+          if (!$before) {
+            $module.find('.context_module_items').append($item.show());
           } else {
             $before.before($item.show());
           }
         }
         return $item;
       },
+
+      evaluateItemCyoe: function($item, data) {
+        if (!CyoeHelper.isEnabled()) return;
+        $item = $($item)
+        var $itemData = $item.find('.publish-icon')
+        var $admin = $item.find('.ig-admin')
+
+        data = data || {
+          id: $itemData.attr('data-module-item-id'),
+          title: $itemData.attr('data-module-item-name'),
+          assignment_id: $itemData.attr('data-assignment-id'),
+          is_cyoe_able: $itemData.attr('data-is-cyoeable') === 'true'
+        }
+
+        var cyoe = CyoeHelper.getItemData(data.assignment_id, data.is_cyoe_able)
+
+        if (cyoe.isReleased) {
+          var fullText = I18n.t('Released by Mastery Path: %{path}', { path: cyoe.releasedLabel })
+          var $pathIcon = $('<span class="pill mastery-path-icon" aria-hidden="true" data-tooltip><i class="icon-mastery-path" /></span>')
+            .attr('title', fullText)
+            .append(htmlEscape(cyoe.releasedLabel))
+          var $srPath = $('<span class="screenreader-only">')
+            .append(htmlEscape(fullText))
+          $admin.prepend($srPath)
+          $admin.prepend($pathIcon)
+        }
+
+        if (cyoe.isCyoeAble) {
+          var $mpLink = $('<a class="mastery_paths_link" />')
+            .attr('href', ENV.CONTEXT_URL_ROOT +
+                          '/modules/items/' +
+                          data.id +
+                          '/edit_mastery_paths?return_to=' +
+                          encodeURIComponent(window.location.pathname))
+            .attr('title', I18n.t('Edit Mastery Paths for %{title}', { title: data.title }))
+            .text(I18n.t('Mastery Paths'))
+
+          if (cyoe.isTrigger) {
+            $admin.prepend($mpLink.clone())
+          }
+
+          $admin.find('.delete_link').parent().before(
+            $('<li role="presentation" />').append($mpLink.prepend('<i class="icon-mastery-path" /> '))
+          )
+        }
+      },
+
       getNextPosition: function($module) {
         var maxPosition = 0;
         $module.find(".context_module_items").children().each(function() {
@@ -492,7 +600,7 @@ define([
       refreshModuleList: function() {
         $("#module_list").find(".context_module_option").remove();
         $("#context_modules .context_module").each(function() {
-          $this = $(this);
+          var $this = $(this);
           var data = $this.find(".header").getTemplateData({textValues: ['name']});
           data.id = $this.find(".header").attr('id');
           $this.find('.name').attr('title', data.name);
@@ -641,15 +749,40 @@ define([
         placeholder: 'context_module_placeholder',
         forcePlaceholderSize: true,
         axis: 'y',
-        containment: "#context_modules"
+        containment: '#content'
+      },
+      initMasterCourseLockButton: function ($item, tagRestriction) {
+        // add the lock button|icon
+        var $lockCell = $item.find('.lock-icon');
+        var data = $($lockCell).data() || {};
+
+        var isMasterCourseMasterContent = !!('moduleItemId' in data && ENV.MASTER_COURSE_SETTINGS.IS_MASTER_COURSE);
+        var isMasterCourseChildContent = !!('moduleItemId' in data && ENV.MASTER_COURSE_SETTINGS.IS_CHILD_COURSE);
+        var restricted = !!('moduleItemId' in data && Object.keys(tagRestriction).some(function (r) { return tagRestriction[r] }));
+
+        var model = new MasterCourseModuleLock({
+          is_master_course_master_content: isMasterCourseMasterContent,
+          is_master_course_child_content: isMasterCourseChildContent,
+          restricted_by_master_course: restricted
+        });
+
+        var viewOptions = {
+          model: model,
+          el: $lockCell[0],
+          course_id: ENV.COURSE_ID,
+          content_type: data.moduleType,
+          content_id: data.contentId
+        };
+
+        var view = new LockIconView(viewOptions);
+        view.render();
       }
-    };
+    }
   })();
 
   var addIcon = function($icon_container, css_class, message) {
-    var $icon = $("<i data-tooltip><span class='screenreader-only'></span></i>");
+    var $icon = $("<i data-tooltip></i>");
     $icon.attr('class', css_class).attr('title', message).attr('aria-label', message);
-    $icon.find('span').html(htmlEscape(message));
     $icon_container.empty().append($icon);
   }
 
@@ -688,7 +821,7 @@ define([
         prereqsList += prereqs[i].name + ', ';
       }
       prereqsList = prereqsList.slice(0, -2)
-      var $prerequisitesMessage = $('<div />', {text: 'Prerequisites: ' + htmlEscape(prereqsList),'class': 'prerequisites_message'});
+      var $prerequisitesMessage = $('<div />', {text: 'Prerequisites: ' + prereqsList, 'class': 'prerequisites_message'});
       $prerequisitesDiv.append($prerequisitesMessage);
 
     }
@@ -718,7 +851,7 @@ define([
     var $context_module_unlocked_at = $("#context_module_unlock_at");
     var valCache = '';
     $("#unlock_module_at").change(function() {
-      $this = $(this);
+      var $this = $(this);
       var $unlock_module_at_details = $(".unlock_module_at_details");
       $unlock_module_at_details.showIf($this.attr('checked'));
 
@@ -827,6 +960,7 @@ define([
       success: function(data, $module) {
         $module.loadingImage('remove');
         $module.attr('id', 'context_module_' + data.context_module.id);
+        setupContentIds($module, data.context_module.id);
 
         // Set this module up with correct data attributes
         $module.data('moduleId', data.context_module.id);
@@ -844,7 +978,7 @@ define([
         // new module, setup publish icon and other stuff
         if (!$publishIcon.data('id')) {
           var fixLink = function(locator, attribute) {
-              el = $module.find(locator);
+              var el = $module.find(locator);
               el.attr(attribute, el.attr(attribute).replace('{{ id }}', data.context_module.id));
           }
           fixLink('span.collapse_module_link', 'href');
@@ -888,7 +1022,9 @@ define([
         $select.find("." + afters[idx]).hide();
       }
 
+      $select.attr('id', 'module_list_prereq')
       $pre.find(".option").empty().append($select.show());
+      $('<label for="module_list_prereq" class="screenreader-only" />').text(I18n.t('Select prerequisite module')).insertBefore($select);
       $form.find(".prerequisites_list .criteria_list").append($pre).show();
       $pre.slideDown();
       $select.focus();
@@ -905,7 +1041,9 @@ define([
       var prereqs = modules.prerequisites();
       var $optgroups = {};
       $module.find(".content .context_module_item").not('.context_module_sub_header').each(function() {
-        var data = $(this).getTemplateData({textValues: ['id', 'title', 'type']});
+        var displayType;
+        var data = $(this).getTemplateData({textValues: ['id', 'type']});
+        data.title = $(this).find('.title').attr('title');
         if (data.type == 'assignment') {
           displayType = I18n.t('optgroup.assignments', "Assignments");
         } else if (data.type == 'attachment') {
@@ -919,7 +1057,7 @@ define([
         } else if (data.type == 'discussion_topic') {
           displayType = I18n.t('optgroup.discussion_topics', "Discussions");
         } else if (data.type == 'wiki_page') {
-          displayType = I18n.t('optgroup.wiki_pages', "Wiki Pages");
+          displayType = I18n.t("Pages");
         }
         var $group = $optgroups[displayType]
         if (!$group) {
@@ -1064,16 +1202,20 @@ define([
       event.preventDefault();
       var $cogLink = $(this).closest('.cog-menu-container').children('.al-trigger');
       var $item = $(this).parents(".context_module_item");
-      var data = $item.getTemplateData({textValues: ['title', 'url', 'indent', 'new_tab']});
+      var data = $item.getTemplateData({textValues: ['url', 'indent', 'new_tab']});
+      data.title = $item.find('.title').attr('title');
       data.indent = modules.currentIndent($item);
       $("#edit_item_form").find(".external").showIf($item.hasClass('external_url') || $item.hasClass('context_external_tool'));
       $("#edit_item_form").attr('action', $(this).attr('href'));
       $("#edit_item_form").fillFormData(data, {object_name: 'content_tag'});
+
+      var $titleInput = $('#edit_item_form #content_tag_title');
+      var restrictions = $item.data().master_course_restrictions;
+      var isDisabled = !get(ENV, 'MASTER_COURSE_SETTINGS.IS_MASTER_COURSE') && !!get(restrictions, 'content');
+      $titleInput.attr('disabled', isDisabled);
+
       $("#edit_item_form").dialog({
         title: I18n.t('titles.edit_item', "Edit Item Details"),
-        open: function(){
-          $(this).find('input[type=text],textarea,select').first().focus();
-        },
         close: function () {
           $("#edit_item_form").hideErrors();
            $cogLink.focus();
@@ -1086,6 +1228,10 @@ define([
     });
     $("#edit_item_form").formSubmit({
       beforeSubmit: function(data) {
+        if (data["content_tag[title]"] == '') {
+          $('#content_tag_title').errorBox(I18n.t("Title is required"));
+          return false;
+        }
         $(this).loadingImage();
       },
       success: function(data) {
@@ -1204,17 +1350,7 @@ define([
 
     $(".add_module_link").live('click', function(event) {
       event.preventDefault();
-      var $module = $("#context_module_blank").clone(true).attr('id', 'context_module_new');
-      $("#context_modules").append($module);
-      var opts = modules.sortable_module_options;
-      opts['update'] = modules.updateModuleItemPositions;
-      $module.find(".context_module_items").sortable(opts);
-      $("#context_modules.ui-sortable").sortable('refresh');
-      $("#context_modules .context_module .context_module_items.ui-sortable").each(function() {
-        $(this).sortable('refresh');
-        $(this).sortable('option', 'connectWith', '.context_module_items');
-      });
-      modules.editModule($module);
+      modules.addModule();
     });
 
     $(".add_module_item_link").on('click', function(event) {
@@ -1256,6 +1392,7 @@ define([
               $module.find(".context_module_items.ui-sortable").sortable('enable').sortable('refresh');
               initNewItemPublishButton($item, data.content_tag);
               modules.updateAssignmentData();
+              modules.loadMasterCourseData(data.content_tag.id);
             }), { onComplete: function() {
               $module.find('.add_module_item_link').focus();
             }}
@@ -1426,7 +1563,7 @@ define([
         }
 
         var Cloud = React.createElement(PublishCloud, props);
-        React.render(Cloud, $el[0]);
+        ReactDOM.render(Cloud, $el[0]);
         return {model: file} // Pretending this is a backbone view
       }
 
@@ -1489,6 +1626,10 @@ define([
       var publish = model.publish, unpublish = model.unpublish;
       model.publish = function() {
         return publish.apply(model, arguments).done(function(data) {
+          if (data.publish_warning) {
+            $.flashWarning(I18n.t('Some module items could not be published'))
+          }
+
           relock_modules_dialog.renderIfNeeded(data);
           model
             .fetch({data: {include: 'items'}})
@@ -1585,8 +1726,8 @@ define([
       $('.context_module_item .ig-row').addClass('student-view');
     }
 
-    $('.external_url_link').click(function() {
-      window.location = $(this).attr('data-item-href');
+    $('.external_url_link').click(function(event) {
+      Helper.externalUrlLinkClick(event, $(this))
     });
 
     $(".datetime_field").datetime_field();
@@ -1599,6 +1740,10 @@ define([
     $(".context_module_item").live('mouseover focus', function() {
       $(".context_module_item_hover").removeClass('context_module_item_hover');
       $(this).addClass('context_module_item_hover');
+    })
+
+    $('.context_module_item').each(function (i, $item) {
+      modules.evaluateItemCyoe($item)
     });
 
     var $currentElem = null;
@@ -1622,6 +1767,7 @@ define([
     // This will also return the element that is now in focus
     var selectItem = function (options) {
       options = options || {};
+      var $elem;
 
       if (!$currentElem) {
         $elem = $('.context_module:first');
@@ -1684,8 +1830,8 @@ define([
     $document.keycodes('e d space', function(event) {
       if (!$currentElem) return;
 
-      $elem = getClosestModuleOrItem($currentElem);
-      $hasClassItemHover = $elem.hasClass('context_module_item_hover');
+      var $elem = getClosestModuleOrItem($currentElem);
+      var $hasClassItemHover = $elem.hasClass('context_module_item_hover');
 
       if(event.keyString == 'e') {
         $hasClassItemHover ? $currentElem.find(".edit_item_link:first").click() : $currentElem.find(".edit_module_link:first").click();
@@ -1734,11 +1880,16 @@ define([
     }
     if($("#context_modules").hasClass('editable')) {
       setTimeout(modules.initModuleManagement, 1000);
+      modules.loadMasterCourseData();
     }
 
     // need the assignment data to check past due state
     modules.updateAssignmentData(function() {
-      modules.updateProgressions();
+      modules.updateProgressions(function() {
+        if (window.location.hash) {
+          $.scrollTo($(window.location.hash));
+        }
+      });
     });
 
     $(".context_module").find(".expand_module_link,.collapse_module_link").bind('click keyclick', function(event, goSlow) {
@@ -1841,13 +1992,12 @@ define([
     for(var idx in collapsedModules) {
       $("#context_module_" + collapsedModules[idx]).addClass('collapsed_module');
     }
-    if (window.location.hash) {
-      $.scrollTo($(window.location.hash));
-    }
+
     var foundModules = [];
     var $contextModules = $("#context_modules .context_module");
     if (!$contextModules.length) {
       $('#no_context_modules_message').show();
+      $('#context_modules_sortable_container').addClass('item-group-container--is-empty');
     }
     $contextModules.each(function() {
       modules.updateProgressionState($(this));
@@ -1869,5 +2019,4 @@ define([
 
   });
 
-  return modules;
-});
+export default modules;

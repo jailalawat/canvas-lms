@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,7 +22,9 @@ module CC
 
       @course.context_external_tools.active.each do |tool|
         next unless export_object?(tool)
-        migration_id = CCHelper::create_key(tool)
+        add_exported_asset(tool)
+
+        migration_id = create_key(tool)
 
         lti_file_name = "#{migration_id}.xml"
         lti_path = File.join(@export_dir, lti_file_name)
@@ -30,7 +32,7 @@ module CC
         lti_doc = Builder::XmlMarkup.new(:target=>lti_file, :indent=>2)
 
         create_blti_link(tool, lti_doc)
-        
+
         lti_file.close
 
         @resources.resource(
@@ -67,7 +69,7 @@ module CC
           v_node.lticp :code, 'unknown'
           v_node.lticp :name, 'unknown'
         end
-        
+
         if tool.settings[:custom_fields]
           blti_node.tag!("blti:custom") do |custom_node|
             tool.settings[:custom_fields].each_pair do |key, val|
@@ -89,7 +91,20 @@ module CC
             ext_node.lticm :property, tool.consumer_key, 'name' => 'consumer_key'
             ext_node.lticm :property, tool.shared_secret, 'name' => 'shared_secret'
           end
-          ContextExternalTool::EXTENSION_TYPES.each do |type|
+
+          extension_exclusions = [
+            :custom_fields,
+            :vendor_extensions,
+            :selection_width,
+            :selection_height,
+            :icon_url
+          ] + Lti::ResourcePlacement::PLACEMENTS
+
+          tool.settings.keys.reject{ |i| extension_exclusions.include?(i)}.each do |key|
+            ext_node.lticm(:property, tool.settings[key], 'name' => key.to_s) unless tool.settings[key].respond_to?(:each)
+          end
+
+          Lti::ResourcePlacement::PLACEMENTS.each do |type|
             if tool.settings[type]
               ext_node.lticm(:options, :name => type.to_s) do |type_node|
 
@@ -114,7 +129,7 @@ module CC
             end
           end
         end
-        
+
         if tool.settings[:vendor_extensions]
           tool.settings[:vendor_extensions].each do |extension|
             blti_node.blti(:extensions, :platform => extension[:platform]) do |ext_node|
@@ -126,6 +141,6 @@ module CC
         end
       end
     end
-    
+
   end
 end

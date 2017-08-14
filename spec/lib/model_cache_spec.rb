@@ -1,4 +1,5 @@
-# Copyright (C) 2012 Instructure, Inc.
+#
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,8 +23,7 @@ describe ModelCache do
   before(:all) do
     class TestModelCacheUser < ActiveRecord::Base
       self.table_name = :users # reuse exiting tables so AR doesn't asplode
-
-      strong_params
+      include ModelCache
     end
 
     class TestModelCachePseudonym < ActiveRecord::Base
@@ -34,8 +34,6 @@ describe ModelCache do
       cacheable_method :test_model_cache_user, :key_method => :user_id
 
       belongs_to :test_model_cache_user_copy, :class_name => 'TestModelCacheUser', :foreign_key => :user_id
-
-      strong_params
     end
   end
 

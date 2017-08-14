@@ -1,4 +1,22 @@
 <%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
+<%
   add_crumb @quiz.title, context_url(@context, :context_quiz_url, @quiz)
   add_crumb t(:page_title, 'Moderate Quiz')
 %>
@@ -12,6 +30,15 @@
 <div class="moderate_header">
   <h1><%= t(:page_title, "Moderate Quiz") %></h1>
 </div>
+<%= form_tag(context_url(@context, :context_quiz_moderate_url, @quiz.id), method: :get) do %>
+  <div class="ic-Form-control">
+    <div class="ic-Input-group">
+      <%= text_field_tag :search_term, params[:search_term], class: "ic-Input", placeholder: t('Search People'),
+      aria_label: t('Search people. As you type in this field, the list of people will be automatically filtered to only include those whose names match your input.') %>
+      <%= submit_tag t('Filter'), class: "Button" %>
+    </div>
+  </div>
+<% end %>
 <table id="students" class="table table-striped <%= 'can_add_attempts' if @quiz.allowed_attempts < 0 %>">
   <thead>
     <tr>

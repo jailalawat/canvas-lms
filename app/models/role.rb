@@ -1,10 +1,10 @@
 #
-# Copyright (C) 2012 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
 # Canvas is free software: you can redistribute it and/or modify it under
-# the terms of the GNU Affero General Public License as published by the Fr
+# the terms of the GNU Affero General Public License as published by the Free
 # Software Foundation, version 3 of the License.
 #
 # Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
@@ -44,7 +44,6 @@ class Role < ActiveRecord::Base
 
   belongs_to :account
   belongs_to :root_account, :class_name => 'Account'
-  attr_accessible :name
 
   before_validation :infer_root_account_id, :if => :belongs_to_account?
 
@@ -84,6 +83,7 @@ class Role < ActiveRecord::Base
   def infer_root_account_id
     unless self.account
       self.errors.add(:account_id)
+      throw :abort unless CANVAS_RAILS4_2
       return false
     end
     self.root_account_id = self.account.root_account_id || self.account.id
@@ -129,6 +129,10 @@ class Role < ActiveRecord::Base
   def self.built_in_roles_by_id(reload=false, shard=Shard.current)
     @built_in_roles_by_id ||= {}
     @built_in_roles_by_id[shard.id] ||= built_in_roles(reload, shard).index_by(&:id)
+  end
+
+  def self.clear_built_in_roles!
+    @built_in_roles.clear if @built_in_roles
   end
 
   def self.built_in_course_roles
@@ -245,42 +249,47 @@ class Role < ActiveRecord::Base
   def self.custom_roles_and_counts_for_course(course, user, include_inactive=false)
     users_scope = course.users_visible_to(user)
     base_counts = users_scope.where('enrollments.role_id IS NULL OR enrollments.role_id IN (?)',
-                                    Role.built_in_course_roles.map(&:id)).group('enrollments.type').select('users.id').uniq.count
+                                    Role.built_in_course_roles.map(&:id)).group('enrollments.type').select('users.id').distinct.count
     role_counts = users_scope.where('enrollments.role_id IS NOT NULL AND enrollments.role_id NOT IN (?)',
-                                    Role.built_in_course_roles.map(&:id)).group('enrollments.role_id').select('users.id').uniq.count
+                                    Role.built_in_course_roles.map(&:id)).group('enrollments.role_id').select('users.id').distinct.count
 
     @enrollment_types = Role.all_enrollment_roles_for_account(course.account, include_inactive)
     @enrollment_types.each do |base_type|
       base_type[:count] = base_counts[base_type[:name]] || 0
       base_type[:custom_roles].each do |custom_role|
-        custom_role[:count] = role_counts[custom_role[:id].to_s] || 0
+        id = custom_role[:id]
+        id = id.to_s if CANVAS_RAILS4_2
+        custom_role[:count] = role_counts[id] || 0
       end
     end
 
     @enrollment_types
   end
 
-  def self.manageable_roles_by_user(user, course)
+  def self.manageable_roles_by_user(user, context)
     manageable = []
-    if course.grants_right?(user, :manage_students)
+    if context.grants_right?(user, :manage_students) && !(context.is_a?(Course) && MasterCourses::MasterTemplate.is_master_course?(context))
       manageable += ['StudentEnrollment', 'ObserverEnrollment']
-      if course.teacherless?
+      if context.is_a?(Course) && context.teacherless?
         manageable << 'TeacherEnrollment'
       end
     end
-    if course.grants_right?(user, :manage_admin_users)
+    if context.grants_right?(user, :manage_admin_users)
       manageable += ['ObserverEnrollment', 'TeacherEnrollment', 'TaEnrollment', 'DesignerEnrollment']
     end
     manageable.uniq.sort
   end
 
-  def self.role_data(course, user, include_inactive=false)
-    manageable = Role.manageable_roles_by_user(user, course)
-    self.custom_roles_and_counts_for_course(course, user, include_inactive).inject([]) { |roles, role|
+  def self.compile_manageable_roles(role_data, user, context)
+    # for use with the old sad enrollment dialog
+    manageable = self.manageable_roles_by_user(user, context)
+    role_data.inject([]) { |roles, role|
       is_manageable = manageable.include?(role[:base_role_name])
       role[:manageable_by_user] = is_manageable
+      custom_roles = role.delete(:custom_roles)
       roles << role
-      role[:custom_roles].each do |custom_role|
+
+      custom_roles.each do |custom_role|
         custom_role[:manageable_by_user] = is_manageable
         roles << custom_role
       end
@@ -288,11 +297,13 @@ class Role < ActiveRecord::Base
     }
   end
 
-  def self.account_role_data(account, user)
-    active_states = %w{created claimed available completed}
-    courses = account.associated_courses.order(:id).where(:workflow_state => active_states)
-    courses.map do |course|
-      {course_id: course.id, roles: Role.role_data(course, user)}
-    end
+  def self.role_data(course, user, include_inactive=false)
+    role_data = self.custom_roles_and_counts_for_course(course, user, include_inactive)
+    self.compile_manageable_roles(role_data, user, course)
+  end
+
+  def self.course_role_data_for_account(account, user)
+    role_data = self.all_enrollment_roles_for_account(account)
+    self.compile_manageable_roles(role_data, user, account)
   end
 end

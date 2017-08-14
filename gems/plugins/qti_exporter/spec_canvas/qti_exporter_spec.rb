@@ -1,4 +1,20 @@
 # encoding: utf-8
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require File.expand_path(File.dirname(__FILE__) + '/../../../../spec/spec_helper')
 require 'zip/filesystem'
@@ -34,7 +50,7 @@ describe Qti::Converter do
         expect(text.css('img').first['src']).to match %r{/assessment_questions/#{aq.id}/files/\d+/download\?verifier=\w+}
       end
     end
-    expect(quiz.assignment).to be_nil
+    expect(quiz.assignment).to_not be_nil
   end
 
   it "should bring in canvas meta data" do

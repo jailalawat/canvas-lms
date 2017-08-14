@@ -42,7 +42,7 @@ describe "Groups API", type: :request do
       'storage_quota_mb' => group.storage_quota_mb,
       'leader' => group.leader,
       'has_submission' => group.submission?,
-      'concluded' => group.context.concluded?
+      'concluded' => group.context.concluded? || group.context.deleted?
     }
     if opts[:include_users]
       json['users'] = users_json(group.users, opts)
@@ -134,6 +134,18 @@ describe "Groups API", type: :request do
     expect(links.all?{ |l| l =~ /api\/v1\/users\/self\/groups/ }).to be_truthy
   end
 
+  it "should indicate if the context is deleted" do
+    course_with_student(:user => @member)
+    @group = @course.groups.create!(:name => "My Group")
+    @group.add_user(@member, 'accepted', true)
+    @course.destroy!
+    @group.reload
+
+    @user = @member
+    json = api_call(:get, "/api/v1/users/self/groups", @category_path_options.merge(:action => "index"))
+    expect(json.detect{|g| g['id'] == @group.id}['concluded']).to be_truthy
+  end
+
   it "should allow listing all a user's group in a given context_type" do
     @account = Account.default
     course_with_student(:user => @member)
@@ -163,12 +175,12 @@ describe "Groups API", type: :request do
     course_with_teacher(:active_all => true)
     @group = @course.groups.create!(:name => 'New group')
 
-    inactive_user = user
+    inactive_user = user_factory
     enrollment = @course.enroll_student(inactive_user)
     enrollment.deactivate
     @group.add_user(inactive_user, 'accepted')
 
-    @course.enroll_student(user).accept!
+    @course.enroll_student(user_factory).accept!
     @group.add_user(@user, 'accepted')
 
     json = api_call(:get, "/api/v1/courses/#{@course.to_param}/groups.json?include[]=users",
@@ -190,7 +202,7 @@ describe "Groups API", type: :request do
     course_with_teacher(:active_all => true)
     @group = @course.groups.create!(:name => 'New group')
 
-    inactive_user = user
+    inactive_user = user_factory
     enrollment = @course.enroll_student(inactive_user)
     enrollment.deactivate
     @group.add_user(inactive_user, 'accepted')
@@ -291,6 +303,11 @@ describe "Groups API", type: :request do
     expect(json['permissions']['create_announcement']).to be_truthy
   end
 
+  it 'includes tabs if requested' do
+    json = api_call(:get, "#{@community_path}.json?include[]=tabs", @category_path_options.merge(:group_id => @community.to_param, :action => "show", :format => 'json', :include => [ "tabs" ]))
+    expect(json).to have_key 'tabs'
+    expect(json['tabs'].map{ |tab| tab['id']} ).to eq(["home", "announcements", "pages", "people", "discussions", "files"])
+  end
 
   it "should allow searching by SIS ID" do
     @community.update_attribute(:sis_source_id, 'abc')
@@ -828,7 +845,7 @@ describe "Groups API", type: :request do
     end
 
     it "should return 401 for users outside the group" do
-      user
+      user_factory
       raw_api_call(:get, "/api/v1/groups/#{@community.id}/users",
                          { :controller => 'groups', :action => 'users', :group_id => @community.to_param, :format => 'json' })
       expect(response.code).to eq '401'
@@ -915,8 +932,12 @@ describe "Groups API", type: :request do
 
   describe "/preview_html" do
     before :once do
-      course_with_teacher_logged_in(:active_all => true)
+      course_with_teacher(:active_all => true)
       @group = @course.groups.create!(:name => 'Group 1')
+    end
+
+    before :each do
+      user_session @teacher
     end
 
     it "should sanitize html and process links" do
@@ -933,7 +954,7 @@ describe "Groups API", type: :request do
     end
 
     it "should require permission to preview" do
-      @user = user
+      @user = user_factory
       api_call(:post, "/api/v1/groups/#{@group.id}/preview_html",
                       { :controller => 'groups', :action => 'preview_html', :group_id => @group.to_param, :format => 'json' },
                       { :html => ""}, {}, {:expected_status => 401})

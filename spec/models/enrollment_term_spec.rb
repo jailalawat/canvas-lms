@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011-2016 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,8 +19,6 @@
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
 
 describe EnrollmentTerm do
-  let(:group_helper) { Factories::GradingPeriodGroupHelper.new }
-
   describe "validation" do
     before(:once) do
       @root_account = account_model
@@ -35,10 +33,40 @@ describe EnrollmentTerm do
     it "is valid with a grading period group shared with another enrollment term" do
       term_1 = @root_account.enrollment_terms.create!
       term_2 = @root_account.enrollment_terms.create!
-      group = group_helper.create_for_enrollment_term(term_1)
+      group = @root_account.grading_period_groups.create!(title: "Example Group")
+      term_1.update_attribute(:grading_period_group_id, group)
       term_2.grading_period_group = group
       expect(term_1).to be_valid
       expect(term_2).to be_valid
+    end
+
+    it "is not valid with a grading period group belonging to a different account" do
+      term_1 = @root_account.enrollment_terms.create!
+      term_2 = account_model.enrollment_terms.create!
+      group = @root_account.grading_period_groups.create!(title: "Example Group")
+      term_1.update_attribute(:grading_period_group_id, group)
+      term_2.grading_period_group = group
+      expect(term_1).to be_valid
+      expect(term_2).not_to be_valid
+    end
+  end
+
+  describe 'computation of course scores' do
+    before(:once) do
+      @root_account = Account.create!
+      @term = @root_account.enrollment_terms.create!
+      @root_account.courses.create!(enrollment_term: @term)
+    end
+
+    it 'recomputes course scores if the grading period set is changed' do
+      grading_period_set = @root_account.grading_period_groups.create!
+      Enrollment.expects(:recompute_final_score).once
+      @term.update!(grading_period_group_id: grading_period_set)
+    end
+
+    it 'does not recompute course scores if the grading period set is not changed' do
+      Enrollment.expects(:recompute_final_score).never
+      @term.update!(name: 'The Best Term')
     end
   end
 
@@ -80,7 +108,7 @@ describe EnrollmentTerm do
   describe "overridden_term_dates" do
     before(:once) do
       account_model
-      course account: @account
+      course_factory account: @account
       @term = @account.enrollment_terms.create!
     end
 
@@ -107,98 +135,25 @@ describe EnrollmentTerm do
     end
   end
 
-  describe "saving" do
-    before(:once) do
-      @account = account_model
-    end
-
-    context "when removing an associated grading period group" do
-      it "destroys the group when unshared" do
-        term = @account.enrollment_terms.create!
-        group = group_helper.create_for_enrollment_term(term)
-        term.grading_period_group = nil
-        term.save!
-        expect(GradingPeriodGroup.active.find_by_id(group.id)).to be_nil
-      end
-
-      it "does not destroy the group when associated with other enrollment terms" do
-        term_1 = @account.enrollment_terms.create!
-        group = group_helper.create_for_enrollment_term(term_1)
-        term_2 = @account.enrollment_terms.create!
-        term_2.update_attribute(:grading_period_group, group)
-        term_1.grading_period_group = nil
-        term_1.save!
-        expect(GradingPeriodGroup.active.find_by_id(group.id)).to eq(group)
-      end
-    end
-
-    context "when replacing an associated grading period group" do
-      it "destroys the group when unshared" do
-        term = @account.enrollment_terms.create!
-        group_1 = group_helper.create_for_enrollment_term(term)
-        group_2 = group_helper.create_for_enrollment_term(term)
-        expect(GradingPeriodGroup.active.find_by_id(group_1.id)).to be_nil
-        expect(GradingPeriodGroup.active.find_by_id(group_2.id)).to eq(group_2)
-      end
-
-      it "does not destroy the group when associated with other enrollment terms" do
-        term_1 = @account.enrollment_terms.create!
-        term_2 = @account.enrollment_terms.create!
-        group_1 = group_helper.create_for_enrollment_term(term_1)
-        group_1.enrollment_terms << term_2
-        group_1.save!
-        group_2 = group_helper.create_for_enrollment_term(term_1)
-        expect(GradingPeriodGroup.active.find_by_id(group_1.id)).to eq(group_1)
-        expect(GradingPeriodGroup.active.find_by_id(group_2.id)).to eq(group_2)
-      end
-    end
-  end
-
   describe "deletion" do
     before(:once) do
       @account = account_model
     end
 
     it "should not be able to delete a default term" do
-      expect { @account.default_enrollment_term.destroy }.to raise_error
+      expect { @account.default_enrollment_term.destroy }.to raise_error(ActiveRecord::RecordInvalid)
     end
 
     it "should not be able to delete an enrollment term with active courses" do
       @term = @account.enrollment_terms.create!
-      course account: @account
+      course_factory account: @account
       @course.enrollment_term = @term
       @course.save!
 
-      expect { @term.destroy }.to raise_error
+      expect { @term.destroy }.to raise_error(ActiveRecord::RecordInvalid)
 
       @course.destroy
       @term.destroy
-    end
-
-    it "destroys an associated grading period group" do
-      term = @account.enrollment_terms.create!
-      group = group_helper.create_for_enrollment_term(term)
-      term.destroy
-      expect(GradingPeriodGroup.active.find_by_id(group.id)).to be_nil
-    end
-
-    it "does not destroy grading period groups associated with other active enrollment terms" do
-      term_1 = @account.enrollment_terms.create!
-      group = group_helper.create_for_enrollment_term(term_1)
-      term_2 = @account.enrollment_terms.create!
-      term_2.update_attribute(:grading_period_group, group)
-      term_1.destroy
-      expect(GradingPeriodGroup.active.find_by_id(group.id)).to eql(group)
-    end
-
-    it "destroys grading period groups associated with other deleted enrollment terms" do
-      term_1 = @account.enrollment_terms.create!
-      group = group_helper.create_for_enrollment_term(term_1)
-      term_2 = @account.enrollment_terms.create!
-      term_2.update_attribute(:grading_period_group, group)
-      term_1.destroy
-      term_2.destroy
-      expect(GradingPeriodGroup.active.find_by_id(group.id)).to be_nil
     end
   end
 
@@ -234,53 +189,104 @@ describe EnrollmentTerm do
     end
   end
 
-  describe "#grading_period_group" do
+  describe "scopes" do
     before(:once) do
-      @account = account_model
+      @root_account = account_model
+      @terms = {}
+
+      scopes = [{
+        name: :active,
+        criteria: {}
+      },
+      {
+        name: :not_default,
+        criteria: {}
+      },
+      {
+        name: :ended,
+        criteria: {
+          end_at: 10.days.ago
+        }
+      },
+      {
+        name: :started_1,
+        criteria: {
+          start_at: 10.days.ago
+        }
+      },
+      {
+        name: :started_2,
+        criteria: {
+          start_at: nil
+        }
+      },
+      {
+        name: :not_ended_1,
+        criteria: {
+          end_at: 10.days.from_now
+        }
+      },
+      {
+        name: :not_ended_2,
+        criteria: {
+          end_at: nil
+        }
+      },
+      {
+        name: :not_started,
+        criteria: {
+          start_at: 10.days.from_now
+        }
+      }]
+
+      scopes.each do |scope|
+        @terms[scope[:name]] = @root_account.enrollment_terms.create!({name: scope[:name].to_s}.merge(scope[:criteria]))
+        course_with_teacher(active_course: true, active_enrollment: true)
+        @course.enrollment_term_id = @terms[scope[:name]].id
+        @course.save!
+      end
     end
 
-    it "returns the associated grading period group" do
-      term = @account.enrollment_terms.create!
-      group = group_helper.create_for_enrollment_term(term)
-      expect(term.grading_period_group).to eq group
+    def term_ids_for_scope(scope)
+      Array.wrap(@root_account
+                  .enrollment_terms
+                  .send(scope)
+                  .pluck(:id)).sort
     end
 
-    it "returns nil when no grading period group is associated" do
-      term = @account.enrollment_terms.create!
-      expect(term.grading_period_group).to be_nil
-    end
-  end
+    def validate_scope(scope, expected_scopes = nil, include_default: false)
+      expected_scopes ||= scope
+      expected_ids = term_ids_for_scope(scope)
 
-  describe "#grading_periods" do
-    before(:once) do
-      @account = account_model
-    end
+      scopes = @terms.slice(*expected_scopes).values
+      scopes << @root_account.default_enrollment_term if include_default
+      actual_ids = scopes.map(&:id).sort
 
-    def create_grading_period(group, start_weeks, end_weeks)
-      group.grading_periods.create!({
-        start_date: start_weeks.weeks.ago,
-        end_date: end_weeks.weeks.ago,
-        title: "Example Grading Period"
-      })
+      expect(expected_ids).to eq(actual_ids)
     end
 
-    it "returns the grading periods from the associated grading period group" do
-      term = @account.enrollment_terms.create!
-      group = group_helper.create_for_enrollment_term(term)
-      period_1 = create_grading_period(group, 5, 3)
-      period_2 = create_grading_period(group, 3, 1)
-      expect(term.grading_periods).to match_array [period_1, period_2]
+    it "should limit by active terms" do
+      validate_scope(:active, @terms.keys, include_default: true)
     end
 
-    it "returns an empty array when the associated group has no grading periods" do
-      term = @account.enrollment_terms.create!
-      group_helper.create_for_enrollment_term(term)
-      expect(term.grading_periods).to eq []
+    it "should limit by ended terms" do
+      validate_scope(:ended)
     end
 
-    it "returns an empty array when no grading period group is associated" do
-      term = @account.enrollment_terms.create!
-      expect(term.grading_periods).to eq []
+    it "should limit by started terms" do
+      validate_scope(:started, @terms.except(:not_started).keys, include_default: true)
+    end
+
+    it "should limit by not ended terms" do
+      validate_scope(:not_ended, @terms.except(:ended).keys, include_default: true)
+    end
+
+    it "should limit by not started terms" do
+      validate_scope(:not_started)
+    end
+
+    it "should limit by non-default terms" do
+      validate_scope(:not_default, @terms.keys)
     end
   end
 end

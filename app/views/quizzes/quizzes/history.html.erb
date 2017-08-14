@@ -1,3 +1,21 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <% user_name = ((params[:hide_student_name] && !params[:hide_student_name].to_i.zero?) || (@quiz.survey? && @quiz.anonymous_submissions)) ? t(:anonymous_username, "Student") : context_user_name(@context, @user) %>
 <% user_name = t(:logged_out_user, "Logged Out User %{index}", :index => @logged_out_user_index) if !user_name && !@submission.user_id %>
 <% content_for :page_title, (@quiz.survey? ?
@@ -46,15 +64,13 @@
 <% unless params[:headless] %>
   <% content_for :right_side do %>
     <% if @current_version && can_do(@quiz, @current_user, :grade) %>
-      <div class="rs-margin-lr rs-margin-top">
-        <p>
-          <% if @quiz.survey? %>
-            <%= t(:latest_survey_results, "Here's the latest survey results for %{user}. You can modify the points for any question and add more comments, then click \"Update Scores\" at the bottom of the page.", :user => user_name) %>
-          <% else %>
-            <%= t(:latest_quiz_results, "Here's the latest quiz results for %{user}. You can modify the points for any question and add more comments, then click \"Update Scores\" at the bottom of the page.", :user => user_name) %>
-          <% end %>
-        </p>
-      </div>
+      <p>
+        <% if @quiz.survey? %>
+          <%= t(:latest_survey_results, "Here's the latest survey results for %{user}. You can modify the points for any question and add more comments, then click \"Update Scores\" at the bottom of the page.", :user => user_name) %>
+        <% else %>
+          <%= t(:latest_quiz_results, "Here's the latest quiz results for %{user}. You can modify the points for any question and add more comments, then click \"Update Scores\" at the bottom of the page.", :user => user_name) %>
+        <% end %>
+      </p>
     <% end %>
     <% unless params[:headless] %>
         <h2>
@@ -64,7 +80,7 @@
             <%= t('headers.quiz_submissions', "Quiz Submissions") %>
           <% end %>
         </h2>
-      <div class="rs-margin-lr">
+      <div>
         <ul id="quiz_versions" style="max-height: 250px; overflow: auto;">
         <% @version_instances.each do |version_instance| %>
           <li class="quiz_version <%= "selected" if version_instance.version_number == @submission.version_number %>">

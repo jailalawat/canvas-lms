@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,7 +23,6 @@ class Group < ActiveRecord::Base
   include Workflow
   include CustomValidations
 
-  attr_accessible :name, :context, :max_membership, :group_category, :join_level, :default_view, :description, :is_public, :avatar_attachment, :storage_quota_mb, :leader
   validates :context_id, :context_type, :account_id, :root_account_id, :workflow_state, :uuid, presence: true
   validates_allowed_transitions :is_public, false => true
 
@@ -38,31 +37,31 @@ class Group < ActiveRecord::Base
   belongs_to :group_category
   belongs_to :account
   belongs_to :root_account, :class_name => "Account"
-  has_many :calendar_events, :as => :context, :dependent => :destroy
-  has_many :discussion_topics, -> { where("discussion_topics.workflow_state<>'deleted'").preload(:user).order('discussion_topics.position DESC, discussion_topics.created_at DESC') }, dependent: :destroy, as: :context
-  has_many :active_discussion_topics, -> { where("discussion_topics.workflow_state<>'deleted'").preload(:user) }, as: :context, class_name: 'DiscussionTopic'
-  has_many :all_discussion_topics, -> { preload(:user) }, as: :context, class_name: "DiscussionTopic", dependent: :destroy
+  has_many :calendar_events, :as => :context, :inverse_of => :context, :dependent => :destroy
+  has_many :discussion_topics, -> { where("discussion_topics.workflow_state<>'deleted'").preload(:user).order('discussion_topics.position DESC, discussion_topics.created_at DESC') }, dependent: :destroy, as: :context, inverse_of: :context
+  has_many :active_discussion_topics, -> { where("discussion_topics.workflow_state<>'deleted'").preload(:user) }, as: :context, inverse_of: :context, class_name: 'DiscussionTopic'
+  has_many :all_discussion_topics, -> { preload(:user) }, as: :context, inverse_of: :context, class_name: "DiscussionTopic", dependent: :destroy
   has_many :discussion_entries, -> { preload(:discussion_topic, :user) }, through: :discussion_topics, dependent: :destroy
-  has_many :announcements, :as => :context, :class_name => 'Announcement', :dependent => :destroy
-  has_many :active_announcements, -> { where("discussion_topics.workflow_state<>'deleted'") }, as: :context, class_name: 'Announcement'
-  has_many :attachments, :as => :context, :dependent => :destroy, :extend => Attachment::FindInContextAssociation
-  has_many :active_images, -> { where("attachments.file_state<>'deleted' AND attachments.content_type LIKE 'image%'").order('attachments.display_name').preload(:thumbnail) }, as: :context, class_name: 'Attachment'
-  has_many :active_assignments, -> { where("assignments.workflow_state<>'deleted'") }, as: :context, class_name: 'Assignment'
+  has_many :announcements, :as => :context, :inverse_of => :context, :class_name => 'Announcement', :dependent => :destroy
+  has_many :active_announcements, -> { where("discussion_topics.workflow_state<>'deleted'") }, as: :context, inverse_of: :context, class_name: 'Announcement'
+  has_many :attachments, :as => :context, :inverse_of => :context, :dependent => :destroy, :extend => Attachment::FindInContextAssociation
+  has_many :active_images, -> { where("attachments.file_state<>'deleted' AND attachments.content_type LIKE 'image%'").order('attachments.display_name').preload(:thumbnail) }, as: :context, inverse_of: :context, class_name: 'Attachment'
+  has_many :active_assignments, -> { where("assignments.workflow_state<>'deleted'") }, as: :context, inverse_of: :context, class_name: 'Assignment'
   has_many :all_attachments, :as => 'context', :class_name => 'Attachment'
-  has_many :folders, -> { order('folders.name') }, as: :context, dependent: :destroy
-  has_many :active_folders, -> { where("folders.workflow_state<>'deleted'").order('folders.name') }, class_name: 'Folder', as: :context
-  has_many :submissions_folders, -> { where.not(:folders => {:submission_context_code => nil}) }, as: 'context', class_name: 'Folder'
+  has_many :folders, -> { order('folders.name') }, as: :context, inverse_of: :context, dependent: :destroy
+  has_many :active_folders, -> { where("folders.workflow_state<>'deleted'").order('folders.name') }, class_name: 'Folder', as: :context, inverse_of: :context
+  has_many :submissions_folders, -> { where.not(:folders => {:submission_context_code => nil}) }, as: :context, inverse_of: :context, class_name: 'Folder'
   has_many :collaborators
-  has_many :external_feeds, :as => :context, :dependent => :destroy
-  has_many :messages, :as => :context, :dependent => :destroy
+  has_many :external_feeds, :as => :context, :inverse_of => :context, :dependent => :destroy
+  has_many :messages, :as => :context, :inverse_of => :context, :dependent => :destroy
   belongs_to :wiki
   has_many :wiki_pages, foreign_key: 'wiki_page', primary_key: 'wiki_page'
-  has_many :web_conferences, :as => :context, :dependent => :destroy
-  has_many :collaborations, -> { order('title, created_at') }, as: :context, dependent: :destroy
-  has_many :media_objects, :as => :context
-  has_many :content_migrations, :as => :context
-  has_many :content_exports, :as => :context
-  has_many :usage_rights, as: :context, class_name: 'UsageRights', dependent: :destroy
+  has_many :web_conferences, :as => :context, :inverse_of => :context, :dependent => :destroy
+  has_many :collaborations, -> { order("#{Collaboration.quoted_table_name}.title, #{Collaboration.quoted_table_name}.created_at") }, as: :context, inverse_of: :context, dependent: :destroy
+  has_many :media_objects, :as => :context, :inverse_of => :context
+  has_many :content_migrations, :as => :context, :inverse_of => :context
+  has_many :content_exports, :as => :context, :inverse_of => :context
+  has_many :usage_rights, as: :context, inverse_of: :context, class_name: 'UsageRights', dependent: :destroy
   belongs_to :avatar_attachment, :class_name => "Attachment"
   belongs_to :leader, :class_name => "User"
 
@@ -126,10 +125,10 @@ class Group < ActiveRecord::Base
     self.group_memberships
   end
 
-  def wiki_with_create
+  def wiki
+    return super if wiki_id
     Wiki.wiki_for_context(self)
   end
-  alias_method_chain :wiki, :create
 
   def auto_accept?
     self.group_category &&
@@ -156,6 +155,11 @@ class Group < ActiveRecord::Base
   def group_category_limit_met?
     group_category && group_category.group_limit && participating_users.size >= group_category.group_limit
   end
+
+  def context_external_tools
+    ContextExternalTool.none
+  end
+
   private :group_category_limit_met?
 
   def student_organized?
@@ -176,9 +180,9 @@ class Group < ActiveRecord::Base
     context.respond_to?(:allow_student_forum_attachments) && context.allow_student_forum_attachments
   end
 
-  def participants(include_observers=false)
+  def participants(opts={})
     users = participating_users.uniq.all
-    if include_observers && self.context.is_a?(Course)
+    if opts[:include_observers] && self.context.is_a?(Course)
       (users + User.observing_students_in_course(users, self.context)).flatten.uniq
     else
       users
@@ -257,23 +261,12 @@ class Group < ActiveRecord::Base
   end
 
   workflow do
-    state :available do
-      event :complete, :transitions_to => :completed
-      event :close, :transitions_to => :closed
-    end
-
-    # Closed to new entrants
-    state :closed do
-      event :complete, :transitions_to => :completed
-      event :open, :transitions_to => :available
-    end
-
-    state :completed
+    state :available
     state :deleted
   end
 
   def active?
-    self.available? || self.closed?
+    self.available?
   end
 
   alias_method :destroy_permanently!, :destroy
@@ -288,6 +281,15 @@ class Group < ActiveRecord::Base
   scope :active, -> { where("groups.workflow_state<>'deleted'") }
   scope :by_name, -> { order(Bookmarker.order_by) }
   scope :uncategorized, -> { where("groups.group_category_id IS NULL") }
+
+  def potential_collaborators
+    if context.is_a?(Course)
+      # >99.9% of groups have fewer than 100 members
+      User.where(id: participating_users_in_context.pluck(:id) + context.participating_admins.pluck(:id))
+    else
+      participating_users
+    end
+  end
 
   def full_name
     res = before_label(self.name) + " "
@@ -458,7 +460,11 @@ class Group < ActiveRecord::Base
   def account_id=(new_account_id)
     write_attribute(:account_id, new_account_id)
     if self.account_id_changed?
-      self.root_account = self.account(true).try(:root_account)
+      if CANVAS_RAILS4_2
+        self.root_account = self.account(true)&.root_account
+      else
+        self.root_account = self.reload_account&.root_account
+      end
     end
   end
 
@@ -487,9 +493,11 @@ class Group < ActiveRecord::Base
       can :read_forum and
       can :read_announcements and
       can :read_roster and
-      can :send_messages and
-      can :send_messages_all and
       can :view_unpublished_items
+
+      given { |user, session| user && self.has_member?(user) &&
+        (!self.context || self.context.is_a?(Account) || self.context.grants_any_right?(user, session, :send_messages, :send_messages_all)) }
+      can :send_messages and can :send_messages_all
 
       # if I am a member of this group and I can moderate_forum in the group's context
       # (makes it so group members cant edit each other's discussion entries)
@@ -538,6 +546,9 @@ class Group < ActiveRecord::Base
       can :update and
       can :view_unpublished_items
 
+      given { |user, session| self.context && self.context.grants_all_rights?(user, session, :read_as_admin, :post_to_forum) }
+      can :post_to_forum
+
       given { |user, session| self.context && self.context.grants_right?(user, session, :view_group_pages) }
       can :read and can :read_forum and can :read_announcements and can :read_roster
 
@@ -553,6 +564,9 @@ class Group < ActiveRecord::Base
 
       given {|user, session| self.context && self.context.grants_right?(user, session, :read_as_admin)}
       can :read_as_admin
+
+      given {|user, session| self.context && self.context.grants_right?(user, session, :read_sis)}
+      can :read_sis
     end
   end
 
@@ -566,7 +580,7 @@ class Group < ActiveRecord::Base
     return false unless user.present? && self.context.present?
     return true if self.group_category.try(:communities?)
     if self.context.is_a?(Course)
-      return self.context.enrollments.not_fake.except(:preload).where(:user_id => user.id).any?(&:participating?)
+      return self.context.enrollments.not_fake.where(:user_id => user.id).active_by_date.exists?
     elsif self.context.is_a?(Account)
       return self.context.root_account.user_account_associations.where(:user_id => user.id).exists?
     end
@@ -636,19 +650,12 @@ class Group < ActiveRecord::Base
       { :id => TAB_FILES,         :label => t("#group.tabs.files", "Files"), :css_class => 'files', :href => :group_files_path },
     ]
 
-    if root_account.try :canvas_network_enabled?
-      available_tabs << {:id => TAB_PROFILE, :label => t('#tabs.profile', 'Profile'), :css_class => 'profile', :href => :group_profile_path}
-    end
-
     if user && self.grants_right?(user, :read)
       available_tabs << { :id => TAB_CONFERENCES, :label => t('#tabs.conferences', "Conferences"), :css_class => 'conferences', :href => :group_conferences_path }
       available_tabs << { :id => TAB_COLLABORATIONS, :label => t('#tabs.collaborations', "Collaborations"), :css_class => 'collaborations', :href => :group_collaborations_path }
       available_tabs << { :id => TAB_COLLABORATIONS_NEW, :label => t('#tabs.collaborations', "Collaborations"), :css_class => 'collaborations', :href => :group_lti_collaborations_path }
     end
 
-    if root_account.try(:canvas_network_enabled?) && user && grants_right?(user, :manage)
-      available_tabs << { :id => TAB_SETTINGS, :label => t('#tabs.settings', 'Settings'), :css_class => 'settings', :href => :edit_group_path }
-    end
     available_tabs
   end
 
@@ -713,6 +720,10 @@ class Group < ActiveRecord::Base
     # shouldn't matter, but most specs create anonymous (contextless) groups :(
     return false if context.nil?
     context.feature_enabled?(feature)
+  end
+
+  def grading_periods?
+    !!context.try(:grading_periods?)
   end
 
   def serialize_permissions(permissions_hash, user, session)

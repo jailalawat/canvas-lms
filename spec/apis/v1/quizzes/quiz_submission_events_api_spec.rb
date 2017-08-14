@@ -46,7 +46,6 @@ describe Quizzes::QuizSubmissionEventsApiController, type: :request do
       student_in_course
       @user = @teacher
       @quiz_submission = @quiz.quiz_submissions.last
-      submitter = User.find @quiz_submission.user_id
       api_create({raw: true}, {})
       assert_status(401)
     end
@@ -75,6 +74,7 @@ describe Quizzes::QuizSubmissionEventsApiController, type: :request do
         }.as_json)
       end
     end
+
     it "should store both client_timestamp and created_at" do
       scope = Quizzes::QuizSubmissionEvent
 
@@ -90,6 +90,12 @@ describe Quizzes::QuizSubmissionEventsApiController, type: :request do
         expect(event.created_at != events_data.first["client_timestamp"]).to be_truthy
         expect(event.created_at).to be_within(100).of(Time.zone.now)
       end
+    end
+
+    it 'should not succeed when the QS is `settings_only`' do
+      student_in_course
+      @quiz_submission = @quiz.quiz_submissions.create!(user: @user, workflow_state: 'settings_only')
+      expect(api_create({raw: true}, {'quiz_submission_events' => events_data})).to eq 404
     end
   end
 
@@ -113,7 +119,7 @@ describe Quizzes::QuizSubmissionEventsApiController, type: :request do
 
     before :once do
       Account.default.enable_feature!(:quiz_log_auditing)
-      @quiz = course(active_all: true).quizzes.create!
+      @quiz = course_factory(active_all: true).quizzes.create!
     end
 
     context 'as the student who took the quiz' do
@@ -189,7 +195,7 @@ describe Quizzes::QuizSubmissionEventsApiController, type: :request do
     context 'as someone else' do
       before(:once) do
         student_in_course(course: @course)
-        user(active_all: true)
+        user_factory(active_all: true)
 
         @quiz_submission = @quiz.generate_submission(@student)
       end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,7 +19,6 @@
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
 
 describe AssignmentGroup do
-
   before(:once) do
     @valid_attributes = {
       :name => "value for name",
@@ -36,6 +35,13 @@ describe AssignmentGroup do
     expect(AssignmentGroup).to be_respond_to(:acts_as_list)
   end
 
+  it "should convert NaN group weight values to 0 on save" do
+    ag = @course.assignment_groups.create!(@valid_attributes)
+    ag.group_weight = 0/0.0
+    ag.save!
+    expect(ag.group_weight).to eq 0
+  end
+
   context "visible assignments" do
     before(:each) do
       @ag = @course.assignment_groups.create!(@valid_attributes)
@@ -46,7 +52,7 @@ describe AssignmentGroup do
                                   :points_possible => 10,
                                   :only_visible_to_overrides => true})}
       assignments.first.destroy
-      assignments.second.grade_student(@student, {grade: 10})
+      assignments.second.grade_student(@student, grade: 10, grader: @teacher)
       assignment_to_override = assignments.last
       create_section_override_for_assignment(assignment_to_override, course_section: @s)
       @course.reload
@@ -131,6 +137,308 @@ describe AssignmentGroup do
     assignment_group_model :rules => rules
     result = @ag.rules_hash({stringify_json_ids: true})
     expect(result['drop_lowest']).to eql(2)
+  end
+
+  describe "#grants_right?" do
+    before(:once) do
+      @assignment_group = @course.assignment_groups.create!(@valid_attributes)
+      assignments = (0..1).map do |n|
+        @course.assignments.create!(
+          title: "Example Assignment #{n}",
+          assignment_group: @assignment_group,
+          points_possible: 10
+        )
+      end
+      @assignment = assignments.first
+
+      @quiz = quiz_model(course: @course)
+      @quiz.assignment_group_id = @assignment_group.id
+      @quiz.save!
+
+      @admin = account_admin_user()
+      teacher_in_course(:course => @course)
+      @grading_period_group = @course.root_account.grading_period_groups.create!(title: "Example Group")
+      @grading_period_group.enrollment_terms << @course.enrollment_term
+      @course.enrollment_term.save!
+      @assignment_group.reload
+
+      @grading_period_group.grading_periods.create!({
+        title: "Example Grading Period",
+        start_date: 5.weeks.ago,
+        end_date: 3.weeks.ago,
+        close_date: 1.week.ago
+      })
+      @grading_period_group.grading_periods.create!({
+        title: "Example Grading Period",
+        start_date: 3.weeks.ago,
+        end_date: 1.week.ago,
+        close_date: 1.week.from_now
+      })
+    end
+
+    context "to delete" do
+      context "without grading periods" do
+        it "is true for admins" do
+          @course.stubs(:grading_periods?).returns false
+          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to be true
+        end
+
+        it "is false for teachers" do
+          @course.stubs(:grading_periods?).returns false
+          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to be true
+        end
+      end
+
+      context "when the assignment is due in a closed grading period" do
+        before(:once) do
+          @assignment.update_attributes(due_at: 4.weeks.ago)
+        end
+
+        it "is true for admins" do
+          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is false for teachers" do
+          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to eql(false)
+        end
+      end
+
+      context "when the assignment is due in an open grading period" do
+        before(:once) do
+          @assignment.update_attributes(due_at: 2.weeks.ago)
+        end
+
+        it "is true for admins" do
+          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the assignment is due after all grading periods" do
+        before(:once) do
+          @assignment.update_attributes(due_at: 1.day.from_now)
+        end
+
+        it "is true for admins" do
+          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the assignment is due before all grading periods" do
+        before(:once) do
+          @assignment.update_attributes(due_at: 6.weeks.ago)
+        end
+
+        it "is true for admins" do
+          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the assignment has no due date" do
+        before(:once) do
+          @assignment.update_attributes(due_at: nil)
+        end
+
+        it "is true for admins" do
+          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the assignment is due in a closed grading period for a student" do
+        before(:once) do
+          @assignment.update_attributes(due_at: 2.days.from_now)
+          override = @assignment.assignment_overrides.build
+          override.set = @course.default_section
+          override.override_due_at(4.weeks.ago)
+          override.save!
+        end
+
+        it "is true for admins" do
+          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is false for teachers" do
+          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to eql(false)
+        end
+      end
+
+      context "when the assignment is overridden with no due date for a student" do
+        before(:once) do
+          @assignment.update_attributes(due_at: nil)
+          override = @assignment.assignment_overrides.build
+          override.set = @course.default_section
+          override.save!
+        end
+
+        it "is true for admins" do
+          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the assignment is deleted and due in a closed grading period" do
+        before(:once) do
+          @assignment.update_attributes(due_at: 4.weeks.ago)
+          @assignment.destroy
+        end
+
+        it "is true for admins" do
+          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz is due in a closed grading period" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 4.weeks.ago)
+        end
+
+        it "is true for admins" do
+          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is false for teachers" do
+          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to eql(false)
+        end
+      end
+
+      context "when the quiz is due in an open grading period" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 2.weeks.ago)
+        end
+
+        it "is true for admins" do
+          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz is due after all grading periods" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 1.day.from_now)
+        end
+
+        it "is true for admins" do
+          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz is due before all grading periods" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 6.weeks.ago)
+        end
+
+        it "is true for admins" do
+          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz has no due date" do
+        before(:once) do
+          @quiz.update_attributes(due_at: nil)
+        end
+
+        it "is true for admins" do
+          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz is due in a closed grading period for a student" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 2.days.from_now)
+          override = @quiz.assignment_overrides.build
+          override.set = @course.default_section
+          override.override_due_at(4.weeks.ago)
+          override.save!
+        end
+
+        it "is true for admins" do
+          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is false for teachers" do
+          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to eql(false)
+        end
+      end
+
+      context "when the quiz is overridden with no due date for a student" do
+        before(:once) do
+          @quiz.update_attributes(due_at: nil)
+          override = @quiz.assignment_overrides.build
+          override.set = @course.default_section
+          override.save!
+        end
+
+        it "is true for admins" do
+          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz is deleted and due in a closed grading period" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 4.weeks.ago)
+          @quiz.destroy
+        end
+
+        it "is true for admins" do
+          expect(@assignment_group.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@assignment_group.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+    end
+  end
+
+  describe '#any_assignment_in_closed_grading_period?' do
+    it 'calls EffectiveDueDates#in_closed_grading_period?' do
+      assignment_group_model
+      edd = EffectiveDueDates.for_course(@ag.context, @ag.published_assignments)
+      EffectiveDueDates.expects(:for_course).with(@ag.context, @ag.published_assignments).returns(edd)
+      edd.expects(:any_in_closed_grading_period?).returns(true)
+      expect(@ag.any_assignment_in_closed_grading_period?).to eq(true)
+    end
   end
 end
 

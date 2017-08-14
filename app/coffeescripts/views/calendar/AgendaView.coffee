@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!calendar'
   'jquery'
@@ -25,8 +42,8 @@ define [
 
     events:
       'click .agenda-load-btn': 'loadMore'
-      'click .ig-row': 'manageEvent'
-      'keyclick .ig-row': 'manageEvent'
+      'click .agenda-event__item-container': 'manageEvent'
+      'keyclick .agenda-event__item-container': 'manageEvent'
 
     messages:
       loading_more_items: I18n.t('loading_more_items', "Loading more items.")
@@ -76,7 +93,7 @@ define [
 
     appendEvents: (events) =>
       @nextPageDate = events.nextPageDate
-      @collection.push.apply(@collection, calendarEventFilter(@viewingGroup, events))
+      @collection.push.apply(@collection, calendarEventFilter(@viewingGroup, events, @calendar?.schedulerState))
       @collection = _.sortBy(@collection, 'originalStart')
       @render()
 
@@ -102,7 +119,7 @@ define [
         $("#create_new_event_link").focus()
         currentIndex = -1
       else if(currentIndex >= 0)
-        children = @$('.ig-list').children()
+        children = @$('.agenda-event__list').children()
         elementToFocus = $((children[currentIndex] || children[children.length - 1])).children().first()
         elementToFocus.focus() if elementToFocus
 
@@ -110,7 +127,7 @@ define [
       e.preventDefault()
       e.stopPropagation()
       focusedAlready = true #So we don't focus the add button right when the page loads.
-      eventEl = $(e.target).closest('.agenda-event')
+      eventEl = $(e.target).closest('.agenda-event__item')
       eventId = eventEl.data('event-id')
       currentIndex = -1 #Default currentIndex to be -1 just in case we don't find any event.
       @collection.forEach((val, index, list) => currentIndex = index if val.id == eventId)
@@ -201,6 +218,7 @@ define [
       meta:
         hasMore: !!@nextPageDate
         displayAppointmentEvents: @viewingGroup
+        better_scheduler: ENV.CALENDAR.BETTER_SCHEDULER
 
     # Public: Creates the json for the template.
     #

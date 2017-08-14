@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -47,8 +47,6 @@ class Notification < ActiveRecord::Base
   has_many :messages
   has_many :notification_policies, :dependent => :destroy
   before_save :infer_default_content
-
-  attr_accessible  :name, :subject, :main_link, :delay_for, :category
 
   scope :to_show_in_feed, -> { where("messages.category='TestImmediately' OR messages.notification_name IN (?)", TYPES_TO_SHOW_IN_FEED) }
 
@@ -101,11 +99,29 @@ class Notification < ActiveRecord::Base
   #
   def create_message(asset, to_list, options={})
     messages = [] if Rails.env.test?
+
+    preload_asset_roles_if_needed(asset)
+
     to_list.each do |to|
       msgs = NotificationMessageCreator.new(self, asset, options.merge(:to_list => to)).create_message
       messages.concat msgs if Rails.env.test?
+      to.send(:clear_association_cache) if to.is_a?(User)
     end
     messages
+  end
+
+  TYPES_TO_PRELOAD_CONTEXT_ROLES = ["Assignment Created", "Assignment Due Date Changed"].freeze
+  def preload_asset_roles_if_needed(asset)
+    if TYPES_TO_PRELOAD_CONTEXT_ROLES.include?(self.name)
+      case asset
+      when Assignment
+        ActiveRecord::Associations::Preloader.new.preload(asset, :assignment_overrides)
+        asset.context.preload_user_roles!
+      when AssignmentOverride
+        ActiveRecord::Associations::Preloader.new.preload(asset.assignment, :assignment_overrides)
+        asset.assignment.context.preload_user_roles!
+      end
+    end
   end
 
   def category_spaceless
@@ -181,7 +197,10 @@ class Notification < ActiveRecord::Base
       {
         name: :send_scores_in_emails,
         value: user.preferences[:send_scores_in_emails],
-        label: t('Include scores when alerting about grades.'),
+        label: t(<<-EOS),
+          Include scores when alerting about grades.
+          If your email is not an institution email this means sensitive content will be sent outside of the institution.
+          EOS
         id: "cat_#{self.id}_option",
       }
     end
@@ -333,6 +352,8 @@ class Notification < ActiveRecord::Base
     t 'names.appointment_reserved_for_user', 'Appointment Reserved For User'
     t 'names.submission_needs_grading', 'Submission Needs Grading'
     t 'names.web_conference_recording_ready', 'Web Conference Recording Ready'
+    t 'names.blueprint_sync_complete', 'Blueprint Sync Complete'
+    t 'names.blueprint_content_added', 'Blueprint Content Added'
   end
 
   # TODO: i18n ... show these anywhere we show the category today
@@ -360,6 +381,7 @@ class Notification < ActiveRecord::Base
     t 'categories.reminder', 'Reminder'
     t 'categories.submission_comment', 'Submission Comment'
     t 'categories.recording_ready', 'Recording Ready'
+    t 'categories.blueprint', 'Blueprint'
   end
 
   # Translatable display text to use when representing the category to the user.
@@ -417,6 +439,8 @@ class Notification < ActiveRecord::Base
       t(:reminder_display, 'Reminder')
     when 'Recording Ready'
       t(:recording_ready_display, 'Recording Ready')
+    when 'Blueprint'
+      t(:blueprint_display, 'Blueprint Sync')
     else
       t(:missing_display_display, "For %{category} notifications", :category => category)
     end
@@ -454,11 +478,6 @@ Includes:
 * Assignment/submission grade entered/changed
 * Un-muted assignment grade
 * Grade weight changed
-
-\u{200B}
-
-Check 'Include scores when alerting about grade changes' if you want to see your grades in the notifications.
-If your email is not an institution email this means sensitive content will be sent outside of the institution.
 EOS
     when 'Late Grading'
       mt(:late_grading_description, <<-EOS)
@@ -483,7 +502,6 @@ Invitation for:
 * Web conference
 * Group
 * Collaboration
-* Course
 * Peer Review & reminder
 EOS
     when 'Other'
@@ -506,11 +524,7 @@ EOS
 Student appointment sign-up
 EOS
     when 'Appointment Availability'
-      mt(:appointment_availability_description,  <<-EOS)
-*Instructor and Admin only:*
-
-Change to appointment time slots
-EOS
+      t('New appointment timeslots are available for signup')
     when 'Appointment Signups'
       t(:appointment_signups_description, 'New appointment on your calendar')
     when 'Appointment Cancelations'
@@ -529,6 +543,12 @@ EOS
 
 * Group enrollment
 * accepted/rejected
+EOS
+    when 'Blueprint'
+      mt(:blueprint_description, <<-EOS)
+*Instructor and Admin only:*
+
+Content was synced from a blueprint course to associated courses
 EOS
     else
       t(:missing_description_description, "For %{category} notifications", :category => category)

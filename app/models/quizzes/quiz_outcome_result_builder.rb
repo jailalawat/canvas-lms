@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module Quizzes
   class QuizOutcomeResultBuilder
     def initialize(quiz_submission)
@@ -5,6 +22,7 @@ module Quizzes
     end
 
     def build_outcome_results(questions, alignments)
+      return unless ['complete', 'graded'].include?(@qs.workflow_state)
       create_quiz_outcome_results(questions, alignments)
       questions.each do |question|
         alignments.each do |alignment|
@@ -25,15 +43,23 @@ module Quizzes
         where(user_id: @qs.user.id).
         first_or_initialize
 
-      # Create a question scoped outcome result linked to the quiz_result.
-      question_result = quiz_result.learning_outcome_question_results.for_associated_asset(question).first_or_initialize
-
-      # update the result with stuff from the quiz submission's question result
+      # get data from quiz submission's question result to ensure result should be generated
       cached_question = @qs.quiz_data.detect { |q| q[:assessment_question_id] == question.id }
       cached_answer = @qs.submission_data.detect { |q| q[:question_id] == cached_question[:id] }
       raise "Could not find valid question" unless cached_question
       raise "Could not find valid answer" unless cached_answer
 
+      # Create a question scoped outcome result linked to the quiz_result.
+      question_result = quiz_result.learning_outcome_question_results.for_associated_asset(question).first_or_initialize
+
+      # do not create a result if no points are possible.
+      if cached_question['points_possible'] == 0
+        # destroy any existing results that might be persisted if points possible were not always 0
+        question_result.destroy if question_result.persisted?
+        return
+      end
+
+      # update the result with stuff from the quiz submission's question result
       question_result.learning_outcome = quiz_result.learning_outcome
 
       # mastery
@@ -76,11 +102,19 @@ module Quizzes
           [cached_question, cached_answer]
         end
 
-        result.score = cached_questions_and_answers.map(&:last).
-          map { |h| h[:points] }.
-          inject(:+)
         result.possible = cached_questions_and_answers.map(&:first).
           map { |h| h['points_possible']}.
+          inject(:+)
+
+        # do not create a result if no points are possible.
+        if result.possible == 0
+          # destroy any existing results that might be persisted if points possible were not always 0
+          result.destroy if result.persisted?
+          next
+        end
+
+        result.score = cached_questions_and_answers.map(&:last).
+          map { |h| h[:points] }.
           inject(:+)
 
         result.calculate_percent!

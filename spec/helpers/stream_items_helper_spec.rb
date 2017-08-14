@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -23,8 +23,8 @@ describe StreamItemsHelper do
     Notification.create!(:name => "Assignment Created", :category => "TestImmediately")
     course_with_teacher(:active_all => true)
     course_with_student(:active_all => true, :course => @course)
-    @other_user = user
-    @another_user = user
+    @other_user = user_factory
+    @another_user = user_factory
 
     @context = @course
     @discussion = discussion_topic_model
@@ -173,6 +173,7 @@ describe StreamItemsHelper do
     it 'should handle anonymous review for AssessmentRequests' do
       @assignment.update_attribute(:anonymous_peer_reviews, true)
       student = @student
+      create_enrollments(@course, [@other_user])
       assessor_submission = submission_model(assignment: @assignment, user: @other_user)
       assessment_request = AssessmentRequest.create!(assessor: @other_user, asset: @submission,
                                                      user: student, assessor_asset: assessor_submission)

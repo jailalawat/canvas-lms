@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -26,7 +26,6 @@ describe Profile do
       class Foo < ActiveRecord::Base
         self.table_name = :users
         prepend Profile::Association
-        strong_params
         def root_account; Account.default; end
       end
     end

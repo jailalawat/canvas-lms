@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2013 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 @import "bundles/profile_edit";
 
@@ -214,4 +232,24 @@
   &:hover {
     background-position: -193px -32px;
   }
+}
+
+// implemented to make new profile page use flex for layout //
+.ic-Profile-layout {
+  display: flex;
+  padding: $ic-sp;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.ic-Profile-layout__Primary {
+  flex: 2;
+    @include breakpoint(desktop) {
+    flex: 3;
+  }
+}
+
+.ic-Profile-layout__Secondary {
+  flex: 1;
+  text-align: right;
 }

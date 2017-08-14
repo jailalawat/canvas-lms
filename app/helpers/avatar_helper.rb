@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 module AvatarHelper
 
   def avatar_image_attrs(user_or_id)
@@ -50,7 +67,11 @@ module AvatarHelper
     link_opts[:style] += ";width: #{opts[:size]}px;height: #{opts[:size]}px" if opts[:size]
     link_opts[:href] = url if url
     link_opts[:title] = opts[:title] if opts[:title]
-    content = content_tag(:span, display_name, class: 'screenreader-only')
+    content = content_tag(
+      :span,
+      I18n.t('Click to change profile picture for %{display_name}', :display_name => display_name),
+      class: 'screenreader-only'
+    )
     content += (opts[:edit] ? content_tag(:i, nil, class: 'icon-edit') : '')
     content += (opts[:show_flag] ? content_tag(:i, nil, class: 'icon-flag') : '')
     content_tag(:a, content, link_opts)

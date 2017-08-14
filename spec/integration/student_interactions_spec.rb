@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -47,7 +47,8 @@ describe "student interactions links" do
   it "should show the student link on the student's page" do
     get "/courses/#{@course.id}/users/#{@student.id}"
     expect(response).to be_success
-    expect(response.body).to match(/Interactions with You/)
+    expect(response.body).to match(/Interactions Report/)
+    expect(response.body).not_to match(/Student Interactions Report/)
   end
 
   it "should show the teacher link on the teacher's page" do

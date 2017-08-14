@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,7 +20,7 @@ require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper.rb')
 
 describe Polling::PollChoice do
   before(:each) do
-    course
+    course_factory
     teacher_in_course(course: @course, active_all: true)
     @poll = Polling::Poll.create!(user: @teacher, question: 'A Test Poll')
   end

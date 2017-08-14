@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/assignments_common')
 require File.expand_path(File.dirname(__FILE__) + '/../helpers/differentiated_assignments')
 
@@ -29,7 +46,9 @@ describe "interaction with differentiated quizzes" do
         expect(f("#assignment-quizzes")).to include_text(@da_quiz.title)
       end
       it "should show quizzes with a graded submission" do
-        @da_quiz.assignment.grade_student(@student, {:grade => 10})
+        @teacher = User.create!
+        @course.enroll_teacher(@teacher)
+        @da_quiz.assignment.grade_student(@student, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/assignments"
         expect(f("#assignment_group_undated")).to include_text(@da_quiz.title)
         get "/courses/#{@course.id}/quizzes"
@@ -50,16 +69,20 @@ describe "interaction with differentiated quizzes" do
         expect(driver.current_url).to match %r{/courses/\d+/quizzes/#{@da_quiz.id}}
       end
       it "should show the quiz page with a graded submission" do
-        @da_quiz.assignment.grade_student(@student, {:grade => 10})
+        @teacher = User.create!
+        @course.enroll_teacher(@teacher)
+        @da_quiz.assignment.grade_student(@student, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/quizzes/#{@da_quiz.id}"
         expect(driver.current_url).to match %r{/courses/\d+/quizzes/#{@da_quiz.id}}
       end
       it "should show previous submissions on inaccessible quizzes" do
+        @teacher = User.create!
+        @course.enroll_teacher(@teacher)
         create_section_override_for_assignment(@da_quiz)
         submit_quiz(@da_quiz)
         # destroy the override and automatically generated grade providing visibility to the current student
-        AssignmentOverride.find(@da_quiz.assignment_overrides.first!).destroy
-        @da_quiz.assignment.grade_student(@user, {:grade => nil})
+        AssignmentOverride.find(@da_quiz.assignment_overrides.first!.id).destroy
+        @da_quiz.assignment.grade_student(@user, grade: nil, grader: @teacher)
         create_section_override_for_assignment(@da_quiz, course_section: @section1)
         # assure we get the no longer counted banner on the quiz page
         get "/courses/#{@course.id}/quizzes/#{@da_quiz.id}"
@@ -69,10 +92,12 @@ describe "interaction with differentiated quizzes" do
         expect(f("#flash_message_holder")).to include_text("This quiz will no longer count towards your grade.")
       end
       it "should not allow you the quiz to be taken if visibility has been revoked" do
+        @teacher = User.create!
+        @course.enroll_teacher(@teacher)
         create_section_override_for_assignment(@da_quiz)
         submit_quiz(@da_quiz)
-        AssignmentOverride.find(@da_quiz.assignment_overrides.first!).destroy
-        @da_quiz.assignment.grade_student(@user, {:grade => nil})
+        AssignmentOverride.find(@da_quiz.assignment_overrides.first!.id).destroy
+        @da_quiz.assignment.grade_student(@user, grade: nil, grader: @teacher)
         create_section_override_for_assignment(@da_quiz, course_section: @section1)
         get "/courses/#{@course.id}/quizzes/#{@da_quiz.id}"
         expect(f("#content")).not_to contain_css(".take_quiz_link")
@@ -86,7 +111,9 @@ describe "interaction with differentiated quizzes" do
         expect(f("#assignments")).to include_text(@da_quiz.title)
       end
       it "should show a quiz with a grade" do
-        @da_quiz.assignment.grade_student(@student, {:grade => 10})
+        @teacher = User.create!
+        @course.enroll_teacher(@teacher)
+        @da_quiz.assignment.grade_student(@student, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/grades"
         expect(f("#assignments")).to include_text(@da_quiz.title)
       end
@@ -120,7 +147,9 @@ describe "interaction with differentiated quizzes" do
         expect(f("#assignment-quizzes")).to include_text(@da_quiz.title)
       end
       it "should show quizzes with a graded submission" do
-        @da_quiz.assignment.grade_student(@student, {:grade => 10})
+        @teacher = User.create!
+        @course.enroll_teacher(@teacher)
+        @da_quiz.assignment.grade_student(@student, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/assignments"
         expect(f("#assignment_group_undated")).to include_text(@da_quiz.title)
         get "/courses/#{@course.id}/quizzes"
@@ -141,16 +170,20 @@ describe "interaction with differentiated quizzes" do
         expect(driver.current_url).to match %r{/courses/\d+/quizzes/#{@da_quiz.id}}
       end
       it "should show the quiz page with a graded submission" do
-        @da_quiz.assignment.grade_student(@student, {:grade => 10})
+        @teacher = User.create!
+        @course.enroll_teacher(@teacher)
+        @da_quiz.assignment.grade_student(@student, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/quizzes/#{@da_quiz.id}"
         expect(driver.current_url).to match %r{/courses/\d+/quizzes/#{@da_quiz.id}}
       end
       it "should show previous submissions on inaccessible quizzes" do
+        @teacher = User.create!
+        @course.enroll_teacher(@teacher)
         create_section_override_for_assignment(@da_quiz)
         submit_quiz(@da_quiz)
         # destroy the override and automatically generated grade providing visibility to the current student
-        AssignmentOverride.find(@da_quiz.assignment_overrides.first!).destroy
-        @da_quiz.assignment.grade_student(@user, {:grade => nil})
+        AssignmentOverride.find(@da_quiz.assignment_overrides.first!.id).destroy
+        @da_quiz.assignment.grade_student(@user, grade: nil, grader: @teacher)
         create_section_override_for_assignment(@da_quiz, course_section: @section1)
         # assure we get the no longer counted banner on the quiz page
         get "/courses/#{@course.id}/quizzes/#{@da_quiz.id}"
@@ -168,7 +201,9 @@ describe "interaction with differentiated quizzes" do
         expect(f("#assignments")).to include_text(@da_quiz.title)
       end
       it "should show a quiz with a graded submission" do
-        @da_quiz.assignment.grade_student(@student, {:grade => 10})
+        @teacher = User.create!
+        @course.enroll_teacher(@teacher)
+        @da_quiz.assignment.grade_student(@student, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/grades"
         expect(f("#assignments")).to include_text(@da_quiz.title)
       end

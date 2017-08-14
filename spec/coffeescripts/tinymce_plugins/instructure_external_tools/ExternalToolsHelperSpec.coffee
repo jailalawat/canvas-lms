@@ -1,10 +1,27 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'underscore'
   'tinymce_plugins/instructure_external_tools/ExternalToolsHelper',
   'jquery'
 ], (_, ExternalToolsHelper, $)->
 
-  module "ExternalToolsHelper:buttonConfig",
+  QUnit.module "ExternalToolsHelper:buttonConfig",
     setup: ->
       @buttonOpts = {
         name: "SomeName",
@@ -25,23 +42,25 @@ define [
     equal config.image, null
 
   test "defaults to image if no icon class", ->
-    btn = _.extend({}, @buttonOpts, {icon_url: "icon.com"})
+    btn = _.extend({}, @buttonOpts, {icon_url: "example.com"})
     config = ExternalToolsHelper.buttonConfig(btn)
     equal config.icon, null
-    equal config.image, "icon.com"
+    equal config.image, "example.com"
 
-  module "ExternalToolsHelper:clumpedButtonMapping",
+  QUnit.module "ExternalToolsHelper:clumpedButtonMapping",
     setup: ->
       @clumpedButtons = [
-        {id: "ID_1", name: "NAME_1", icon_url: "moot.com", canvas_icon_class: "foo"},
-        {id: "ID_2", name: "NAME_2", icon_url: "not_moot.com", canvas_icon_class: null},
+        {id: "ID_1", name: "NAME_1", icon_url: "", canvas_icon_class: "foo"},
+        {id: "ID_2", name: "NAME_2", icon_url: "", canvas_icon_class: null},
       ]
       @onClickHander = sinon.spy()
+      @fakeEditor = sinon.spy()
+
 
     teardown: ->
 
   test "returns a hash of markup keys and attaches click handler to value", ->
-    mapping = ExternalToolsHelper.clumpedButtonMapping(@clumpedButtons, @onClickHander)
+    mapping = ExternalToolsHelper.clumpedButtonMapping(@clumpedButtons, @fakeEditor, @onClickHander)
 
     imageKey = _.chain(mapping).keys().select((k) -> k.match(/img/)).value()[0]
     iconKey = _.chain(mapping).keys().select((k) -> !k.match(/img/)).value()[0]
@@ -68,7 +87,7 @@ define [
     imageTag = imageKey.split("&nbsp")[0]
     equal $(imageTag).prop("tagName"), "IMG"
 
-  module "ExternalToolsHelper:attachClumpedDropdown",
+  QUnit.module "ExternalToolsHelper:attachClumpedDropdown",
     setup: ->
       @theSpy = sinon.spy()
       @fakeTarget = {

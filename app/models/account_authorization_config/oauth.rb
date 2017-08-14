@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -37,6 +37,10 @@ class AccountAuthorizationConfig::Oauth < AccountAuthorizationConfig::Delegated
 
   def consumer
     @client ||= OAuth::Consumer.new(consumer_key, consumer_secret, consumer_options)
+  end
+
+  def provider_attributes
+    {}
   end
 
   protected

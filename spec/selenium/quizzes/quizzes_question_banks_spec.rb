@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative '../common'
 require_relative '../helpers/quizzes_common'
 
@@ -127,11 +144,12 @@ describe 'quizzes question banks' do
 
     it 'should check permissions when retrieving question banks', priority: "1", test_id: 201933 do
       @course.account = Account.default
-      @course.account.role_overrides.create(
+      @course.account.role_overrides.create!(
         permission: 'read_question_banks',
         role: teacher_role,
         enabled: false
       )
+      Account.default.reload
       @course.save
       quiz = @course.quizzes.create!(title: 'My Quiz')
 
@@ -299,7 +317,7 @@ describe 'quizzes question banks' do
     end
 
     it "should let account admins view question banks without :manage_assignments (but not edit)", priority: "2", test_id: 456162 do
-      user(:active_all => true)
+      user_factory(active_all: true)
       user_session(@user)
       @role = custom_account_role 'weakling', :account => @course.account
       @course.account.role_overrides.create!(:permission => 'read_course_content', :enabled => true, :role => @role)
@@ -333,7 +351,8 @@ describe 'quizzes question banks' do
 
       @bank = @course.assessment_question_banks.create!(title: 'Test Bank')
 
-      Account.default.role_overrides.create(:permission => 'read_question_banks', :role => teacher_role, :enabled => false)
+      Account.default.role_overrides.create!(:permission => 'read_question_banks', :role => teacher_role, :enabled => false)
+      Account.default.reload
 
       get "/courses/#{@course.id}/quizzes"
       expect(f("#content")).not_to contain_css('.view_question_banks')

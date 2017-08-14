@@ -1,17 +1,35 @@
+/*
+ * Copyright (C) 2014 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 /* global requirejs: false, jasmine: false */
 requirejs.config({
   map: {
-    'jasmine_react': {
-      'jquery': '../../../vendor/packages/jquery'
-    },
 
     'canvas_quizzes/config': {
       'app': '../js'
     },
 
     '*': {
-      'old_unsupported_dont_use_react': 'canvas/old_unsupported_dont_use_react',
-      'str': 'canvas/str'
+      'jquery': 'canvas/symlink_to_node_modules/jquery/jquery',
+      'react': '../../../vendor/js/alias_to_old_version_of_react',
+      'str': 'canvas/str',
+      'node_modules-version-of-backbone': 'canvas/symlink_to_node_modules/backbone/backbone',
+      'jsx/railsFlashNotificationsHelper': 'canvas/jsx/railsFlashNotificationsHelper',
     }
   },
 

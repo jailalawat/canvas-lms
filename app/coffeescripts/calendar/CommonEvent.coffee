@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'i18n!calendar'
   'jquery'
@@ -103,6 +120,7 @@ define [
       @preventWrappingAcrossDates()
 
     formatTime: (datetime, allDay=false) ->
+      return null unless datetime
       datetime = fcUtil.unwrap(datetime)
       if allDay
         formattedHtml = $.dateString(datetime)
@@ -130,4 +148,17 @@ define [
       return 'assignment'
 
     iconType: ->
-      if type = @assignmentType() then type else 'calendar-month'
+      if type = @assignmentType()
+        type
+      else if ENV.CALENDAR.BETTER_SCHEDULER
+        if @isAppointmentGroupEvent() && (@isAppointmentGroupFilledEvent() || @appointmentGroupEventStatus == "Reserved")
+          'calendar-reserved'
+        else if @isAppointmentGroupEvent()
+          'calendar-add'
+        else
+          'calendar-month'
+      else
+        'calendar-month'
+
+    isOnCalendar: (context_code) ->
+      @calendarEvent.all_context_codes.match(///\b#{context_code}\b///)

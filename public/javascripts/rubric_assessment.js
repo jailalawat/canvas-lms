@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,23 +12,23 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-define([
-  'i18n!rubric_assessment',
-  'jquery' /* $ */,
-  'str/htmlEscape',
-  'compiled/str/TextHelper',
-  'compiled/util/round',
-  'jquery.instructure_forms' /* fillFormData */,
-  'jqueryui/dialog',
-  'jquery.instructure_misc_plugins' /* showIf */,
-  'jquery.templateData' /* fillTemplateData, getTemplateData */,
-  'vendor/jquery.scrollTo' /* /\.scrollTo/ */
-], function(I18n, $, htmlEscape, TextHelper, round) {
+import I18n from 'i18n!rubric_assessment'
+import $ from 'jquery'
+import htmlEscape from './str/htmlEscape'
+import TextHelper from 'compiled/str/TextHelper'
+import round from 'compiled/util/round'
+import numberHelper from 'jsx/shared/helpers/numberHelper'
+import './jquery.instructure_forms' /* fillFormData */
+import 'jqueryui/dialog'
+import './jquery.instructure_misc_plugins' /* showIf */
+import './jquery.templateData'
+import './vendor/jquery.scrollTo'
 
 // TODO: stop managing this in the view and get it out of the global scope submissions/show.html.erb
+/*global rubricAssessment*/
 window.rubricAssessment = {
   init: function(){
     var $rubric_criterion_comments_dialog = $("#rubric_criterion_comments_dialog");
@@ -39,7 +39,7 @@ window.rubricAssessment = {
       })
       .delegate(".long_description_link", 'click', function(event) {
         event.preventDefault();
-        if(!$(this).parents(".rubric").hasClass('editing')) {
+        if (!$(this).parents('.rubric').hasClass('editing')) {
           var data = $(this).parents(".criterion").getTemplateData({textValues: ['long_description', 'description']}),
               is_learning_outcome = $(this).parents(".criterion").hasClass("learning_outcome_criterion");
           $("#rubric_long_description_dialog")
@@ -53,7 +53,7 @@ window.rubricAssessment = {
         }
       })
       .delegate(".criterion .saved_custom_rating", 'change', function() {
-        if($(this).parents(".rubric").hasClass('assessing')) { 
+        if ($(this).parents('.rubric').hasClass('assessing')) {
           var val = $(this).val();
           if(val && val.length > 0) {
             $(this).parents(".custom_ratings_entry").find(".custom_rating_field").val(unescape(val));
@@ -106,11 +106,13 @@ window.rubricAssessment = {
           }
           var total = 0;
           $obj.parents(".rubric").find(".criterion:visible:not(.ignore_criterion_for_scoring) .criterion_points").each(function() {
-            var val = parseFloat($(this).val(), 10);
-            if(isNaN(val)) { val = 0; }
-            total += val;
+            var criterionPoints = numberHelper.parse($(this).val(), 10);
+            if (isNaN(criterionPoints)) {
+              criterionPoints = 0;
+            }
+            total += criterionPoints;
           });
-          total = round(total, round.DEFAULT)
+          total = window.rubricAssessment.roundAndFormat(total);
           $obj.parents(".rubric").find(".rubric_total").text(total);
         }
       });
@@ -140,7 +142,7 @@ window.rubricAssessment = {
       $rubric_criterion_comments_dialog.find(".criterion_description").focus();
     });
 
-    $rubric_criterion_comments_dialog.find(".save_button").click(function(event) { 
+    $rubric_criterion_comments_dialog.find('.save_button').click(function () {
       var comments   = $rubric_criterion_comments_dialog.find("textarea.criterion_comments").val(),
           $criterion = $rubric_criterion_comments_dialog.data('current_rating');
       if($criterion) {
@@ -174,7 +176,7 @@ window.rubricAssessment = {
           $ratingsContainers.css('height', (maxHeight - 10) + 'px');
         }
       });
-      $("html,body").scrollTop(scrollTop); 
+      $('html,body').scrollTop(scrollTop);
     }
   },
 
@@ -186,7 +188,7 @@ window.rubricAssessment = {
     $rubric.find(".criterion:not(.blank)").each(function() {
       var id = $(this).attr('id');
       var pre = "rubric_assessment[" + id + "]";
-      var points = $(this).find(".criterion_points").val();
+      var points = numberHelper.parse($(this).find('.criterion_points').val());
       data[pre + "[points]"] = !isNaN(points) ? points : undefined
       if($(this).find(".rating.selected")) {
         data[pre + "[description]"] = $(this).find(".rating.selected .description").text();
@@ -202,7 +204,7 @@ window.rubricAssessment = {
 
   findRubric: function($rubric) {
     if(!$rubric.hasClass('rubric')) {
-      $new_rubric = $rubric.closest('.rubric');
+      var $new_rubric = $rubric.closest('.rubric');
       if($new_rubric.length === 0) {
         $new_rubric = $rubric.find('.rubric:first');
       }
@@ -269,9 +271,12 @@ window.rubricAssessment = {
         $criterion
           .find(".custom_rating_field").val(comments).end()
           .find(".custom_rating_comments").html(comments_html).end()
-          .find(".criterion_points").val(rating.points).change().end()
+          .find('.criterion_points')
+          .val(window.rubricAssessment.roundAndFormat(rating.points))
+          .change()
+          .end()
           .find(".criterion_rating_points_holder").showIf(rating.points || rating.points === 0).end()
-          .find(".criterion_rating_points").text(rating.points).end()
+          .find(".criterion_rating_points").text(window.rubricAssessment.roundAndFormat(rating.points)).end()
           .find(".custom_rating").text(comments).end()
           .find(".criterion_comments").toggleClass('empty', !comments).end()
           .find(".save_custom_rating").attr('checked', false);
@@ -285,7 +290,7 @@ window.rubricAssessment = {
           total += rating.points;
         }
       }
-      total = round(total, round.DEFAULT)
+      total = window.rubricAssessment.roundAndFormat(total);
       $rubric.find(".rubric_total").text(total);
     }
   },
@@ -302,7 +307,9 @@ window.rubricAssessment = {
         $rubricSummary.find("#criterion_" + rating.criterion_id)
           .find(".rating").hide().end()
           .find(".rating_" + rating.id).show().end()
-          .find(".criterion_points").text(rating.points).end()
+          .find('.criterion_points')
+          .text(window.rubricAssessment.roundAndFormat(rating.points))
+          .end()
           .find(".ignore_for_scoring").showIf(rating.ignore_for_scoring);
         if(ratingHasScore(rating) && !$rubricSummary.hasClass('free_form')){
           $rubricSummary.find("#criterion_" + rating.criterion_id)
@@ -315,13 +322,25 @@ window.rubricAssessment = {
           total += rating.points;
         }
       }
-      total = round(total, round.DEFAULT)
+      total = window.rubricAssessment.roundAndFormat(total, round.DEFAULT);
       $rubricSummary.show().find(".rubric_total").text(total);
       $rubricSummary.closest(".edit").show();
     }
     else {
       $rubricSummary.hide();
     }
+  },
+
+  /**
+   * Returns n rounded and formatted with I18n.n.
+   * If n is null, undefined or empty string, empty string is returned.
+   */
+  roundAndFormat: function (n) {
+    if (n == null || n === '') {
+      return '';
+    }
+
+    return I18n.n(round(n, round.DEFAULT));
   }
 };
 
@@ -331,5 +350,4 @@ function ratingHasScore(rating) {
 
 $(rubricAssessment.init);
 
-return rubricAssessment;
-});
+export default rubricAssessment;

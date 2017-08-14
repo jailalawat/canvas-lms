@@ -1,10 +1,30 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../common')
 
 describe "admin settings tab" do
   include_context "in-process server selenium tests"
+  before :once do
+    account_admin_user
+  end
+
   before :each do
-    course_with_admin_logged_in
-    get "/accounts/#{Account.default.id}/settings"
+    user_session(@admin)
   end
 
   def get_default_services
@@ -78,7 +98,7 @@ describe "admin settings tab" do
   end
 
   def click_submit
-    submit_form("#account_settings")
+    move_to_click("#account_settings button[type=submit]")
     wait_for_ajax_requests
   end
 
@@ -89,6 +109,9 @@ describe "admin settings tab" do
   end
 
   context "account settings" do
+    before :each do
+      get "/accounts/#{Account.default.id}/settings"
+    end
 
     it "should change the default time zone to Lima" do
       f("#account_default_time_zone option[value='Lima']").click
@@ -144,40 +167,10 @@ describe "admin settings tab" do
     end
   end
 
-  context "global includes" do
-    before { skip('global css/js happens in theme editor in newUI') if ENV['CANVAS_FORCE_USE_NEW_STYLES'] }
-
-    it "should not have a global includes section by default" do
-      expect(f("#account_settings")).not_to contain_jqcss('#account_settings_global_includes_settings:visible')
-    end
-
-    it "should have a global includes section if enabled" do
-      Account.default.settings = Account.default.settings.merge({ :global_includes => true })
-      Account.default.save!
-      section = f('#account_settings_global_includes_settings')
-      expect(section.find_element(:id, 'account_settings_sub_account_includes')).not_to be_nil
-    end
-
-    it "a sub-account should not have a global includes section by default" do
-      Account.default.settings = Account.default.settings.merge({ :global_includes => true })
-      Account.default.save!
-      acct = account_model(:root_account => Account.default)
-      get "/accounts/#{acct.id}/settings"
-      expect(f("#account_settings")).not_to contain_jqcss('#account_settings_global_includes_settings:visible')
-    end
-
-    it "a sub-account should have a global includes section if enabled by the parent" do
-      Account.default.settings = Account.default.settings.merge({ :global_includes => true })
-      Account.default.settings = Account.default.settings.merge({ :sub_account_includes => true })
-      Account.default.save!
-      acct = account_model(:root_account => Account.default)
-      get "/accounts/#{acct.id}/settings"
-      section = f('#account_settings_global_includes_settings')
-      expect(section.find_element(:id, 'account_settings_sub_account_includes')).not_to be_nil
-    end
-  end
-
   context "quiz ip address filter" do
+    before :each do
+      get "/accounts/#{Account.default.id}/settings"
+    end
 
     def add_quiz_filter name ="www.canvas.instructure.com", value="192.168.217.1/24"
       fj("#ip_filters .name[value='']:visible").send_keys name
@@ -190,23 +183,31 @@ describe "admin settings tab" do
       filter_hash
     end
 
+    def create_quiz_filter(name="www.canvas.instructure.com", value="192.168.217.1/24")
+      Account.default.tap do |a|
+        a.settings[:ip_filters] ||= []
+        a.settings[:ip_filters] << {name => value}
+        a.save!
+      end
+    end
+
     it "should click on the quiz help link" do
       f(".ip_help_link").click
       expect(f("#ip_filters_dialog")).to include_text "What are Quiz IP Filters?"
     end
 
-    it "should add a quiz filter " do
+    it "should add a quiz filter" do
       add_quiz_filter
     end
 
     it "should add another quiz filter" do
-      add_quiz_filter
+      create_quiz_filter
       f(".add_ip_filter_link").click
       add_quiz_filter "www.canvas.instructure.com/tests", "129.186.127.12/4"
     end
 
-    it "should edit a quiz filter " do
-      add_quiz_filter
+    it "should edit a quiz filter" do
+      create_quiz_filter
       new_name = "www.example.org"
       new_value = "10.192.124.12/8"
       replace_content(fj("#ip_filters .name:visible"), new_name)
@@ -219,17 +220,20 @@ describe "admin settings tab" do
     end
 
     it "should delete a quiz filter" do
-      skip("bug #8348 - cannot remove quiz IP address filter")
       filter_hash = add_quiz_filter
       f("#ip_filters .delete_filter_link").click
       click_submit
       expect(f("#account_settings")).not_to contain_css("#ip_filters .value[value='#{filter_hash.values.first}']")
       expect(f("#account_settings")).not_to contain_css("#ip_filters .name[value='#{filter_hash.keys.first}']")
-      expect(Account.default.settings[:ip_filters]).to be_nil
+      expect(Account.default.settings[:ip_filters]).to be_blank
     end
   end
 
   context "features" do
+    before :each do
+      get "/accounts/#{Account.default.id}/settings"
+    end
+
     it "should check 'open registration'" do
       check_box_verifier("#account_settings_open_registration", :open_registration)
     end
@@ -254,8 +258,8 @@ describe "admin settings tab" do
 
       before(:each) do
         f("#enable_equella").click
-        expect(is_checked("#enable_equella")).to be_truthy
       end
+
       it "should add an equella feature" do
         add_equella_feature
       end
@@ -288,6 +292,9 @@ describe "admin settings tab" do
   end
 
   context "enabled web services" do
+    before :each do
+      get "/accounts/#{Account.default.id}/settings"
+    end
 
     it "should click on the google help dialog" do
       fj("label['for'='account_services_google_docs_previews'] .icon-question").click
@@ -338,6 +345,9 @@ describe "admin settings tab" do
   end
 
   context "who can create new courses" do
+    before :each do
+      get "/accounts/#{Account.default.id}/settings"
+    end
 
     it "should check on teachers" do
       check_box_verifier("#account_settings_teachers_can_create_courses", :teachers_can_create_courses)
@@ -353,55 +363,33 @@ describe "admin settings tab" do
   end
 
   context "custom help links" do
+    before :once do
+      Setting.set('show_feedback_link', 'true')
+    end
+
     def set_checkbox(checkbox, checked)
       selector = "##{checkbox['id']}"
       checkbox.click if is_checked(selector) != checked
     end
 
-    it 'should add and delete custom help links' do
-      Setting.set('show_feedback_link', 'true')
+    it "should set custom help link text and icon" do
+      link_name = 'Links'
+      icon = 'cog'
+      help_link_name_input = '[name="account[settings][help_link_name]"]'
+      help_link_icon_option = '[data-icon-value="cog"]'
+
       get "/accounts/#{Account.default.id}/settings"
 
-      f('.add_custom_help_link').click
-      f('.add_custom_help_link').click
-      f('.add_custom_help_link').click
-
-      inputs = ff('.custom_help_link:nth-child(1) .formtable input')
-      inputs.find{|e| e['id'].ends_with?('_text')}.send_keys('text')
-      inputs.find{|e| e['id'].ends_with?('_subtext')}.send_keys('subtext')
-      inputs.find{|e| e['id'].ends_with?('_url')}.send_keys('http://www.example.com/example')
-
-      set_checkbox(inputs.find{|e| e['id'].ends_with?('_available_to_user')}, true)
-      set_checkbox(inputs.find{|e| e['id'].ends_with?('_available_to_student')}, true)
-      set_checkbox(inputs.find{|e| e['id'].ends_with?('_available_to_teacher')}, true)
-      set_checkbox(inputs.find{|e| e['id'].ends_with?('_available_to_admin')}, false)
-
-      f('.custom_help_link:nth-child(2) .delete').click
-      expect(f('.custom_help_link:nth-child(2)')).not_to be_displayed
-
-      inputs = ff('.custom_help_link:nth-child(3) .formtable input')
-      inputs.find{|e| e['id'].ends_with?('_text')}.send_keys('text2')
-      inputs.find{|e| e['id'].ends_with?('_subtext')}.send_keys('subtext2')
-      inputs.find{|e| e['id'].ends_with?('_url')}.send_keys('http://www.example.com/example2')
-
-      set_checkbox(inputs.find{|e| e['id'].ends_with?('_available_to_user')}, false)
-      set_checkbox(inputs.find{|e| e['id'].ends_with?('_available_to_student')}, true)
-      set_checkbox(inputs.find{|e| e['id'].ends_with?('_available_to_teacher')}, false)
-      set_checkbox(inputs.find{|e| e['id'].ends_with?('_available_to_admin')}, true)
+      set_value f(help_link_name_input), link_name
+      f(help_link_icon_option).click
 
       click_submit
-      expect(Account.default.settings[:custom_help_links]).to eq [
-        {"text"=>"text", "subtext"=>"subtext", "url"=>"http://www.example.com/example", "available_to"=>["user", "student", "teacher"]},
-        {"text"=>"text2", "subtext"=>"subtext2", "url"=>"http://www.example.com/example2", "available_to"=>["student", "admin"]}
-      ]
 
-      f('.custom_help_link:nth-child(1) .delete').click
-      expect(f('.custom_help_link:nth-child(1)')).not_to be_displayed
+      expect(Account.default.settings[:help_link_name]).to eq link_name
+      expect(Account.default.settings[:help_link_icon]).to eq icon
 
-      click_submit
-      expect(Account.default.settings[:custom_help_links]).to eq [
-          {"text"=>"text2", "subtext"=>"subtext2", "url"=>"http://www.example.com/example2", "available_to"=>["student", "admin"]}
-      ]
+      expect(f(help_link_name_input)).to have_value link_name
+      expect(is_checked(f("#{help_link_icon_option} input"))).to be_truthy
     end
 
     it "should not delete all of the pre-existing custom help links if notifications tab is submitted" do
@@ -409,16 +397,82 @@ describe "admin settings tab" do
           {"text"=>"text", "subtext"=>"subtext", "url"=>"http://www.example.com/example", "available_to"=>["user", "student", "teacher"]}]
       Account.default.save!
 
-      Setting.set('show_feedback_link', 'true')
       get "/accounts/#{Account.default.id}/settings"
 
       f("#tab-notifications-link").click
-      submit_form("#account_settings_notifications")
+      f("#account_settings_notifications button[type=submit]").click
       wait_for_ajax_requests
 
       expect(Account.default.settings[:custom_help_links]).to eq [
         {"text"=>"text", "subtext"=>"subtext", "url"=>"http://www.example.com/example", "available_to"=>["user", "student", "teacher"]}
       ]
+    end
+
+    it "should preserve the default help links if the account hasn't been configured with the new ui yet" do
+      help_link = {:text => "text", :subtext => "subtext", :url => "http://www.example.com/example", :available_to => ["user", "student", "teacher"]}
+      Account.default.settings[:custom_help_links] = [help_link]
+      Account.default.save!
+
+      help_links = Account.default.help_links
+      expect(help_links).to include(help_link.merge(:type => "custom"))
+      expect(help_links & Account::HelpLinks.default_links).to eq Account::HelpLinks.default_links
+
+      get "/accounts/#{Account.default.id}/settings"
+
+      top = f('#custom_help_link_settings .ic-Sortable-item')
+      top.find_elements(:css, 'button').last.click
+      wait_for_ajaximations
+
+      click_submit
+
+      new_help_links = Account.default.help_links
+      expect(new_help_links).to_not include(Account::HelpLinks.default_links.first)
+      expect(new_help_links).to include(Account::HelpLinks.default_links.last)
+      expect(new_help_links).to include(help_link.merge(:type => "custom"))
+    end
+
+    it "adds a custom link" do
+      get "/accounts/#{Account.default.id}/settings"
+      f('.HelpMenuOptions__Container button').click
+      fj('[role="menuitemradio"] span:contains("Add Custom Link")').click
+      replace_content fj('#custom_help_link_settings input[name$="[text]"]:visible'), 'text'
+      replace_content fj('#custom_help_link_settings textarea[name$="[subtext]"]:visible'), 'subtext'
+      replace_content fj('#custom_help_link_settings input[name$="[url]"]:visible'), 'https://url.example.com'
+      f('#custom_help_link_settings button[type="submit"]').click
+      expect(fj('.ic-Sortable-item:first .ic-Sortable-item__Text')).to include_text('text')
+      form = f('#account_settings')
+      form.submit
+      cl = Account.default.help_links.detect { |hl| hl['url'] == 'https://url.example.com' }
+      expect(cl).to eq({"text"=>"text", "subtext"=>"subtext", "url"=>"https://url.example.com", "type"=>"custom", "available_to"=>["user", "student", "teacher", "admin"]})
+    end
+
+    it "edits a custom link" do
+      a = Account.default
+      a.settings[:custom_help_links] = [{"text"=>"custom-link-text-frd", "subtext"=>"subtext", "url"=>"https://url.example.com", "type"=>"custom", "available_to"=>["user", "student", "teacher", "admin"]}]
+      a.save!
+      get "/accounts/#{Account.default.id}/settings"
+      fj('#custom_help_link_settings span:contains("Edit custom-link-text-frd")').find_element(:xpath, '..').click
+      replace_content fj('#custom_help_link_settings input[name$="[url]"]:visible'), 'https://whatever.example.com'
+      f('#custom_help_link_settings button[type="submit"]').click
+      expect(fj('.ic-Sortable-item:last .ic-Sortable-item__Text')).to include_text('custom-link-text-frd')
+      form = f('#account_settings')
+      form.submit
+      cl = Account.default.help_links.detect { |hl| hl['url'] == 'https://whatever.example.com' }
+      expect(cl).not_to be_blank
+    end
+
+    it "edits a default link" do
+      get "/accounts/#{Account.default.id}/settings"
+      fj('#custom_help_link_settings span:contains("Edit Report a Problem")').find_element(:xpath, '..').click
+      url = fj('#custom_help_link_settings input[name$="[url]"]:visible')
+      expect(url).to be_disabled
+      fj('#custom_help_link_settings fieldset .ic-Label:contains("Teachers"):visible').click
+      f('#custom_help_link_settings button[type="submit"]').click
+      expect(f('.ic-Sortable-item:nth-of-type(3) .ic-Sortable-item__Text')).to include_text('Report a Problem')
+      form = f('#account_settings')
+      form.submit
+      cl = Account.default.help_links.detect { |hl| hl['url'] == '#create_ticket' }
+      expect(cl['available_to']).not_to include('teacher')
     end
   end
 
@@ -443,6 +497,8 @@ describe "admin settings tab" do
     end
 
     it "should display keys with the correct rights" do
+      get "/accounts/#{Account.default.id}/settings"
+
       eik = ExternalIntegrationKey.new
       eik.context = Account.default
       eik.key_type = 'external_key0'
@@ -467,6 +523,8 @@ describe "admin settings tab" do
     end
 
     it "should update writable keys" do
+      get "/accounts/#{Account.default.id}/settings"
+
       set_value f("#account_external_integration_keys_external_key0"), key_value
       click_submit
 
@@ -488,30 +546,5 @@ describe "admin settings tab" do
     Feature.applicable_features(Account.site_admin).each do |feature|
       expect(f(".feature.#{feature.feature}")).to be_displayed
     end
-  end
-
-  it "should test SIS Agent Token Authentication", priority: "2", test_id: 132577 do
-    course_with_admin_logged_in(:account => Account.site_admin)
-    sis_token = "canvas"
-    go_to_feature_options(Account.site_admin.id)
-    move_to_click("label[for=ff_allowed_post_grades]")
-    go_to_feature_options(Account.default.id)
-    move_to_click("label[for=ff_allowed_post_grades]")
-    f("#tab-settings-link").click
-    # SIS Agent Token Authentication will not appear without refresh
-    refresh_page
-    expect(f("#add_sis_app_token")).to be_displayed
-    expect(f("#account_settings_sis_app_token")).to be_displayed
-    f("#account_settings_sis_app_token").send_keys(sis_token)
-    f(".btn-primary").click
-    token = f("#account_settings_sis_app_token")
-    keep_trying_until{
-      expect(token.attribute("value")).to eq sis_token
-    }
-    go_to_feature_options(Account.default.id)
-    move_to_click("label[for=ff_off_post_grades]")
-    f('#tab-settings-link').click
-    refresh_page
-    expect(f("#account_settings")).not_to contain_css("#account_settings_sis_app_token")
   end
 end

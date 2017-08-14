@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -21,9 +21,9 @@ require 'securerandom'
 
 class EportfoliosController < ApplicationController
   include EportfolioPage
-  before_filter :require_user, :only => [:index, :user_index]
-  before_filter :reject_student_view_student
-  before_filter :rich_content_service_config
+  before_action :require_user, :only => [:index, :user_index]
+  before_action :reject_student_view_student
+  before_action :rich_content_service_config
 
   def index
     user_index
@@ -41,7 +41,7 @@ class EportfoliosController < ApplicationController
 
   def create
     if authorized_action(Eportfolio.new, @current_user, :create)
-      @portfolio = @current_user.eportfolios.build(params[:eportfolio])
+      @portfolio = @current_user.eportfolios.build(eportfolio_params)
       respond_to do |format|
         if @portfolio.save
           @portfolio.ensure_defaults
@@ -83,7 +83,7 @@ class EportfoliosController < ApplicationController
       if @current_user
         # if profiles are enabled and I can message the portfolio's owner, link
         # to their profile
-        @owner_url = user_profile_url(@portfolio.user) if @domain_root_account.enable_profiles? && @current_user.load_messageable_user(@portfolio.user)
+        @owner_url = user_profile_url(@portfolio.user) if @domain_root_account.enable_profiles? && @current_user.address_book.known_user(@portfolio.user)
 
         # otherwise, if I'm the portfolio's owner (implying I can message
         # myself, so therefore profiles just aren't enabled), link to my
@@ -103,7 +103,7 @@ class EportfoliosController < ApplicationController
     @portfolio = Eportfolio.find(params[:id])
     if authorized_action(@portfolio, @current_user, :update)
       respond_to do |format|
-        if @portfolio.update_attributes(params[:eportfolio])
+        if @portfolio.update_attributes(eportfolio_params)
           @portfolio.ensure_defaults
           flash[:notice] = t('notices.updated', "ePortfolio successfully updated")
           format.html { redirect_to eportfolio_url(@portfolio) }
@@ -205,7 +205,7 @@ class EportfoliosController < ApplicationController
         feed.entries << e.to_atom(:private => params[:verifier] == @portfolio.uuid)
       end
       respond_to do |format|
-        format.atom { render :text => feed.to_xml }
+        format.atom { render :plain => feed.to_xml }
       end
     else
       authorized_action(nil, nil, :bad_permission)
@@ -215,5 +215,9 @@ class EportfoliosController < ApplicationController
   protected
   def rich_content_service_config
     rce_js_env(:basic)
+  end
+
+  def eportfolio_params
+    params.require(:eportfolio).permit(:name, :public)
   end
 end

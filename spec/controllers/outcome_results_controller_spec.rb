@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2015 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -31,7 +31,7 @@ describe OutcomeResultsController do
   end
 
   let_once(:outcome_course) do
-    course(active_all: true)
+    course_factory(active_all: true)
     @course
   end
 

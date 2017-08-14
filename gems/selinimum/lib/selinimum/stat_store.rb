@@ -1,5 +1,23 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
+gem "aws-sdk-s3", "1.0.0.rc3" unless defined? Bundler
 require "json"
-require "aws-sdk"
+require "aws-sdk-s3"
 require "fileutils"
 require "tmpdir"
 require 'yaml'
@@ -44,21 +62,29 @@ module Selinimum
         recent_shas.detect { |sha| available_shas.include?(sha) }
       end
 
-      # download all the json files stored under canvas-lms/data/<SHA>/
       def download_stats(sha, dest)
+        data = s3.object(S3_PREFIX + "/builds/" + sha).get.body.read
+
+        # legacy, fetch individual json files
+        # TODO: remove me in ~200 commits once the old data falls out
+        if data == "ok"
+          return download_raw_data(sha, dest)
+        end
+
+        File.open("#{dest}/all.json", "wb") do |file|
+          file.write(data)
+        end
+      end
+
+      # download all the json files stored under canvas-lms/data/<SHA>/
+      def download_raw_data(sha, dest)
         prefix = S3_PREFIX + "/data/" + sha + "/"
-        objects = s3.objects
-          .as_tree(prefix: prefix)
-          .children
-          .select(&:leaf?)
-          .map(&:object)
+        objects = s3.objects(prefix: prefix, delimiter: '/')
 
         objects.each do |object|
           file_name = object.key.sub(prefix, "")
           File.open("#{dest}/#{file_name}", "wb") do |file|
-            object.read do |chunk|
-              file.write(chunk)
-            end
+            file.write object.get.body.read
           end
         end
       end
@@ -68,22 +94,30 @@ module Selinimum
         suffix = Time.now.utc.strftime("%Y%m%d%H%M%S")
         suffix += "-#{batch_name}" if batch_name
 
-        save_file("data/#{Git.head}/stats-#{suffix}.json", data)
-
-        # in jenkins land, a given build can have lots of data files (cuz
-        # parallelization). so we track overall build completion/success
-        # separately once everything is done. e.g. if one thread has
-        # failures, the whole dataset is unreliable, so we don't finalize
-        finalize! unless batch_name
+        if batch_name
+          # in jenkins land, a given build can have lots of data files (cuz
+          # parallelization). so we track overall build completion/success
+          # separately once everything is done. e.g. if one thread has
+          # failures, the whole dataset is unreliable, so we don't finalize
+          save_file("data/#{Git.head}/stats-#{suffix}.json", data.to_json)
+        else
+          finalize!(data)
+        end
       end
 
-      def finalize!
-        save_file("builds/#{Git.head}", "ok")
+      def finalize!(data = nil)
+        sha = Git.head
+        data ||= begin
+          dest = Dir.mktmpdir("selinimum")
+          download_raw_data(sha, dest)
+          load_stats(dest)
+        end
+        save_file("builds/#{sha}", data.to_json)
       end
 
       def save_file(filename, data)
         save_file_locally(filename, data)
-        s3.objects["#{S3_PREFIX}/#{filename}"].write data
+        s3.object("#{S3_PREFIX}/#{filename}").put(body: data)
       end
 
       def save_file_locally(filename, data)
@@ -95,11 +129,8 @@ module Selinimum
       # get all the SHAs w/ finalized stats
       def all_shas
         prefix = S3_PREFIX + "/builds/"
-        s3.objects
-          .as_tree(prefix: prefix)
-          .children
-          .select(&:leaf?)
-          .map { |obj| obj.key.sub(prefix, "") }
+        s3.objects(prefix: prefix, delimiter: '/').
+          map { |obj| obj.key.sub(prefix, "") }
       end
 
       def s3_enabled?
@@ -111,14 +142,19 @@ module Selinimum
           config = {
             access_key_id: ENV["SELINIMUM_AWS_ID"],
             secret_access_key: ENV["SELINIMUM_AWS_SECRET"],
-            bucket_name: ENV.fetch("SELINIMUM_AWS_BUCKET")
+            bucket_name: ENV.fetch("SELINIMUM_AWS_BUCKET"),
+            region: ENV["SELINIMUM_AWS_REGION"] || 'us-east-1'
           }
-          # fall back to the canvas s3 creds, if provided
+          config[:endpoint] = ENV["SELINUMUM_AWS_ENDPOINT"] if ENV["SELINUMUM_AWS_ENDPOINT"]
+            # fall back to the canvas s3 creds, if provided
           yml_file = "config/amazon_s3.yml"
+
           if File.exist?(yml_file)
             yml_config = YAML.load_file(yml_file)[ENV["RAILS_ENV"]] || {}
             config[:access_key_id] ||= yml_config["access_key_id"]
             config[:secret_access_key] ||= yml_config["secret_access_key"]
+            config[:region] ||= yml_config["region"]
+            config[:endpoint] ||= yml_config["endpoint"] if yml_config["endpoint"]
           end
           config
         end
@@ -126,7 +162,9 @@ module Selinimum
 
       def s3
         @s3 ||= begin
-          AWS::S3.new(s3_config).buckets[s3_config[:bucket_name]]
+          config = s3_config.dup
+          bucket_name = config.delete(:bucket_name)
+          Aws::S3::Resource.new(config).bucket(bucket_name)
         end
       end
     end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -88,8 +88,18 @@
 #             "example": "SHEL93921",
 #             "type": "string"
 #           },
+#           "sis_account_id": {
+#             "description": "The SIS Account ID in which the enrollment is associated. Only displayed if present. This field is only included if the user has permission to view SIS information.",
+#             "example": "SHEL93921",
+#             "type": "string"
+#           },
 #           "sis_section_id": {
 #             "description": "The SIS Section ID in which the enrollment is associated. Only displayed if present. This field is only included if the user has permission to view SIS information.",
+#             "example": "SHEL93921",
+#             "type": "string"
+#           },
+#           "sis_user_id": {
+#             "description": "The SIS User ID in which the enrollment is associated. Only displayed if present. This field is only included if the user has permission to view SIS information.",
 #             "example": "SHEL93921",
 #             "type": "string"
 #           },
@@ -99,7 +109,7 @@
 #             "type": "string"
 #           },
 #           "limit_privileges_to_course_section": {
-#             "description": "User can only access his or her own course section. Applies to Teacher and TA enrollments.",
+#             "description": "User can only access his or her own course section.",
 #             "example": true,
 #             "type": "boolean"
 #           },
@@ -132,6 +142,16 @@
 #             "description": "The enrollment role, for course-level permissions. This field will match `type` if the enrollment role has not been customized.",
 #             "example": "StudentEnrollment",
 #             "type": "string"
+#           },
+#           "role_id": {
+#             "description": "The id of the enrollment role.",
+#             "example": 1,
+#             "type": "integer"
+#           },
+#           "created_at": {
+#             "description": "The created time of the enrollment, in ISO8601 format.",
+#             "example": "2012-04-18T23:08:51Z",
+#             "type": "datetime"
 #           },
 #           "updated_at": {
 #             "description": "The updated time of the enrollment, in ISO8601 format.",
@@ -187,8 +207,8 @@
 #             "example": "B-",
 #             "type": "string"
 #           },
-#           "multiple_grading_periods_enabled": {
-#             "description": "optional: Indicates whether the course the enrollment belongs to has the Multiple Grading Periods feature enabled. (applies only to student enrollments, and only available in course endpoints)",
+#           "has_grading_periods": {
+#             "description": "optional: Indicates whether the course the enrollment belongs to has grading periods set up. (applies only to student enrollments, and only available in course endpoints)",
 #             "example": true,
 #             "type": "boolean"
 #           },
@@ -198,32 +218,32 @@
 #             "type": "boolean"
 #           },
 #           "current_grading_period_title": {
-#             "description": "optional: The name of the currently active grading period, if one exists. If the course the enrollment belongs to does not have Multiple Grading Periods enabled, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
+#             "description": "optional: The name of the currently active grading period, if one exists. If the course the enrollment belongs to does not have grading periods, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
 #             "example": "Fall Grading Period",
 #             "type": "string"
 #           },
 #           "current_grading_period_id": {
-#             "description": "optional: The id of the currently active grading period, if one exists. If the course the enrollment belongs to does not have Multiple Grading Periods enabled, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
+#             "description": "optional: The id of the currently active grading period, if one exists. If the course the enrollment belongs to does not have grading periods, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
 #             "example": 5,
 #             "type": "integer"
 #           },
 #           "current_period_computed_current_score": {
-#             "description": "optional: The student's score in the course for the current grading period, ignoring ungraded assignments. If the course the enrollment belongs to does not have Multiple Grading Periods enabled, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
+#             "description": "optional: The student's score in the course for the current grading period, ignoring ungraded assignments. If the course the enrollment belongs to does not have grading periods, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
 #             "example": 95.80,
 #             "type": "number"
 #           },
 #           "current_period_computed_final_score": {
-#             "description": "optional: The student's score in the course for the current grading period, including ungraded assignments with a score of 0. If the course the enrollment belongs to does not have Multiple Grading Periods enabled, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
+#             "description": "optional: The student's score in the course for the current grading period, including ungraded assignments with a score of 0. If the course the enrollment belongs to does not have grading periods, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
 #             "example": 85.25,
 #             "type": "number"
 #           },
 #           "current_period_computed_current_grade": {
-#             "description": "optional: The letter grade equivalent of current_period_computed_current_score, if available. If the course the enrollment belongs to does not have Multiple Grading Periods enabled, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
+#             "description": "optional: The letter grade equivalent of current_period_computed_current_score, if available. If the course the enrollment belongs to does not have grading periods, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
 #             "example": "A",
 #             "type": "string"
 #           },
 #           "current_period_computed_final_grade": {
-#             "description": "optional: The letter grade equivalent of current_period_computed_final_score, if available. If the course the enrollment belongs to does not have Multiple Grading Periods enabled, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
+#             "description": "optional: The letter grade equivalent of current_period_computed_final_score, if available. If the course the enrollment belongs to does not have grading periods, or if no currently active grading period exists, the value will be null. (applies only to student enrollments, and only available in course endpoints)",
 #             "example": "B",
 #             "type": "string"
 #           }
@@ -231,8 +251,8 @@
 #       }
 #
 class EnrollmentsApiController < ApplicationController
-  before_filter :get_course_from_section, :require_context
-  before_filter :require_user
+  before_action :get_course_from_section, :require_context
+  before_action :require_user
 
   @@errors = {
     :missing_parameters                => 'No parameters given',
@@ -242,8 +262,7 @@ class EnrollmentsApiController < ApplicationController
     :inactive_role                     => 'Cannot create an enrollment with this role because it is inactive.',
     :base_type_mismatch                => 'The specified type must match the base type for the role',
     :concluded_course                  => 'Can\'t add an enrollment to a concluded course.',
-    :multiple_grading_periods_disabled => 'Multiple Grading Periods feature is disabled. Cannot filter by grading_period_id with this feature disabled'
-
+    :insufficient_sis_permissions      => 'Insufficient permissions to filter by SIS fields'
   }
 
   include Api::V1::User
@@ -291,6 +310,22 @@ class EnrollmentsApiController < ApplicationController
   #   Return grades for the given grading_period.  If this parameter is not
   #   specified, the returned grades will be for the whole course.
   #
+  # @argument sis_account_id[] [String]
+  #   Returns only enrollments for the specified SIS account ID(s). Does not
+  #   look into subaccounts. May pass in array or string.
+  #
+  # @argument sis_course_id[] [String]
+  #   Returns only enrollments matching the specified SIS course ID(s).
+  #   May pass in array or string.
+  #
+  # @argument sis_section_id[] [String]
+  #   Returns only section enrollments matching the specified SIS section ID(s).
+  #   May pass in array or string.
+  #
+  # @argument sis_user_id[] [String]
+  #   Returns only enrollments for the specified SIS user ID(s). May pass in
+  #   array or string.
+  #
   # @returns [Enrollment]
   def index
     endpoint_scope = (@context.is_a?(Course) ? (@section.present? ? "section" : "course") : "user")
@@ -302,26 +337,45 @@ class EnrollmentsApiController < ApplicationController
     enrollments = enrollments.joins(:user).select("enrollments.*").
       order("enrollments.type, #{User.sortable_name_order_by_clause("users")}, enrollments.id")
 
-    has_courses = enrollments.where_values.any? { |cond| cond.is_a?(String) && cond =~ /courses\./ }
+    has_courses = (CANVAS_RAILS4_2 ? enrollments.where_values : enrollments.where_clause.instance_variable_get(:@predicates)).
+      any? { |cond| cond.is_a?(String) && cond =~ /courses\./ }
     enrollments = enrollments.joins(:course) if has_courses
     enrollments = enrollments.shard(@shard_scope) if @shard_scope
+
+    sis_context = @context.is_a?(Course) ? @context : @domain_root_account
+    unless check_sis_permissions(sis_context)
+      render_create_errors([@@errors[:insufficient_sis_permissions]])
+      return false
+    end
+
+    if params[:sis_user_id].present?
+      pseudonyms = @domain_root_account.pseudonyms.where(sis_user_id: params[:sis_user_id])
+      enrollments = enrollments.where(user_id: pseudonyms.pluck(:user_id))
+    end
+
+    if params[:sis_section_id].present?
+      sections = @domain_root_account.course_sections.where(sis_source_id: params[:sis_section_id])
+      enrollments = enrollments.where(course_section_id: sections.pluck(:id))
+    end
+
+    if params[:sis_account_id].present?
+      accounts = @domain_root_account.all_accounts.where(sis_source_id: params[:sis_account_id])
+      courses = @domain_root_account.all_courses.where(account_id: accounts.pluck(:id))
+      enrollments = enrollments.where(course_id: courses.pluck(:id))
+    end
+
+    if params[:sis_course_id].present?
+      courses = @domain_root_account.all_courses.where(sis_source_id: params[:sis_course_id])
+      enrollments = enrollments.where(course_id: courses.pluck(:id))
+    end
+
     if params[:grading_period_id].present?
       if @context.is_a? User
-        unless @context.account.feature_enabled?(:multiple_grading_periods)
-          render_create_errors([@@errors[:multiple_grading_periods_disabled]])
-          return false
-        end
-
         grading_period = @context.courses.lazy.map do |course|
-          GradingPeriod.context_find(course, params[:grading_period_id])
+          GradingPeriod.for(course).find_by(id: params[:grading_period_id])
         end.detect(&:present?)
       else
-        unless multiple_grading_periods?
-          render_create_errors([@@errors[:multiple_grading_periods_disabled]])
-          return false
-        end
-
-        grading_period = GradingPeriod.context_find(@context, params[:grading_period_id])
+        grading_period = GradingPeriod.for(@context).find_by(id: params[:grading_period_id])
       end
 
       unless grading_period
@@ -414,6 +468,13 @@ class EnrollmentsApiController < ApplicationController
   # @argument enrollment[self_enrolled] [Boolean]
   #   If true, marks the enrollment as a self-enrollment, which gives
   #   students the ability to drop the course if desired. Defaults to false.
+  #
+  # @argument enrollment[associated_user_id] [Integer]
+  #   For an observer enrollment, the ID of a student to observe. The
+  #   caller must have +manage_students+ permission in the course.
+  #   This is a one-off operation; to automatically observe all a
+  #   student's enrollments (for example, as a parent), please use
+  #   the {api:UserObserveesController#create User Observees API}.
   #
   # @example_request
   #   curl https://<canvas>/api/v1/courses/:course_id/enrollments \
@@ -528,8 +589,9 @@ class EnrollmentsApiController < ApplicationController
     end
   end
 
-  # @API Conclude or deactivate an enrollment
-  # Delete, conclude or deactivate an enrollment.
+  # @API Conclude, deactivate, or delete an enrollment
+  # Conclude, deactivate, or delete an enrollment. If the +task+ argument isn't given, the enrollment
+  # will be concluded.
   #
   # @argument task [String, "conclude"|"delete"|"inactivate"|"deactivate"]
   #   The action to take on the enrollment.
@@ -718,6 +780,17 @@ class EnrollmentsApiController < ApplicationController
     end
 
     [ clauses.join(' AND '), replacements ]
+  end
+
+  def check_sis_permissions(sis_context)
+    sis_filters = %w(sis_account_id sis_course_id sis_section_id sis_user_id)
+    if (params.keys & sis_filters).present?
+      unless sis_context.grants_any_right?(@current_user, :read_sis, :manage_sis)
+        return false
+      end
+    end
+
+    true
   end
 
   def render_create_errors(errors)

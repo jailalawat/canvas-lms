@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -42,6 +42,13 @@ describe GradingStandard do
     subject.each_with_index do |row, i|
       expect(row[0]).to eq expected[i][0]
       expect(row[1]).to be_within(0.001).of(expected[i][1])
+    end
+  end
+
+  describe 'validations' do
+    it 'does not throw an error if `data` is not supplied' do
+      standard = GradingStandard.new()
+      expect { standard.valid? }.not_to raise_error
     end
   end
 
@@ -271,7 +278,7 @@ describe GradingStandard do
       before(:once) do
         @root_account = Account.default
         @sub_account = @root_account.sub_accounts.create!
-        course_with_teacher_logged_in(account: @root_account)
+        course_with_teacher(account: @root_account)
         @enrollment.update_attributes(workflow_state: "active")
         @root_account_standard = grading_standard_for(@root_account)
         @sub_account_standard = grading_standard_for(@sub_account)
@@ -335,7 +342,7 @@ describe GradingStandard do
       before(:once) do
         @root_account = Account.default
         @sub_account = @root_account.sub_accounts.create!
-        course_with_teacher_logged_in(account: @sub_account)
+        course_with_teacher(account: @sub_account)
         @enrollment.update_attributes(workflow_state: "active")
         @root_account_standard = grading_standard_for(@root_account)
         @sub_account_standard = grading_standard_for(@sub_account)

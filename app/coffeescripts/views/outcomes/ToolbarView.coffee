@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -46,7 +46,7 @@ define [
 
     addGroup: (e) =>
       e.preventDefault()
-      model = new OutcomeGroup title: I18n.t('new_outcome_group', 'New Outcome Group')
+      model = new OutcomeGroup title: ''
       @trigger 'add', model
 
     findDialog: (e) =>

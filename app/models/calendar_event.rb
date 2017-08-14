@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -26,10 +26,11 @@ class CalendarEvent < ActiveRecord::Base
   include CopyAuthorizedLinks
   include TextHelper
   include HtmlTextHelper
-  attr_accessible :title, :description, :start_at, :end_at, :location_name,
-      :location_address, :time_zone_edited, :cancel_reason,
-      :participants_per_appointment, :child_event_data,
-      :remove_child_events, :all_day, :comments
+
+  include MasterCourses::Restrictor
+  restrict_columns :content, [:title, :description]
+  restrict_columns :settings, [:location_name, :location_address, :start_at, :end_at, :all_day, :all_day_date]
+
   attr_accessor :cancel_reason, :imported
 
   sanitize_field :description, CanvasSanitize::SANITIZE
@@ -37,12 +38,19 @@ class CalendarEvent < ActiveRecord::Base
 
   include Workflow
 
+  PERMITTED_ATTRIBUTES = [:title, :description, :start_at, :end_at, :location_name,
+    :location_address, :time_zone_edited, :cancel_reason, :participants_per_appointment,
+    :remove_child_events, :all_day, :comments].freeze
+  def self.permitted_attributes
+    PERMITTED_ATTRIBUTES
+  end
 
   belongs_to :context, polymorphic: [:course, :user, :group, :appointment_group, :course_section],
              polymorphic_prefix: true
   belongs_to :user
   belongs_to :parent_event, :class_name => 'CalendarEvent', :foreign_key => :parent_calendar_event_id, :inverse_of => :child_events
   has_many :child_events, -> { where("calendar_events.workflow_state <> 'deleted'") }, class_name: 'CalendarEvent', foreign_key: :parent_calendar_event_id, inverse_of: :parent_event
+  has_many :child_event_participants, :through => :child_events, :source => :user
   validates_presence_of :context, :workflow_state
   validates_associated :context, :if => lambda { |record| record.validate_context }
   validates_length_of :description, :maximum => maximum_long_text_length, :allow_nil => true, :allow_blank => true
@@ -173,6 +181,9 @@ class CalendarEvent < ActiveRecord::Base
   scope :events_without_child_events, -> { where("NOT EXISTS (SELECT 1 FROM #{CalendarEvent.quoted_table_name} children WHERE children.parent_calendar_event_id = calendar_events.id AND children.workflow_state<>'deleted')") }
   scope :events_with_child_events, -> { where("EXISTS (SELECT 1 FROM #{CalendarEvent.quoted_table_name} children WHERE children.parent_calendar_event_id = calendar_events.id AND children.workflow_state<>'deleted')") }
 
+  scope :user_created, -> { where(:timetable_code => nil) }
+  scope :for_timetable, -> { where.not(:timetable_code => nil) }
+
   def validate_context!
     @validate_context = true
     context.validation_event_override = self
@@ -283,7 +294,7 @@ class CalendarEvent < ActiveRecord::Base
   end
 
   def cache_child_event_ranges!
-    events = child_events(true)
+    events = CANVAS_RAILS4_2 ? child_events(true) : child_events.reload
 
     if events.present?
       CalendarEvent.where(:id => self).
@@ -376,7 +387,7 @@ class CalendarEvent < ActiveRecord::Base
     } }
 
     dispatch :appointment_reserved_for_user
-    to { participants - [@updating_user] }
+    to { participants(include_observers: true) - [@updating_user] }
     whenever {
       appointment_group && parent_event &&
       just_created
@@ -384,7 +395,7 @@ class CalendarEvent < ActiveRecord::Base
     data { {:updating_user => @updating_user} }
 
     dispatch :appointment_deleted_for_user
-    to { participants - [@updating_user] }
+    to { participants(include_observers: true) - [@updating_user] }
     whenever {
       appointment_group && parent_event &&
       deleted? &&
@@ -404,8 +415,10 @@ class CalendarEvent < ActiveRecord::Base
       else
         [context]
       end
+    elsif context.respond_to?(:participants)
+      context.participants(include_observers: include_observers, by_date: true)
     else
-      context.participants(include_observers: include_observers)
+      []
     end
   end
 

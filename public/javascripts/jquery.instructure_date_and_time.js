@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,22 +12,22 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-define([
-  'i18n!instructure',
-  'jquery',
-  'timezone',
-  'str/htmlEscape',
-  'compiled/widget/DatetimeField',
-  'jsx/shared/render-datepicker-time',
-  'jquery.keycodes' /* keycodes */,
-  'vendor/date' /* Date.parse, Date.UTC, Date.today */,
-  'jqueryui/datepicker' /* /\.datepicker/ */,
-  'jqueryui/sortable' /* /\.sortable/ */,
-  'jqueryui/widget' /* /\.widget/ */
-], function(I18n, $, tz, htmlEscape, DatetimeField, renderDatepickerTime) {
+
+import I18n from 'i18n!instructure'
+import $ from 'jquery'
+import tz from 'timezone'
+import htmlEscape from './str/htmlEscape'
+import DatetimeField from 'compiled/widget/DatetimeField'
+import renderDatepickerTime from 'jsx/shared/render-datepicker-time'
+import './jquery.keycodes'
+import './vendor/date' /* Date.parse, Date.UTC, Date.today */
+import 'jqueryui/datepicker'
+import 'jqueryui/sortable'
+import 'jqueryui/widget'
+
   // fudgeDateForProfileTimezone is used to apply an offset to the date which represents the
   // difference between the user's configured timezone in their profile, and the timezone
   // of the browser. We want to display times in the timezone of their profile. Use
@@ -61,14 +61,19 @@ define([
   $.sameDate = function(d1, d2) {
     return tz.format(d1, '%F') == tz.format(d2, '%F');
   };
-  $.midnight = function(date, options) {
-    return tz.isMidnight(date, options);
-  };
   $.dateString = function(date, options) {
-    if (date == null) return "";
+    if (date == null) return '';
     var timezone = options && options.timezone;
     var format = options && options.format;
-    format = (format !== 'medium') && $.sameYear(date, new Date()) ? 'date.formats.short' : 'date.formats.medium';
+
+    if (format === 'full') {
+      format = 'date.formats.full'
+    } else if (format !== 'medium' && $.sameYear(date, new Date())) {
+      format = 'date.formats.short'
+    } else {
+      format = 'date.formats.medium'
+    }
+
     if (typeof timezone == 'string' || timezone instanceof String) {
       return tz.format(date, format, timezone) || '';
     } else {
@@ -456,5 +461,3 @@ define([
     });
     return $picker;
   };
-
-});

@@ -1,13 +1,33 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'INST'
   'i18n!assignment'
   'compiled/views/ValidatedFormView'
   'underscore'
   'jquery'
+  'jsx/shared/helpers/numberHelper'
+  'compiled/util/round'
   'jsx/shared/rce/RichContentEditor'
   'jst/assignments/EditView'
   'compiled/userSettings'
   'compiled/models/TurnitinSettings'
+  'compiled/models/VeriCiteSettings'
   'compiled/views/assignments/TurnitinSettingsDialog'
   'compiled/fn/preventDefault'
   'compiled/views/calendar/MissingDateDialogView'
@@ -15,18 +35,25 @@ define [
   'compiled/views/assignments/GroupCategorySelector'
   'compiled/jquery/toggleAccessibly'
   'compiled/views/editor/KeyboardShortcuts'
+  'jsx/shared/conditional_release/ConditionalRelease'
+  'compiled/util/deparam'
+  'compiled/util/SisValidationHelper'
+  'jsx/assignments/AssignmentConfigurationTools'
   'jqueryui/dialog'
   'jquery.toJSON'
   'compiled/jquery.rails_flash_notifications'
-], (INST, I18n, ValidatedFormView, _, $, RichContentEditor, template,
-userSettings, TurnitinSettings, TurnitinSettingsDialog, preventDefault, MissingDateDialog,
-AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardShortcuts) ->
+  'compiled/behaviors/tooltip'
+], (INST, I18n, ValidatedFormView, _, $, numberHelper, round, RichContentEditor, EditViewTemplate,
+  userSettings, TurnitinSettings, VeriCiteSettings, TurnitinSettingsDialog,
+  preventDefault, MissingDateDialog, AssignmentGroupSelector,
+  GroupCategorySelector, toggleAccessibly, RCEKeyboardShortcuts,
+  ConditionalRelease, deparam, SisValidationHelper, SimilarityDetectionTools) ->
 
   RichContentEditor.preloadRemoteModule()
 
   class EditView extends ValidatedFormView
 
-    template: template
+    template: EditViewTemplate
 
     dontRenableAfterSaveSuccess: true
 
@@ -40,6 +67,7 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
     RESTRICT_FILE_UPLOADS_OPTIONS = '#restrict_file_extensions_container'
     ALLOWED_EXTENSIONS = '#allowed_extensions_container'
     TURNITIN_ENABLED = '#assignment_turnitin_enabled'
+    VERICITE_ENABLED = '#assignment_vericite_enabled'
     ADVANCED_TURNITIN_SETTINGS = '#advanced_turnitin_settings_link'
     GRADING_TYPE_SELECTOR = '#grading_type_selector'
     GRADED_ASSIGNMENT_FIELDS = '#graded_assignment_fields'
@@ -52,10 +80,14 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
     EXTERNAL_TOOLS_NEW_TAB = '#assignment_external_tool_tag_attributes_new_tab'
     ASSIGNMENT_POINTS_POSSIBLE = '#assignment_points_possible'
     ASSIGNMENT_POINTS_CHANGE_WARN = '#point_change_warning'
+    SECURE_PARAMS = '#secure_params'
 
     PEER_REVIEWS_BOX = '#assignment_peer_reviews'
+    INTRA_GROUP_PEER_REVIEWS = '#intra_group_peer_reviews_toggle'
     GROUP_CATEGORY_BOX = '#has_group_category'
     MODERATED_GRADING_BOX = '#assignment_moderated_grading'
+    CONDITIONAL_RELEASE_TARGET = '#conditional_release_target'
+    SIMILARITY_DETECTION_TOOLS = '#similarity_detection_tools'
 
     els: _.extend({}, @::els, do ->
       els = {}
@@ -69,6 +101,7 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
       els["#{RESTRICT_FILE_UPLOADS_OPTIONS}"] = '$restrictFileUploadsOptions'
       els["#{ALLOWED_EXTENSIONS}"] = '$allowedExtensions'
       els["#{TURNITIN_ENABLED}"] = '$turnitinEnabled'
+      els["#{VERICITE_ENABLED}"] = '$vericiteEnabled'
       els["#{ADVANCED_TURNITIN_SETTINGS}"] = '$advancedTurnitinSettings'
       els["#{GRADING_TYPE_SELECTOR}"] = '$gradingTypeSelector'
       els["#{GRADED_ASSIGNMENT_FIELDS}"] = '$gradedAssignmentFields'
@@ -82,6 +115,9 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
       els["#{ASSIGNMENT_POINTS_POSSIBLE}"] = '$assignmentPointsPossible'
       els["#{ASSIGNMENT_POINTS_CHANGE_WARN}"] = '$pointsChangeWarning'
       els["#{MODERATED_GRADING_BOX}"] = '$moderatedGradingBox'
+      els["#{CONDITIONAL_RELEASE_TARGET}"] = '$conditionalReleaseTarget'
+      els["#{SIMILARITY_DETECTION_TOOLS}"] = '$similarityDetectionTools'
+      els["#{SECURE_PARAMS}"] = '$secureParams'
       els
     )
 
@@ -90,15 +126,19 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
       events["click .cancel_button"] = 'handleCancel'
       events["click .save_and_publish"] = 'saveAndPublish'
       events["change #{SUBMISSION_TYPE}"] = 'handleSubmissionTypeChange'
+      events["change #{ONLINE_SUBMISSION_TYPES}"] = 'handleOnlineSubmissionTypeChange'
       events["change #{RESTRICT_FILE_UPLOADS}"] = 'handleRestrictFileUploadsChange'
       events["click #{ADVANCED_TURNITIN_SETTINGS}"] = 'showTurnitinDialog'
       events["change #{TURNITIN_ENABLED}"] = 'toggleAdvancedTurnitinSettings'
+      events["change #{VERICITE_ENABLED}"] = 'toggleAdvancedTurnitinSettings'
       events["change #{ALLOW_FILE_UPLOADS}"] = 'toggleRestrictFileUploads'
       events["click #{EXTERNAL_TOOLS_URL}_find"] = 'showExternalToolsDialog'
       events["change #assignment_points_possible"] = 'handlePointsChange'
       events["change #{PEER_REVIEWS_BOX}"] = 'handleModeratedGradingChange'
-      events["change #{GROUP_CATEGORY_BOX}"] = 'handleModeratedGradingChange'
       events["change #{MODERATED_GRADING_BOX}"] = 'handleModeratedGradingChange'
+      events["change #{GROUP_CATEGORY_BOX}"] = 'handleGroupCategoryChange'
+      if ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED
+        events["change"] = 'onChange'
       events
     )
 
@@ -112,21 +152,29 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
       @assignment = @model
       @setDefaultsIfNew()
       @dueDateOverrideView = options.views['js-assignment-overrides']
-      @model.on 'sync', -> window.location = @get 'html_url'
+      @on 'success', @redirectAfterSave
       @gradingTypeSelector.on 'change:gradingType', @handleGradingTypeChange
+      if ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED
+        @gradingTypeSelector.on 'change:gradingType', @onChange
+
+      @lockedItems = options.lockedItems || {};
 
     handleCancel: (ev) =>
       ev.preventDefault()
-      window.location = ENV.CANCEL_TO if ENV.CANCEL_TO?
+      @redirectAfterCancel()
 
     settingsToCache:() =>
       ["assignment_group_id","grading_type","submission_type","submission_types",
        "points_possible","allowed_extensions","peer_reviews","peer_review_count",
        "automatic_peer_reviews","group_category_id","grade_group_students_individually",
-       "turnitin_enabled"]
+       "turnitin_enabled", "vericite_enabled"]
 
     handlePointsChange:(ev) =>
       ev.preventDefault()
+      if (numberHelper.validate(@$assignmentPointsPossible.val()))
+        newPoints = round(numberHelper.parse(@$assignmentPointsPossible.val()), 2)
+        @$assignmentPointsPossible.val(I18n.n(newPoints))
+
       if @assignment.hasSubmittedSubmissions()
         @$pointsChangeWarning.toggleAccessibly(@$assignmentPointsPossible.val() != "#{@assignment.pointsPossible()}")
 
@@ -145,10 +193,17 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
       @checkboxAccessibleAdvisory(box).text(message)
 
     enableCheckbox: (box) ->
-      if box.prop("disabled")
-        box.removeProp("disabled").parent().timeoutTooltip().timeoutTooltip('disable').removeAttr('data-tooltip').removeAttr('title')
+      if box.prop('disabled')
+        return if @assignment.inClosedGradingPeriod()
+
+        box.prop('disabled', false).parent().timeoutTooltip().timeoutTooltip('disable').removeAttr('data-tooltip').removeAttr('title')
         @setImplicitCheckboxValue(box, '0')
         @checkboxAccessibleAdvisory(box).text('')
+
+    handleGroupCategoryChange: ->
+      isGrouped = @$groupCategoryBox.prop('checked')
+      @$intraGroupPeerReviews.toggleAccessibly(isGrouped)
+      @handleModeratedGradingChange()
 
     handleModeratedGradingChange: =>
       if !ENV?.HAS_GRADED_SUBMISSIONS
@@ -177,9 +232,8 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
             if setting_from_cache && (!@assignment.get(setting)? || @assignment.get(setting)?.length == 0)
               @assignment.set(setting, setting_from_cache)
           )
-        else
-          @assignment.set('submission_type','online')
-          @assignment.set('submission_types',['online'])
+        if @assignment.submissionTypes().length == 0
+          @assignment.submissionTypes(['online'])
 
     cacheAssignmentSettings: =>
       new_assignment_settings = _.pick(@getFormData(), @settingsToCache()...)
@@ -187,9 +241,17 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
 
     showTurnitinDialog: (ev) =>
       ev.preventDefault()
-      turnitinDialog = new TurnitinSettingsDialog(model: @assignment.get('turnitin_settings'))
+      type = "turnitin"
+      model = @assignment.get('turnitin_settings')
+      if @$vericiteEnabled.prop('checked')
+        type = "vericite"
+        model = @assignment.get('vericite_settings')
+      turnitinDialog = new TurnitinSettingsDialog(model, type)
       turnitinDialog.render().on 'settings:change', (settings) =>
-        @assignment.set 'turnitin_settings', new TurnitinSettings(settings)
+        if @$vericiteEnabled.prop('checked')
+          @assignment.set 'vericite_settings', new VeriCiteSettings(settings)
+        else
+          @assignment.set 'turnitin_settings', new TurnitinSettings(settings)
         turnitinDialog.off()
         turnitinDialog.remove()
 
@@ -210,7 +272,7 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
 
     toggleAdvancedTurnitinSettings: (ev) =>
       ev.preventDefault()
-      @$advancedTurnitinSettings.toggleAccessibly @$turnitinEnabled.prop('checked')
+      @$advancedTurnitinSettings.toggleAccessibly (@$turnitinEnabled.prop('checked') || @$vericiteEnabled.prop('checked'))
 
     handleRestrictFileUploadsChange: =>
       @$allowedExtensions.toggleAccessibly @$restrictFileUploads.prop('checked')
@@ -225,32 +287,62 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
       @$externalToolSettings.toggleAccessibly subVal == 'external_tool'
       @$groupCategorySelector.toggleAccessibly subVal != 'external_tool'
       @$peerReviewsFields.toggleAccessibly subVal != 'external_tool'
+      @$similarityDetectionTools.toggleAccessibly subVal == 'online' && ENV.PLAGIARISM_DETECTION_PLATFORM
+      if subVal == 'online'
+        @handleOnlineSubmissionTypeChange()
+
+    handleOnlineSubmissionTypeChange: (env) =>
+      showConfigTools = @$onlineSubmissionTypes.find(ALLOW_FILE_UPLOADS).attr('checked')
+      @$similarityDetectionTools.toggleAccessibly showConfigTools && ENV.PLAGIARISM_DETECTION_PLATFORM
 
     afterRender: =>
       # have to do these here because they're rendered by other things
       @$peerReviewsBox = $("#{PEER_REVIEWS_BOX}")
+      @$intraGroupPeerReviews = $("#{INTRA_GROUP_PEER_REVIEWS}")
       @$groupCategoryBox = $("#{GROUP_CATEGORY_BOX}")
+
+      @similarityDetectionTools = SimilarityDetectionTools.attach(
+            @$similarityDetectionTools.get(0),
+            parseInt(ENV.COURSE_ID),
+            @$secureParams.val(),
+            parseInt(ENV.SELECTED_CONFIG_TOOL_ID),
+            ENV.SELECTED_CONFIG_TOOL_TYPE)
 
       @_attachEditorToDescription()
       @addTinyMCEKeyboardShortcuts()
       @handleModeratedGradingChange()
+      @handleOnlineSubmissionTypeChange()
+      @handleSubmissionTypeChange()
+
       if ENV?.HAS_GRADED_SUBMISSIONS
         @disableCheckbox(@$moderatedGradingBox, I18n.t("Moderated grading setting cannot be changed if graded submissions exist"))
+      if ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED
+        @conditionalReleaseEditor = ConditionalRelease.attach(
+          @$conditionalReleaseTarget.get(0),
+          I18n.t('assignment'),
+          ENV.CONDITIONAL_RELEASE_ENV)
+
+      @disableFields() if @assignment.inClosedGradingPeriod()
+
       this
 
     toJSON: =>
       data = @assignment.toView()
+
       _.extend data,
         kalturaEnabled: ENV?.KALTURA_ENABLED or false
         postToSISEnabled: ENV?.POST_TO_SIS or false
+        postToSISName: ENV.SIS_NAME
         isLargeRoster: ENV?.IS_LARGE_ROSTER or false
         submissionTypesFrozen: _.include(data.frozenAttributes, 'submission_types')
+        conditionalReleaseServiceEnabled: ENV?.CONDITIONAL_RELEASE_SERVICE_ENABLED or false
+        lockedItems: @lockedItems
 
-    # separated out so we can easily stub it
-    scrollSidebar: $.scrollSidebar
 
     _attachEditorToDescription: =>
-      RichContentEditor.initSidebar(show: @scrollSidebar)
+      return if @lockedItems.content
+
+      RichContentEditor.initSidebar()
       RichContentEditor.loadNewEditor(@$description, { focus: true, manageParent: true })
 
       $('.rte_switch_views_link').click (e) =>
@@ -281,7 +373,20 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
       data.only_visible_to_overrides = !@dueDateOverrideView.overridesContainDefault()
       data.assignment_overrides = @dueDateOverrideView.getOverrides()
       data.published = true if @shouldPublish
+      data.points_possible = round(numberHelper.parse(data.points_possible), 2)
+      data.peer_review_count = numberHelper.parse(data.peer_review_count) if data.peer_review_count
       return data
+
+    saveFormData: =>
+      if ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED
+        super.pipe (data, status, xhr) =>
+          @conditionalReleaseEditor.updateAssignment(data)
+          # Restore expected promise values
+          @conditionalReleaseEditor.save().pipe(
+            => new $.Deferred().resolve(data, status, xhr).promise()
+            (err) => new $.Deferred().reject(xhr, err).promise())
+      else
+        super
 
     submit: (event) =>
       event.preventDefault()
@@ -310,6 +415,12 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
       @submit(event)
 
     onSaveFail: (xhr) =>
+      response_text = JSON.parse(xhr.responseText)
+      if response_text.errors
+        subscription_errors = response_text.errors.plagiarism_tool_subscription
+        if subscription_errors && subscription_errors.length > 0
+          $.flashError(subscription_errors[0].message)
+
       @shouldPublish = false
       @disableWhileLoadingOpts = {}
       super(xhr)
@@ -352,9 +463,12 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
     showErrors: (errors) ->
       # override view handles displaying override errors, remove them
       # before calling super
-      # see getFormValues in DueDateView.coffee
       delete errors.assignmentOverrides
       super(errors)
+      @trigger 'show-errors', errors
+      if ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED
+        if errors['conditional_release']
+          @conditionalReleaseEditor.focusOnError()
 
     validateBeforeSave: (data, errors) =>
       errors = @_validateTitle data, errors
@@ -367,20 +481,36 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
       errors = @_validatePointsRequired(data, errors)
       errors = @_validateExternalTool(data, errors)
       data2 =
-        assignment_overrides: @dueDateOverrideView.getAllDates()
+        assignment_overrides: @dueDateOverrideView.getAllDates(),
+        postToSIS: data.post_to_sis == '1'
       errors = @dueDateOverrideView.validateBeforeSave(data2,errors)
+      if ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED
+        crErrors = @conditionalReleaseEditor.validateBeforeSave()
+        errors['conditional_release'] = crErrors if crErrors
       errors
 
     _validateTitle: (data, errors) =>
       return errors if _.contains(@model.frozenAttributes(), "title")
 
+      post_to_sis = data.post_to_sis == '1'
+      max_name_length = 256
+      if post_to_sis && ENV.MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT && data.grading_type != 'not_graded'
+        max_name_length = ENV.MAX_NAME_LENGTH
+
+      validationHelper = new SisValidationHelper({
+        postToSIS: post_to_sis
+        maxNameLength: max_name_length
+        name: data.name
+        maxNameLengthRequired: ENV.MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT
+      })
+
       if !data.name or $.trim(data.name.toString()).length == 0
         errors["name"] = [
           message: I18n.t 'name_is_required', 'Name is required!'
         ]
-      else if $.trim(data.name.toString()).length > 255
+      else if validationHelper.nameTooLong()
         errors["name"] = [
-          message: I18n.t 'name_too_long', 'Name is too long'
+          message: I18n.t("Name is too long, must be under %{length} characters", length: max_name_length + 1)
         ]
       errors
 
@@ -389,6 +519,15 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
         errors["online_submission_types[online_text_entry]"] = [
           message: I18n.t 'at_least_one_submission_type', 'Please choose at least one submission type'
         ]
+      else if data.submission_type == 'online' and data.vericite_enabled == "1"
+        allow_vericite = true
+        _.select _.keys(data.submission_types), (k) ->
+          allow_vericite = allow_vericite && (data.submission_types[k] == "online_upload" || data.submission_types[k] == "online_text_entry")
+        if !allow_vericite
+          errors["online_submission_types[online_text_entry]"] = [
+            message: I18n.t 'vericite_submission_types_validation', 'VeriCite only supports file submissions and text entry'
+          ]
+
       errors
 
     _validateAllowedExtensions: (data, errors) =>
@@ -400,8 +539,9 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
 
     _validatePointsPossible: (data, errors) =>
       return errors if _.contains(@model.frozenAttributes(), "points_possible")
+      return errors if this.lockedItems.points
 
-      if data.points_possible and isNaN(parseFloat(data.points_possible))
+      if typeof data.points_possible != 'number' or isNaN(data.points_possible)
         errors["points_possible"] = [
           message: I18n.t 'points_possible_number', 'Points possible must be a number'
         ]
@@ -412,7 +552,7 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
     _validatePointsRequired: (data, errors) =>
       return errors unless _.include ['percent','letter_grade','gpa_scale'], data.grading_type
 
-      if parseInt(data.points_possible,10) < 0 or isNaN(parseFloat(data.points_possible))
+      if typeof data.points_possible != 'number' or data.points_possible < 0 or isNaN(data.points_possible)
         errors["points_possible"] = [
           message: I18n.t("Points possible must be 0 or more for selected grading type")
         ]
@@ -424,3 +564,56 @@ AssignmentGroupSelector, GroupCategorySelector, toggleAccessibly, RCEKeyboardSho
           message: I18n.t 'External Tool URL cannot be left blank'
         ]
       errors
+
+    redirectAfterSave: ->
+      window.location = @locationAfterSave(deparam())
+
+    locationAfterSave: (params) ->
+      return params['return_to'] if params['return_to']?
+      @model.get 'html_url'
+
+    redirectAfterCancel: ->
+      location = @locationAfterCancel(deparam())
+      window.location = location if location
+
+    locationAfterCancel: (params) ->
+      return params['return_to'] if params['return_to']?
+      return ENV.CANCEL_TO if ENV.CANCEL_TO?
+      null
+
+    onChange: ->
+      if ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED && @assignmentUpToDate
+        @assignmentUpToDate = false
+
+    updateConditionalRelease: ->
+      if ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED && !@assignmentUpToDate
+        assignmentData = @getFormData()
+        @conditionalReleaseEditor.updateAssignment(assignmentData)
+        @assignmentUpToDate = true
+
+    disableFields: ->
+      ignoreFields = [
+        "#overrides-wrapper *"
+        "#submission_type_fields *"
+        "#assignment_peer_reviews_fields *"
+        "#assignment_description"
+        "#assignment_notify_of_update"
+        "#assignment_post_to_sis"
+      ]
+      ignoreFilter = ignoreFields.map((field) -> "not(#{field})").join(":")
+
+      self = this
+      @$el.find(":checkbox:#{ignoreFilter}").each ->
+        self.disableCheckbox($(this), I18n.t("Cannot be edited for assignments in closed grading periods"))
+      @$el.find(":radio:#{ignoreFilter}").click(@ignoreClickHandler)
+      @$el.find("select:#{ignoreFilter}").each(@lockSelectValueHandler)
+
+    ignoreClickHandler: (event) ->
+      event.preventDefault()
+      event.stopPropagation()
+
+    lockSelectValueHandler: ->
+      lockedValue = this.value
+      $(this).change (event) ->
+        this.value = lockedValue
+        event.stopPropagation()

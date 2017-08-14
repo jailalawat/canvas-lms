@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,8 +19,8 @@
 class Login::OauthBaseController < ApplicationController
   include Login::Shared
 
-  before_filter :forbid_on_files_domain
-  before_filter :run_login_hooks, :check_sa_delegated_cookie, :fix_ms_office_redirects, only: :new
+  before_action :forbid_on_files_domain
+  before_action :run_login_hooks, :fix_ms_office_redirects, only: :new
 
   def new
     # a subclass might explicitly set the AAC, so that we don't need to infer
@@ -61,7 +61,7 @@ class Login::OauthBaseController < ApplicationController
     false
   end
 
-  def find_pseudonym(unique_ids)
+  def find_pseudonym(unique_ids, provider_attributes = {})
     if unique_ids.nil?
       unknown_user_url = @domain_root_account.unknown_user_url.presence || login_url
       logger.warn "Received OAuth2 login with no unique_id"
@@ -76,7 +76,11 @@ class Login::OauthBaseController < ApplicationController
     unique_ids.any? do |unique_id|
       pseudonym = @domain_root_account.pseudonyms.for_auth_configuration(unique_id, @aac)
     end
-    pseudonym ||= @aac.provision_user(unique_ids.first) if !unique_ids.empty? && @aac.jit_provisioning?
+    if pseudonym
+      @aac.apply_federated_attributes(pseudonym, provider_attributes)
+    elsif !unique_ids.empty? && @aac.jit_provisioning?
+      pseudonym = @aac.provision_user(unique_ids.first, provider_attributes)
+    end
 
     if pseudonym
       # Successful login and we have a user

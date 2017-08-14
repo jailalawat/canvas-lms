@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'attachment_fu/railtie'
 require 'attachment_fu/processors/mini_magick_processor'
 require 'attachment_fu/backends/file_system_backend'
@@ -79,7 +96,7 @@ module AttachmentFu # :nodoc:
       options[:size]             ||= (options[:min_size]..options[:max_size])
       options[:thumbnails]       ||= {}
       options[:thumbnail_class]  ||= self
-      options[:s3_access]        ||= :public_read
+      options[:s3_access]        ||= 'public-read'
       options[:content_type] = [options[:content_type]].flatten.collect! { |t| t == :image ? AttachmentFu.content_types : t }.flatten unless options[:content_type].nil?
 
       unless options[:thumbnails].is_a?(Hash)
@@ -118,7 +135,7 @@ module AttachmentFu # :nodoc:
           if processors.any?
             attachment_options[:processor] = "#{processors.first}Processor"
             processor_mod = AttachmentFu::Processors.const_get(attachment_options[:processor])
-            include processor_mod unless included_modules.include?(processor_mod)
+            prepend processor_mod unless included_modules.include?(processor_mod)
           end
         rescue Object, Exception
           raise unless load_related_exception?($!)
@@ -166,7 +183,7 @@ module AttachmentFu # :nodoc:
     end
 
     def self.extended(base)
-      base.class_attribute :attachment_options
+      base.class_attribute :attachment_options, instance_reader: false, instance_writer: false
       base.before_destroy :destroy_thumbnails
       base.before_validation :set_size_from_temp_path
       base.after_save :after_process_attachment
@@ -202,6 +219,14 @@ module AttachmentFu # :nodoc:
 
   module InstanceMethods
     require 'rack'
+
+    def attachment_options
+      @attachment_options || self.class.attachment_options
+    end
+
+    def attachment_options=(value)
+      @attachment_options = self.class.attachment_options.merge(value)
+    end
 
     # Checks whether the attachment's content type is an image content type
     def image?
@@ -257,7 +282,7 @@ module AttachmentFu # :nodoc:
       begin
         tmp = self.create_temp_file
         res = self.create_or_update_thumbnail(tmp, target_size.to_s, actual_size)
-      rescue AWS::S3::Errors::NoSuchKey => e
+      rescue Aws::S3::Errors::NoSuchKey => e
         logger.warn("error when trying to make thumbnail for attachment_id: #{self.id} (the image probably doesn't exist on s3) error details: #{e.inspect}")
       rescue ThumbnailError => e
         logger.warn("error creating thumbnail for attachment_id #{self.id}: #{e.inspect}")
@@ -335,21 +360,23 @@ module AttachmentFu # :nodoc:
           self.filename = filename.sub(/\A\d+_\d+__/, "")
           self.filename = "#{Time.now.to_i}_#{rand(999)}__#{self.filename}" if self.filename
         end
-        read_bytes = false
-        digest = Digest::MD5.new
-        begin
-          io = file_data
-          if file_from_path
-            io = File.open(self.temp_path, 'rb')
+        unless attachment_options[:skip_sis]
+          read_bytes = false
+          digest = Digest::MD5.new
+          begin
+            io = file_data
+            if file_from_path
+              io = File.open(self.temp_path, 'rb')
+            end
+            io.rewind
+            io.each_line do |line|
+              digest.update(line)
+              read_bytes = true
+            end
+          rescue => e
+          ensure
+            io.close if file_from_path
           end
-          io.rewind
-          io.each_line do |line|
-            digest.update(line)
-            read_bytes = true
-          end
-        rescue => e
-        ensure
-          io.close if file_from_path
         end
         self.md5 = read_bytes ? digest.hexdigest : nil
         if existing_attachment = find_existing_attachment_for_md5
@@ -374,11 +401,13 @@ module AttachmentFu # :nodoc:
 
     def find_existing_attachment_for_md5
       self.shard.activate do
-        if self.md5.present? && ns = self.infer_namespace
-          scope = Attachment.where(:md5 => md5, :namespace => ns, :root_attachment_id => nil, :content_type => content_type)
-          scope = scope.where("filename IS NOT NULL")
-          scope = scope.where("id<>?", self) unless new_record?
-          scope.detect { |a| a.store.exists? }
+        Shackles.activate(:slave) do
+          if self.md5.present? && (ns = self.infer_namespace)
+            scope = Attachment.where(md5: md5, namespace: ns, root_attachment_id: nil, content_type: content_type)
+            scope = scope.where("filename IS NOT NULL")
+            scope = scope.where("id<>?", self) unless new_record?
+            scope.detect { |a| a.store.exists? }
+          end
         end
       end
     end
@@ -503,7 +532,7 @@ module AttachmentFu # :nodoc:
         if @saved_attachment
           # # INSTRUCTURE I (ryan shaw) commented these next lines out so that the thumbnailing does not happen syncronisly as part of the request.
           # # we are going to do the same thing as delayed_jobs
-          # if respond_to?(:process_attachment_with_processing) && thumbnailable? && !attachment_options[:thumbnails].blank? && parent_id.nil?
+          # if respond_to?(:process_attachment) && thumbnailable? && !attachment_options[:thumbnails].blank? && parent_id.nil?
           #   temp_file = temp_path || create_temp_file
           #   attachment_options[:thumbnails].each { |suffix, size| create_or_update_thumbnail(temp_file, suffix, *size) }
           # end
@@ -529,10 +558,10 @@ module AttachmentFu # :nodoc:
             run_callbacks(:save_and_attachment_processing)
           end
 
-          if self.class.connection.open_transactions == 1
-            self.class.connection.after_transaction_commit(&save_and_callbacks)
-          else
+          if Rails.env.test?
             save_and_callbacks.call()
+          else
+            self.class.connection.after_transaction_commit(&save_and_callbacks)
           end
         else
           run_callbacks(:save_and_attachment_processing)

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -42,6 +42,7 @@ module Importers
       item ||= CalendarEvent.where(context_type: context.class.to_s, context_id: context, id: hash[:id]).first
       item ||= CalendarEvent.where(context_type: context.class.to_s, context_id: context, migration_id: hash[:migration_id]).first if hash[:migration_id]
       item ||= context.calendar_events.temp_record
+      item.mark_as_importing!(migration)
 
       item.migration_id = hash[:migration_id]
       item.workflow_state = 'active' if item.deleted?

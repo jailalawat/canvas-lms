@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jsx/shared/rce/RichContentEditor',
   'jsx/shared/rce/RceCommandShim',
@@ -8,28 +25,59 @@ define [
   'helpers/fixtures'
 ], (RichContentEditor, RceCommandShim, RCELoader, Sidebar, fakeENV, editorUtils, fixtures) ->
 
-  module 'RichContentEditor - preloading',
+  QUnit.module 'RichContentEditor - helper function:'
+
+  test 'ensureID gives the element an id when it is missing', ->
+    $el = $('<div/>')
+    RichContentEditor.ensureID($el)
+    ok $el.attr('id')?
+
+  test 'ensureID gives the element an id when it is blank', ->
+    $el = $('<div id/>')
+    RichContentEditor.ensureID($el)
+    ok $el.attr('id')!=""
+
+  test "ensureID doesn't overwrite an existing id", ->
+    $el = $('<div id="test"/>')
+    RichContentEditor.ensureID($el)
+    ok $el.attr('id')=="test"
+
+  test 'freshNode returns the given element if the id is missing', ->
+    $el = $('<div/>')
+    $fresh = RichContentEditor.freshNode($el)
+    equal $el, $fresh
+
+  test 'freshNode returns the given element if the id is blank', ->
+    $el = $('<div id/>')
+    $fresh = RichContentEditor.freshNode($el)
+    equal $el, $fresh
+
+  test "freshNode returns the given element if it's not on the dom", ->
+    $el = $('<div id="test"/>')
+    $fresh = RichContentEditor.freshNode($el)
+    equal $el, $fresh
+
+  QUnit.module 'RichContentEditor - preloading',
     setup: ->
       fakeENV.setup()
-      @preloadSpy = sinon.spy(RCELoader, "preload")
+      @stub(RCELoader, "preload")
 
     teardown: ->
       fakeENV.teardown()
-      RCELoader.preload.restore()
       editorUtils.resetRCE()
 
   test 'loads via RCELoader.preload when service enabled', ->
     ENV.RICH_CONTENT_SERVICE_ENABLED = true
     ENV.RICH_CONTENT_APP_HOST = 'app-host'
     RichContentEditor.preloadRemoteModule()
-    ok @preloadSpy.called
+    ok RCELoader.preload.called
 
   test 'does nothing when service disabled', ->
     ENV.RICH_CONTENT_SERVICE_ENABLED = undefined
     RichContentEditor.preloadRemoteModule()
-    ok @preloadSpy.notCalled
+    ok RCELoader.preload.notCalled
 
-  module 'RichContentEditor - loading editor',
+  QUnit.module 'RichContentEditor - loading editor',
     setup: ->
       fakeENV.setup()
       ENV.RICH_CONTENT_SERVICE_ENABLED = true
@@ -37,6 +85,7 @@ define [
       fixtures.setup()
       @$target = fixtures.create('<textarea id="myEditor" />')
       sinon.stub(RCELoader, 'loadOnTarget')
+      @stub(Sidebar, 'show')
 
     teardown: ->
       fakeENV.teardown()
@@ -48,40 +97,67 @@ define [
     sinon.stub(RichContentEditor, 'freshNode').withArgs(@$target).returns(@$target)
     options = {}
     RichContentEditor.loadNewEditor(@$target, options)
-    ok RCELoader.loadOnTarget.calledWith(@$target, options)
+    ok RCELoader.loadOnTarget.calledWith(@$target, sinon.match(options))
     RichContentEditor.freshNode.restore()
 
-  test 'calls editorBox and set_code when feature flag off', ->
+  test 'calls editorBox and set_code when feature flag off', (assert) ->
+    done = assert.async()
     ENV.RICH_CONTENT_SERVICE_ENABLED = false
     sinon.stub(@$target, 'editorBox')
     @$target.editorBox.onCall(0).returns(@$target)
     RichContentEditor.loadNewEditor(@$target, {defaultContent: "content"})
-    ok @$target.editorBox.calledTwice
-    ok @$target.editorBox.firstCall.calledWith()
-    ok @$target.editorBox.secondCall.calledWith('set_code', "content")
+    Promise.resolve().then =>
+      ok @$target.editorBox.calledTwice
+      ok @$target.editorBox.firstCall.calledWith()
+      ok @$target.editorBox.secondCall.calledWith('set_code', "content")
+      done()
 
   test 'skips instantiation when called with empty target', ->
-    RichContentEditor.loadNewEditor("#fixtures .invalidTarget", {})
+    RichContentEditor.loadNewEditor($("#fixtures .invalidTarget"), {})
     ok RCELoader.loadOnTarget.notCalled
 
-  test 'with focus:true calls focus on RceCommandShim after load', ->
+  test 'with focus:true calls focus on RceCommandShim after load', (assert) ->
+    done = assert.async()
     # false so we don't have to stub out freshNode or RCELoader.loadOnTarget
     ENV.RICH_CONTENT_SERVICE_ENABLED = false
     sinon.stub(RceCommandShim, 'focus')
     RichContentEditor.loadNewEditor(@$target, {focus: true})
-    ok RceCommandShim.focus.calledWith(@$target)
-    RceCommandShim.focus.restore()
+    Promise.resolve().then =>
+      ok RceCommandShim.focus.calledWith(@$target)
+      RceCommandShim.focus.restore()
+      done()
 
-  test 'with focus:true tries to show sidebar', ->
+  test 'with focus:true tries to show sidebar', (assert) ->
+    done = assert.async()
     # false so we don't have to stub out RCELoader.loadOnTarget
     ENV.RICH_CONTENT_SERVICE_ENABLED = false
     RichContentEditor.initSidebar()
-    sinon.spy(Sidebar, 'show')
     RichContentEditor.loadNewEditor(@$target, {focus: true})
-    ok Sidebar.show.called
-    Sidebar.show.restore()
+    Promise.resolve().then =>
+      ok Sidebar.show.called
+      done()
 
-  module 'RichContentEditor - callOnRCE',
+  test 'hides resize handle when called', ->
+    $resize = fixtures.create('<div class="mce-resizehandle"></div>')
+    RichContentEditor.loadNewEditor(@$target, {})
+    equal $resize.attr('aria-hidden'), "true"
+
+  test 'passes onFocus to loadOnTarget', ->
+    options = {}
+    RichContentEditor.loadNewEditor(@$target, options)
+    onFocus = RCELoader.loadOnTarget.firstCall.args[1].onFocus
+    onFocus()
+    ok Sidebar.show.called
+
+  test 'onFocus calls options.onFocus if exists', ->
+    options = {onFocus: @spy()}
+    RichContentEditor.loadNewEditor(@$target, options)
+    onFocus = RCELoader.loadOnTarget.firstCall.args[1].onFocus
+    editor = {}
+    onFocus(editor)
+    ok options.onFocus.calledWith(editor)
+
+  QUnit.module 'RichContentEditor - callOnRCE',
     setup: ->
       fakeENV.setup()
       fixtures.setup()
@@ -106,7 +182,7 @@ define [
     ok RceCommandShim.send.calledWith($freshTarget, 'methodName', 'methodArg')
     RichContentEditor.freshNode.restore()
 
-  module 'RichContentEditor - destroyRCE',
+  QUnit.module 'RichContentEditor - destroyRCE',
     setup: ->
       fakeENV.setup()
       ENV.RICH_CONTENT_SERVICE_ENABLED = false
@@ -131,7 +207,7 @@ define [
     ok Sidebar.hide.called
     Sidebar.hide.restore()
 
-  module 'RichContentEditor - clicking into editor (editor_box_focus)',
+  QUnit.module 'RichContentEditor - clicking into editor (editor_box_focus)',
     setup: ->
       fakeENV.setup()
       ENV.RICH_CONTENT_SERVICE_ENABLED = false

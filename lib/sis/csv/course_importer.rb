@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -47,7 +47,7 @@ module SIS
             end
 
             begin
-              importer.add_course(row['course_id'], row['term_id'], row['account_id'], row['fallback_account_id'], row['status'], start_date, end_date, row['abstract_course_id'], row['short_name'], row['long_name'], row['integration_id'])
+              importer.add_course(row['course_id'], row['term_id'], row['account_id'], row['fallback_account_id'], row['status'], start_date, end_date, row['abstract_course_id'], row['short_name'], row['long_name'], row['integration_id'], row['course_format'])
             rescue ImportError => e
               messages << "#{e}"
             end

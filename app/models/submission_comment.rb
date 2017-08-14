@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -25,33 +25,41 @@ class SubmissionComment < ActiveRecord::Base
   belongs_to :assessment_request
   belongs_to :context, polymorphic: [:course]
   belongs_to :provisional_grade, :class_name => 'ModeratedGrading::ProvisionalGrade'
-  has_many :submission_comment_participants, :dependent => :destroy
-  has_many :messages, :as => :context, :dependent => :destroy
+  has_many :messages, :as => :context, :inverse_of => :context, :dependent => :destroy
 
   validates_length_of :comment, :maximum => maximum_text_length, :allow_nil => true, :allow_blank => true
   validates_length_of :comment, :minimum => 1, :allow_nil => true, :allow_blank => true
 
-  attr_accessible :comment, :submission, :submission_id, :author, :context_id,
-                  :context_type, :media_comment_id, :media_comment_type, :group_comment_id, :assessment_request,
-                  :attachments, :anonymous, :hidden, :provisional_grade_id
-
   before_save :infer_details
-  after_save :update_submission
   after_save :update_participation
   after_save :check_for_media_object
+  after_update :publish_other_comments_in_this_group
   after_destroy :delete_other_comments_in_this_group
-  after_create :update_participants
+  after_commit :update_submission
 
   serialize :cached_attachments
 
   scope :visible, -> { where(:hidden => false) }
+  scope :draft, -> { where(draft: true) }
+  scope :published, -> { where("submission_comments.draft IS NOT TRUE") }
   scope :after, lambda { |date| where("submission_comments.created_at>?", date) }
   scope :for_final_grade, -> { where(:provisional_grade_id => nil) }
   scope :for_provisional_grade, ->(id) { where(:provisional_grade_id => id) }
   scope :for_assignment_id, lambda { |assignment_id| where(:submissions => { :assignment_id => assignment_id }).joins(:submission) }
 
   def delete_other_comments_in_this_group
-    return if !group_comment_id || skip_destroy_callbacks?
+    update_other_comments_in_this_group &:destroy
+  end
+
+  def publish_other_comments_in_this_group
+    return unless draft_changed?
+    update_other_comments_in_this_group do |comment|
+      comment.update_attributes(draft: draft)
+    end
+  end
+
+  def update_other_comments_in_this_group
+    return if !group_comment_id || skip_group_callbacks?
 
     # grab comment ids first because the objects built off
     # readonly attributes/objects are marked as readonly and
@@ -63,8 +71,8 @@ class SubmissionComment < ActiveRecord::Base
       .pluck(:id)
 
     SubmissionComment.find(comment_ids).each do |comment|
-      comment.skip_destroy_callbacks!
-      comment.destroy
+      comment.skip_group_callbacks!
+      yield comment
     end
   end
 
@@ -99,11 +107,13 @@ class SubmissionComment < ActiveRecord::Base
   end
 
   set_policy do
-    given {|user,session| !self.teacher_only_comment && self.submission.user_can_read_grade?(user, session) && !self.hidden? }
+    given do |user,session|
+      !self.teacher_only_comment && self.submission.user_can_read_grade?(user, session) && !self.hidden? && !self.draft?
+    end
     can :read
 
     given {|user| self.author == user}
-    can :read and can :delete
+    can :read and can :delete and can :update
 
     given {|user, session| self.submission.grants_right?(user, session, :grade) }
     can :read and can :delete
@@ -118,7 +128,9 @@ class SubmissionComment < ActiveRecord::Base
     p.dispatch :submission_comment
     p.to { ([submission.user] + User.observing_students_in_course(submission.user, submission.assignment.context)) - [author] }
     p.whenever {|record|
-      record.just_created &&
+      # allows broadcasting when this record is initially saved (assuming draft == false) and also when it gets updated
+      # from draft to final
+      (!record.draft? && (record.just_created || record.draft_changed?)) &&
       record.provisional_grade_id.nil? &&
       record.submission.assignment &&
       record.submission.assignment.context.available? &&
@@ -130,7 +142,7 @@ class SubmissionComment < ActiveRecord::Base
     p.dispatch :submission_comment_for_teacher
     p.to { submission.assignment.context.instructors_in_charge_of(author_id) - [author] }
     p.whenever {|record|
-      record.just_created &&
+      (!record.draft? && (record.just_created || record.draft_changed?)) &&
       record.provisional_grade_id.nil? &&
       record.submission.user_id == record.author_id
     }
@@ -141,14 +153,6 @@ class SubmissionComment < ActiveRecord::Base
         self.author == user ||
         self.submission.assignment.context.grants_right?(user, session, :view_all_grades) ||
         self.submission.assignment.context.grants_right?(self.author, session, :view_all_grades)
-  end
-
-  def update_participants
-    self.submission_comment_participants.where(user_id: self.submission.user_id, participation_type: 'submitter').first_or_create
-    self.submission_comment_participants.where(user_id: self.author_id, participation_type: 'author').first_or_create
-    (submission.assignment.context.participating_instructors - [author]).each do |user|
-      self.submission_comment_participants.where(user_id: user.id, participation_type: 'admin').first_or_create
-    end
   end
 
   def reply_from(opts)
@@ -220,9 +224,14 @@ class SubmissionComment < ActiveRecord::Base
 
   def update_submission
     return nil if hidden? || provisional_grade_id.present?
-    comments_count = SubmissionComment.where(:submission_id => submission_id, :hidden => false,
-                                             :provisional_grade_id => provisional_grade_id).count
-    Submission.where(:id => submission_id).update_all(:submission_comments_count => comments_count) rescue nil
+
+    relevant_comments = SubmissionComment.published.
+      where(submission_id: submission_id).
+      where(hidden: false).
+      where(provisional_grade_id: provisional_grade_id)
+
+    comments_count = relevant_comments.count
+    Submission.where(id: submission_id).update_all(submission_comments_count: comments_count)
   end
 
   def formatted_body(truncate=nil)
@@ -269,12 +278,12 @@ class SubmissionComment < ActiveRecord::Base
   end
 
   protected
-  def skip_destroy_callbacks!
-    @skip_destroy_callbacks = true
+  def skip_group_callbacks!
+    @skip_group_callbacks = true
   end
 
   private
-  def skip_destroy_callbacks?
-    !!@skip_destroy_callbacks
+  def skip_group_callbacks?
+    !!@skip_group_callbacks
   end
 end

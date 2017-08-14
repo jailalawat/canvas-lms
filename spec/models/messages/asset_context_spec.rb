@@ -1,4 +1,22 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require 'spec_helper'
+require_dependency "messages/asset_context"
 
 module Messages
 
@@ -7,8 +25,8 @@ module Messages
     let(:user){ stub("User", short_name: "User Name") }
     let(:asset){ stub("Asset", user: user, author: author) }
 
-    def asset_for(notification_name, asset = asset)
-      AssetContext.new(asset, notification_name)
+    def asset_for(notification_name, a = asset)
+      AssetContext.new(a, notification_name)
     end
 
     describe '#reply_to_name' do

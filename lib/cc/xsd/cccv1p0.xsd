@@ -37,6 +37,8 @@
         <xs:element name="hide_distribution_graphs" type="xs:boolean" minOccurs="0"/>
         <xs:element name="allow_student_discussion_topics" type="xs:boolean" minOccurs="0"/>
         <xs:element name="allow_student_discussion_editing" type="xs:boolean" minOccurs="0"/>
+        <xs:element name="image_url" type="xs:string" minOccurs="0"/>
+        <xs:element name="image_identifier_ref" type="xs:string" minOccurs="0"/>
         <xs:element name="default_view" minOccurs="0">
           <xs:simpleType>
             <xs:restriction base="xs:string">
@@ -104,6 +106,7 @@
       <xs:element name="position" type="xs:integer" minOccurs="0"/>
       <xs:element name="turnitin_enabled" type="xs:boolean" minOccurs="0"/>
       <xs:element name="turnitin_settings" type="xs:string" minOccurs="0"/>
+      <xs:element name="vericite_enabled" type="xs:boolean" minOccurs="0"/>
       <xs:element name="peer_review_count" type="xs:integer" minOccurs="0"/>
       <xs:element name="peer_reviews_assigned" type="xs:boolean" minOccurs="0"/>
       <xs:element name="peer_reviews" type="xs:boolean" minOccurs="0"/>
@@ -119,12 +122,33 @@
       <xs:element name="external_tool_new_tab" type="xs:boolean" minOccurs="0"/>
       <xs:element name="freeze_on_copy" type="xs:boolean" minOccurs="0"/>
       <xs:element name="muted" type="xs:boolean" minOccurs="0"/>
+      <xs:element name="omit_from_final_grade" type="xs:boolean" minOccurs="0"/>
+      <xs:element name="only_visible_to_overrides" type="xs:boolean" minOccurs="0"/>
       <xs:element name="saved_rubric_comments" minOccurs="0">
         <xs:complexType>
           <xs:sequence minOccurs="0" maxOccurs="unbounded">
             <xs:element name="comment" type="xs:string">
               <xs:complexType>
                 <xs:attribute name="criterion_id" type="xs:string" use="required"/>
+              </xs:complexType>
+            </xs:element>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="assignment_overrides" minOccurs="0">
+        <xs:complexType>
+          <xs:sequence minOccurs="0" maxOccurs="unbounded">
+            <xs:element name="override" type="xs:string">
+              <xs:complexType>
+                <xs:attribute name="set_type" type="xs:string" use="required"/>
+                <xs:attribute name="set_id" type="xs:string" use="required"/>
+                <xs:attribute name="title" type="xs:string" use="required"/>
+                <xs:attribute name="due_at" type="xs:dateTime"/>
+                <xs:attribute name="unlock_at" type="xs:dateTime"/>
+                <xs:attribute name="lock_at" type="xs:dateTime"/>
+                <xs:attribute name="due_at_overridden" type="xs:boolean"/>
+                <xs:attribute name="unlock_at_overridden" type="xs:boolean"/>
+                <xs:attribute name="lock_at_overridden" type="xs:boolean"/>
               </xs:complexType>
             </xs:element>
           </xs:sequence>
@@ -154,6 +178,7 @@
         <xs:element name="allow_rating" type="xs:boolean" minOccurs="0"/>
         <xs:element name="only_graders_can_rate" type="xs:boolean" minOccurs="0"/>
         <xs:element name="sort_by_rating" type="xs:boolean" minOccurs="0"/>
+        <xs:element name="todo_date" type="xs:dateTime" minOccurs="0"/>
         <xs:element name="discussion_type" minOccurs="0">
           <xs:simpleType>
             <xs:restriction base="xs:string">
@@ -377,6 +402,8 @@
             <xs:element name="description" type="xs:string" minOccurs="0"/>
             <xs:element name="points_possible" type="xs:float" minOccurs="0"/>
             <xs:element name="mastery_points" type="xs:float" minOccurs="0"/>
+            <xs:element name="calculation_method" type="xs:string" minOccurs="0"/>
+            <xs:element name="calculation_int" type="xs:integer" minOccurs="0"/>
             <xs:element name="ratings" type="ratingsType" minOccurs="0"/>
             <xs:element name="external_identifier" type="xs:string" minOccurs="0"/>
             <xs:element name="is_global_outcome" type="xs:boolean" minOccurs="0"/>
@@ -518,6 +545,7 @@
         <xs:element name="cant_go_back" type="xs:boolean" minOccurs="0"/>
         <xs:element name="one_time_results" type="xs:boolean" minOccurs="0"/>
         <xs:element name="show_correct_answers_last_attempt" type="xs:boolean" minOccurs="0"/>
+        <xs:element name="only_visible_to_overrides" type="xs:boolean" minOccurs="0"/>
         <xs:element name="assignment_group_identifierref" type="xs:string" minOccurs="0"/>
 
         <xs:element name="quiz_type" minOccurs="0" default="practice_quiz">
@@ -538,6 +566,26 @@
               <xs:enumeration value="keep_highest"/>
             </xs:restriction>
           </xs:simpleType>
+        </xs:element>
+
+        <xs:element name="assignment_overrides" minOccurs="0">
+          <xs:complexType>
+            <xs:sequence minOccurs="0" maxOccurs="unbounded">
+              <xs:element name="override" type="xs:string">
+                <xs:complexType>
+                  <xs:attribute name="set_type" type="xs:string" use="required"/>
+                  <xs:attribute name="set_id" type="xs:string" use="required"/>
+                  <xs:attribute name="title" type="xs:string" use="required"/>
+                  <xs:attribute name="due_at" type="xs:dateTime"/>
+                  <xs:attribute name="unlock_at" type="xs:dateTime"/>
+                  <xs:attribute name="lock_at" type="xs:dateTime"/>
+                  <xs:attribute name="due_at_overridden" type="xs:boolean"/>
+                  <xs:attribute name="unlock_at_overridden" type="xs:boolean"/>
+                  <xs:attribute name="lock_at_overridden" type="xs:boolean"/>
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+          </xs:complexType>
         </xs:element>
 
       </xs:all>

@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2011 Instructure, Inc.
+/*
+ * Copyright (C) 2011 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,17 +12,15 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'i18n!accounts.statistics',
-  'jquery', // $
-  'jquery.ajaxJSON', // ajaxJSON
-  'jqueryui/dialog', // /\.dialog/
-  'jquery.instructure_misc_helpers' // replaceTags
-], function(I18n, $) {
+import I18n from 'i18n!accounts.statistics'
+import $ from 'jquery'
+import './jquery.ajaxJSON'
+import 'jqueryui/dialog'
+import './jquery.instructure_misc_helpers' // replaceTags
 
   $(document).ready(function() {
     $(".over_time_link").live('click', function(event) {
@@ -47,6 +45,7 @@ define([
       });
 
       // google dependencies declared in views/acccounts/statistics since google.load uses document.write :(
+      /*global google*/
       var data = new google.visualization.DataTable();
       data.addColumn('date', I18n.t('heading_date', 'Date'));
       data.addColumn('number', axis || I18n.t('heading_value', "Value"));
@@ -69,4 +68,3 @@ define([
       chart.draw(data, {displayAnnotations: false});
     }
   });
-});

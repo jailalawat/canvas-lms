@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -25,7 +25,11 @@ class AppointmentGroup < ActiveRecord::Base
   # has_many :through on the same table does not alias columns in condition
   # strings, just hashes. we create this helper association to ensure
   # appointments_participants conditions have the correct table alias
-  has_many :_appointments, -> { order(:start_at).preload(:child_events).where("_appointments_appointments_participants_join.workflow_state <> 'deleted'") }, opts
+  if CANVAS_RAILS4_2
+    has_many :_appointments, -> { order(:start_at).preload(:child_events).where("_appointments_appointments_participants_join.workflow_state <> 'deleted'") }, opts
+  else
+    has_many :_appointments, -> { order(:start_at).preload(:child_events).where("_appointments_appointments_participants.workflow_state <> 'deleted'") }, opts
+  end
   has_many :appointments_participants, -> { where("calendar_events.workflow_state <> 'deleted'").order(:start_at) }, through: :_appointments, source: :child_events
   has_many :appointment_group_contexts
   has_many :appointment_group_sub_contexts, -> { preload(:sub_context) }
@@ -54,6 +58,7 @@ class AppointmentGroup < ActiveRecord::Base
   after_save :update_appointments
 
   validates_length_of :title, :maximum => maximum_string_length
+  validates_length_of :location_name, :maximum => maximum_string_length
   validates_length_of :description, :maximum => maximum_long_text_length, :allow_nil => true, :allow_blank => true
   validates_inclusion_of :participant_visibility, :in => ['private', 'protected'] # presumably we might add public if we decide to show appointments on the public calendar feed
   validates_each :appointments do |record, attr, value|
@@ -75,8 +80,6 @@ class AppointmentGroup < ActiveRecord::Base
                  t('errors.needs_contexts', 'Must have at least one context')
     end
   end
-
-  attr_accessible :title, :description, :location_name, :location_address, :contexts, :sub_context_codes, :participants_per_appointment, :min_appointments_per_participant, :max_appointments_per_participant, :new_appointments, :participant_visibility, :cancel_reason
 
   # when creating/updating an appointment, you can give it a list of (new)
   # appointment times. these will be added to the existing appointment times
@@ -181,7 +184,7 @@ class AppointmentGroup < ActiveRecord::Base
     if restrict_to_codes
       codes[:primary] &= restrict_to_codes
     end
-    uniq.
+    distinct.
         joins("JOIN #{AppointmentGroupContext.quoted_table_name} agc " \
               "ON appointment_groups.id = agc.appointment_group_id " \
               "LEFT JOIN #{AppointmentGroupSubContext.quoted_table_name} sc " \
@@ -205,7 +208,7 @@ class AppointmentGroup < ActiveRecord::Base
       codes[:full] &= restrict_to_codes
       codes[:limited] &= restrict_to_codes
     end
-    uniq.
+    distinct.
         joins("JOIN #{AppointmentGroupContext.quoted_table_name} agc " \
               "ON appointment_groups.id = agc.appointment_group_id " \
               "LEFT JOIN #{AppointmentGroupSubContext.quoted_table_name} sc " \
@@ -276,6 +279,8 @@ class AppointmentGroup < ActiveRecord::Base
   def instructors
     if sub_context_type == "CourseSection"
       contexts.map { |c| c.participating_instructors.restrict_to_sections(sub_context_id) }.flatten.uniq
+    elsif participant_type == 'User' && sub_contexts.present?
+      contexts.map { |c| c.participating_instructors.restrict_to_sections(sub_contexts) }.flatten.uniq
     else
       contexts.map(&:participating_instructors).flatten.uniq
     end
@@ -284,9 +289,9 @@ class AppointmentGroup < ActiveRecord::Base
   def possible_participants(registration_status: nil, include_observers: false)
     participants = if participant_type == 'User'
                      participant_func = if include_observers
-                                          ->(c) {c.participating_students + c.participating_observers}
+                                          ->(c) {c.participating_students_by_date + c.participating_observers_by_date}
                                         else
-                                          ->(c) {c.participating_students}
+                                          ->(c) {c.participating_students_by_date}
                                         end
                      sub_contexts.empty? ?
                        contexts.map(&participant_func).flatten :
@@ -338,10 +343,14 @@ class AppointmentGroup < ActiveRecord::Base
     participant = participant_for(user_or_participant) if participant_type == 'Group' && participant.is_a?(User)
     return false unless eligible_participant?(participant)
     return false unless min_appointments_per_participant
-    return false if participants_per_appointment \
-                  && appointments \
-                  && appointments_participants.count >= (participants_per_appointment * appointments.length)
+    return false if all_appointments_filled?
     return reservations_for(participant).size < min_appointments_per_participant
+  end
+
+  def all_appointments_filled?
+    return false unless participants_per_appointment
+    appointments_participants.count >= appointments.sum(
+      sanitize_sql(['COALESCE(participants_per_appointment, ?)', self.participants_per_appointment]))
   end
 
   def participant_for(user)
@@ -481,4 +490,14 @@ class AppointmentGroup < ActiveRecord::Base
   def context_codes
     appointment_group_contexts.map(&:context_code)
   end
+
+  def users_with_reservations_through_group
+    appointments_participants
+      .joins("INNER JOIN #{GroupMembership.quoted_table_name} " \
+             "ON group_memberships.group_id = calendar_events.context_id " \
+             "and calendar_events.context_type = 'Group'")
+      .where("group_memberships.workflow_state <> 'deleted'")
+      .pluck("group_memberships.user_id")
+  end
+
 end

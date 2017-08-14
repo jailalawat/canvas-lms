@@ -1,3 +1,19 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require File.expand_path(File.dirname(__FILE__) + '/../sharding_spec_helper.rb')
 
@@ -5,8 +21,8 @@ describe UserMerge do
   describe 'with simple users' do
     let!(:user1) { user_model }
     let!(:user2) { user_model }
-    let(:course1) { course(:active_all => true) }
-    let(:course2) { course(:active_all => true) }
+    let(:course1) { course_factory(active_all: true) }
+    let(:course2) { course_factory(active_all: true) }
 
     it 'should delete the old user' do
       UserMerge.from(user2).into(user1)
@@ -154,7 +170,7 @@ describe UserMerge do
       user1.communication_channels.create!(:path => 'a@instructure.com')
       user2.communication_channels.create!(:path => 'A@instructure.com') { |cc| cc.workflow_state = 'active' }
       # active => unconfirmed conflict
-      user1.communication_channels.create!(:path => 'b@instructure.com') { |cc| cc.workflow_state = 'active' }
+      cc1 = user1.communication_channels.create!(:path => 'b@instructure.com') { |cc| cc.workflow_state = 'active' }
       user2.communication_channels.create!(:path => 'B@instructure.com')
       # active => active conflict
       user1.communication_channels.create!(:path => 'c@instructure.com') { |cc| cc.workflow_state = 'active' }
@@ -193,6 +209,13 @@ describe UserMerge do
       UserMerge.from(user1).into(user2)
       user1.reload
       user2.reload
+      records = UserMergeData.where(user_id: user2).take.user_merge_data_records
+      expect(records.count).to eq 8
+      record = records.where(context_id: cc1).take
+      expect(record.previous_user_id).to eq user1.id
+      expect(record.previous_workflow_state).to eq 'active'
+      expect(record.context_type).to eq 'CommunicationChannel'
+
       expect(user2.communication_channels.map { |cc| [cc.path, cc.workflow_state] }.sort).to eq [
           ['A@instructure.com', 'active'],
           ['C@instructure.com', 'active'],
@@ -207,8 +230,7 @@ describe UserMerge do
           ['k@instructure.com', 'active'],
           ['l@instructure.com', 'unconfirmed'],
           ['m@instructure.com', 'unconfirmed'],
-          ['n@instructure.com', 'retired'],
-          ['o@instructure.com', 'retired']
+          ['n@instructure.com', 'retired']
       ]
       expect(user1.communication_channels.map { |cc| [cc.path, cc.workflow_state] }.sort).to eq [
           ['a@instructure.com', 'retired'],
@@ -217,6 +239,7 @@ describe UserMerge do
           ['e@instructure.com', 'retired'],
           ['g@instructure.com', 'retired'],
           ['i@instructure.com', 'retired'],
+          ['o@instructure.com', 'retired']
       ]
       %w{B@instructure.com F@instructure.com H@instructure.com}.each do |path|
         expect(CommunicationChannel.where(user_id: [user1, user2]).by_path(path).detect { |cc| cc.path == path }).to be_nil
@@ -266,12 +289,14 @@ describe UserMerge do
       enrollment1.reload
       expect(enrollment1.user).to eq user1
       expect(enrollment1.workflow_state).to eq 'active'
+      expect(enrollment1.enrollment_state.state).to eq 'active'
       merge_data_record = merge_data.user_merge_data_records.where(context_id: enrollment1).first
       expect(merge_data_record.previous_workflow_state).to eq 'invited'
 
       enrollment2.reload
       expect(enrollment2.user).to eq user2
       expect(enrollment2.workflow_state).to eq 'deleted'
+      expect(enrollment2.enrollment_state.state).to eq 'deleted'
       merge_data_record2 = merge_data.user_merge_data_records.where(context_id: enrollment2).first
       expect(merge_data_record2.previous_workflow_state).to eq 'active'
     end
@@ -292,8 +317,8 @@ describe UserMerge do
       context_module2.save
 
       #have a conflicting module_progrssion
-      assignment2.grade_student(user1, :grade => "10")
-      assignment2.grade_student(user2, :grade => "4")
+      assignment2.grade_student(user1, :grade => "10", grader: @teacher)
+      assignment2.grade_student(user2, :grade => "4", grader: @teacher)
 
       #have a duplicate module_progression
       context_module.update_for(user1, :read, tag)
@@ -379,10 +404,10 @@ describe UserMerge do
     end
 
     it "should move conversations to the new user" do
-      c1 = user1.initiate_conversation([user, user]) # group conversation
+      c1 = user1.initiate_conversation([user_factory, user_factory]) # group conversation
       c1.add_message("hello")
       c1.update_attribute(:workflow_state, 'unread')
-      c2 = user1.initiate_conversation([user]) # private conversation
+      c2 = user1.initiate_conversation([user_factory]) # private conversation
       c2.add_message("hello")
       c2.update_attribute(:workflow_state, 'unread')
       old_private_hash = c2.conversation.private_hash
@@ -582,7 +607,7 @@ describe UserMerge do
     end
 
     it "should update other appropriate versions" do
-      course(:active_all => true)
+      course_factory(active_all: true)
       wiki_page = @course.wiki.wiki_pages.create(:title => "Hi", :user_id => user2.id)
       ra = rubric_assessment_model(:context => @course, :user => user2)
 
@@ -604,6 +629,15 @@ describe UserMerge do
 
   context "sharding" do
     specs_require_sharding
+
+    it 'should merge with user_services acorss shards' do
+      user1 = user_model
+      @shard1.activate do
+        @user2 = user_model
+        user_service_model(user: @user2)
+      end
+      UserMerge.from(@user2).into(user1)
+    end
 
     it "should merge a user across shards" do
       user1 = user_with_pseudonym(:username => 'user1@example.com', :active_all => 1)
@@ -753,19 +787,22 @@ describe UserMerge do
     end
 
     it "should move user attachments and handle duplicates" do
-      course
-      root_attachment = Attachment.create(:context => @course, :filename => "unique_name1.txt",
+      course_factory
+      # FileSystemBackend is not namespace-aware, so the same id+name in
+      # different shards (e.g. root_attachment and its copy) can cause
+      # :boom: ... set high ids for things that get copied, so their
+      # copies' ids don't collide
+      root_attachment = Attachment.create(:id => 1_000_000, :context => @course, :filename => "unique_name1.txt",
                                           :uploaded_data => StringIO.new("root_attachment_data"))
-
       user1 = User.create!
       # should not copy because it's identical to @user2_attachment1
       user1_attachment1 = Attachment.create!(:user => user1, :context => user1, :filename => "shared_name1.txt",
                                              :uploaded_data => StringIO.new("shared_data"))
       # copy should have root_attachment directed to @user2_attachment2, and be renamed
-      user1_attachment2 = Attachment.create!(:user => user1, :context => user1, :filename => "shared_name2.txt",
+      user1_attachment2 = Attachment.create!(:id => 1_000_001, :user => user1, :context => user1, :filename => "shared_name2.txt",
                                              :uploaded_data => StringIO.new("shared_data2"))
       # should copy as a root_attachment (even though it isn't one currently)
-      user1_attachment3 = Attachment.create!(:user => user1, :context => user1, :filename => "unique_name2.txt",
+      user1_attachment3 = Attachment.create!(:id => 1_000_002, :user => user1, :context => user1, :filename => "unique_name2.txt",
                                              :uploaded_data => StringIO.new("root_attachment_data"))
       user1_attachment3.content_type = "text/plain"
       user1_attachment3.save!
@@ -805,7 +842,7 @@ describe UserMerge do
         email = 'foo@example.com'
 
         enable_cache do
-          course
+          course_factory
           @course.offer!
 
           # create an active enrollment (usually through an SIS import)

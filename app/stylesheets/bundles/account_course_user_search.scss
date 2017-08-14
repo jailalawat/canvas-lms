@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 
 .courses-list {
@@ -8,18 +26,19 @@
 }
 
 .grid-row {
+  padding-right: 10px;
+  word-wrap: break-word;
+  word-break: break-all;
+  white-space: pre-wrap;
+
   .icon-stats, .icon-message{
     margin-left: 10px;
     margin-right: 10px;
   }
 }
 
-.grid-row {
-  padding-right: 10px;
-}
-
 [role=columnheader] a{
-  color: $ic-color-dark;
+  color: $ic-font-color-dark;
 }
 
 .padding-none {
@@ -36,14 +55,26 @@
   border-color: $ic-border-light;
 
   li[role=tab] {
-    padding: 10px 25px;
     font-size: 1.1em;
     color: $ic-link-color;
+    padding: 0;
+
+    a {
+        padding: 10px 25px;
+        display: block;
+        color: inherit;
+    }
 
     &[selected] {
       font-weight: bold;
-      color: $ic-color-dark;
       border-color: $ic-border-light;
+
+      a:link,
+      a:visited,
+      a:hover {
+        text-decoration: none;
+        color: $ic-font-color-dark;
+      }
     }
   }
 }
@@ -67,7 +98,7 @@
 }
 
 .courses-user-list-header {
-  font-weight: 500;
+  font-weight: bold;
   white-space: nowrap;
 }
 
@@ -114,11 +145,6 @@
 
 .flex-grow-2 {
   flex-grow: 2;
-}
-
-.userUrl {
-  display: flex;
-  align-items: center;
 }
 
 .UserListRow__Avatar {

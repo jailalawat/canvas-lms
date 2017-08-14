@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
 require 'db/migrate/20130405213030_fix_broken_file_links_in_assignments.rb'
 
@@ -27,10 +44,10 @@ describe 'DataFixup::FixBrokenFileLinksInAssignments' do
   end
   
   it "should fix links in assignment descriptions that point to deleted files with a verifier param" do
-    course1 = course
+    course1 = course_factory
     att1 = attachment_model(:context => course1)
     att3 = attachment_model(:context => course1)
-    course2 = course
+    course2 = course_factory
     att2 = att1.clone_for(course2, nil, :overwrite => true)
     att2.save!
 
@@ -91,9 +108,9 @@ describe 'DataFixup::FixBrokenFileLinksInAssignments' do
   end
 
   it "should find new courses's attachment by old attachment cloned_item_id" do
-    course1 = course
+    course1 = course_factory
     att1 = attachment_model(:context => course1)
-    course2 = course
+    course2 = course_factory
     att2 = att1.clone_for(course2, nil, :overwrite => true)
     att2.save!
 
@@ -105,7 +122,7 @@ describe 'DataFixup::FixBrokenFileLinksInAssignments' do
   end
 
   it "shouldn't break a discussion assignment" do
-    course1 = course
+    course1 = course_factory
     att1 = attachment_model(:context => course1)
     assignment_model(:context => course1, :submission_types => "discussion_topic", :description => "<a id=\"l3\" href=\"/files/#{att1.id}/download?verifier=hurpdurpdurp\">no context, verifier</a>")
     topic = @assignment.discussion_topic

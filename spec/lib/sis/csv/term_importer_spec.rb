@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -109,7 +109,7 @@ describe SIS::CSV::TermImporter do
 
     t1 = @account.enrollment_terms.where(sis_source_id: 'T001').first
 
-    course(:account => @account)
+    course_factory(:account => @account)
     @course.enrollment_term = t1
     @course.save!
 

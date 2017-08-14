@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2014 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,11 +17,11 @@
 #
 
 require 'spec_helper'
-require 'aws-sdk-v1'
+require 'aws-sdk-kinesis'
 
 describe LiveEvents::Client do
   def stub_config(opts = {})
-    LiveEvents::Client.stubs(:config).returns({
+    allow(LiveEvents::Client).to receive(:config).and_return({
       'kinesis_stream_name' => 'stream',
       'aws_access_key_id' => 'access_key',
       'aws_secret_access_key_dec' => 'secret_key',
@@ -31,22 +31,24 @@ describe LiveEvents::Client do
 
   before(:each) do
     stub_config
-    LiveEvents.logger = mock()
+    LiveEvents.logger = double()
     LiveEvents.max_queue_size = -> { 100 }
 
-    @kclient = mock()
-    kinesis = mock()
-    kinesis.stubs(:client).returns(@kclient)
-    AWS::Kinesis.stubs(:new).returns(kinesis)
+    @kclient = double()
+    allow(Aws::Kinesis::Client).to receive(:new).and_return(@kclient)
 
     @client = LiveEvents::Client.new
   end
 
+  RSpec::Matchers.define :a_live_events_payload do |payload|
+    match do |actual|
+      to_compare = actual.merge({ data: JSON.parse(actual[:data]) })
+      to_compare == payload
+    end
+  end
+
   def expect_put_record(payload)
-    @kclient.expects(:put_record).with() { |params|
-      params = params.merge({ data: JSON.parse(params[:data]) })
-      params == payload
-    }
+    expect(@kclient).to receive(:put_record).with(a_live_events_payload(payload))
   end
 
   describe "config" do
@@ -55,9 +57,7 @@ describe LiveEvents::Client do
         "aws_endpoint" => "http://example.com:6543/"
       })
 
-      res[:kinesis_endpoint].should eq("example.com")
-      res[:kinesis_port].should eq(6543)
-      res[:use_ssl].should eq(false)
+      expect(res[:endpoint]).to eq("http://example.com:6543/")
     end
   end
 

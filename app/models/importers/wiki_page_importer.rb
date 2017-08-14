@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_dependency 'importers'
 
 module Importers
@@ -46,6 +63,8 @@ module Importers
       item ||= WikiPage.where(wiki_id: context.wiki, id: hash[:id]).first
       item ||= WikiPage.where(wiki_id: context.wiki, migration_id: hash[:migration_id]).first
       item ||= context.wiki.wiki_pages.temp_record
+      item.mark_as_importing!(migration)
+
       new_record = item.new_record?
       # force the url to be the same as the url_name given, since there are
       # likely other resources in the import that link to that url
@@ -66,17 +85,26 @@ module Importers
       hide_from_students = hash[:hide_from_students] if !hash[:hide_from_students].nil?
       state = hash[:workflow_state]
       if state || !hide_from_students.nil?
-        if state == 'active' && Canvas::Plugin.value_to_boolean(hide_from_students) == false
+        if state == 'active' && !item.unpublished? && Canvas::Plugin.value_to_boolean(hide_from_students) == false
           item.workflow_state = 'active'
         else
           item.workflow_state = 'unpublished' if item.new_record? || item.deleted?
         end
+      else
+        item.workflow_state = 'unpublished' if item.deleted?
       end
 
       item.set_as_front_page! if !!hash[:front_page] && context.wiki.has_no_front_page
+      item.migration_id = hash[:migration_id]
+      item.todo_date = Canvas::Migration::MigratorHelper.get_utc_time_from_timestamp(hash[:todo_date])
+
       migration.add_imported_item(item)
 
-      item.migration_id = hash[:migration_id]
+      if hash[:assignment].present?
+        item.assignment = Importers::AssignmentImporter.import_from_migration(
+          hash[:assignment], context, migration)
+      end
+
       (hash[:contents] || []).each do |sub_item|
         next if sub_item[:type] == 'embedded_content'
         Importers::WikiPageImporter.import_from_migration(sub_item.merge({

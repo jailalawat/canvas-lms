@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 # assert the presence (or absence) of a css class on an element.
 # will return as soon as the expectation is met, e.g.
 #
@@ -77,21 +94,50 @@ RSpec::Matchers.define :have_value do |value_attribute|
   end
 end
 
-# assert the presence (or absence) of a value within an element's
-# attribute. will return as soon as the expectation is met, e.g.
+# assert the presence (or absence) of an attribute, optionally asserting
+# its exact value or against a regex. will return as soon as the
+# expectation is met, e.g.
 #
+#   # must have something set
+#   expect(f('.fc-event .fc-time')).to have_attribute('data-start')
+#
+#   # must have a particular value set
 #   expect(f('.fc-event .fc-time')).to have_attribute('data-start', '11:45')
 #
-RSpec::Matchers.define :have_attribute do |attribute, attribute_value|
+#   # must match a regex
+#   expect(f('.fc-event .fc-time')).to have_attribute('data-start', /\A\d\d?:\d\d\z/)
+#
+#   # must not have anything set
+#   expect(f('.fc-event .fc-time')).not_to have_attribute('data-start')
+#
+#   # must not have this particular value set (can be a different value, or no value)
+#   expect(f('.fc-event .fc-time')).not_to have_attribute('data-start', '11:45')
+#
+#   # must not match a regex
+#   expect(f('.fc-event .fc-time')).not_to have_attribute('data-start', /\A\d\d?:\d\d\z/)
+#
+RSpec::Matchers.define :have_attribute do |*args|
+  attribute = args.first
+  expected_specified = args.size > 1
+  expected = args[1]
+
+  attribute_matcher = -> (actual) do
+    if expected_specified
+      actual.respond_to?(:match) ? actual.match(expected) : actual == expected
+    else
+      !actual.nil?
+    end
+  end
+
   match do |element|
     wait_for(method: :have_attribute) do
-      element.attribute(attribute).match(attribute_value)
+      attribute_matcher.call(element.attribute(attribute))
     end
   end
 
   match_when_negated do |element|
     wait_for(method: :have_attribute) do
-      !element.attribute(attribute).match(attribute_value)
+      !attribute_matcher.call(element.attribute(attribute))
     end
   end
 
@@ -150,9 +196,7 @@ RSpec::Matchers.define :contain_css do |selector|
   end
 
   match_when_negated do |element|
-    disable_implicit_wait do # so find_element calls return ASAP
-      wait_for_no_such_element(method: :contain_css) { f(selector, element) }
-    end
+    wait_for_no_such_element(method: :contain_css) { f(selector, element) }
   end
 end
 
@@ -193,14 +237,12 @@ RSpec::Matchers.define :contain_link do |text|
   end
 
   match_when_negated do |element|
-    disable_implicit_wait do # so find_element calls return ASAP
-      wait_for_no_such_element(method: :contain_link) { fln(text, element) }
-    end
+    wait_for_no_such_element(method: :contain_link) { fln(text, element) }
   end
 end
 
 # assert whether or not an element is displayed. will wait up to
-# IMPLICIT_WAIT_TIMEOUT seconds
+# TIMEOUTS[:finder] seconds
 RSpec::Matchers.define :be_displayed do
   match do |element|
     wait_for(method: :be_displayed) { element.displayed? }
@@ -211,7 +253,7 @@ RSpec::Matchers.define :be_displayed do
   end
 end
 
-# assert the size of the collection. will wait up to IMPLICIT_WAIT_TIMEOUT
+# assert the size of the collection. will wait up to TIMEOUTS[:finder]
 # seconds, and will reload the collection if it can (i.e. if it's the
 # result of a ff/ffj call)
 RSpec::Matchers.define :have_size do |size|
@@ -226,6 +268,24 @@ RSpec::Matchers.define :have_size do |size|
     wait_for(method: :have_size) do
       collection.reload! if collection.size == size && collection.respond_to?(:reload!)
       collection.size != size
+    end
+  end
+end
+
+# wait for something to become a new value. useful for those times when
+# other implicit waits cannot be used, e.g.
+#
+# # trigger some ajax
+# expect { User.count }.to become(1)
+RSpec::Matchers.define :become do |size|
+  def supports_block_expectations?
+    true
+  end
+
+  match do |actual|
+    raise "The `become` matcher expects a block, e.g. `expect { actual }.to become(value)`, NOT `expect(actual).to become(value)`" unless actual.is_a? Proc
+    wait_for(method: :become) do
+      disable_implicit_wait { actual.call == expected }
     end
   end
 end

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -12,18 +12,18 @@
 # A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
 # details.
 #
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <http://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
 require 'crocodoc'
 
 class CrocodocDocument < ActiveRecord::Base
-  attr_accessible :uuid, :process_state, :attachment_id
+  include Canvadocs::Session
 
   belongs_to :attachment
 
-  has_and_belongs_to_many :submissions, -> { readonly(true) }, join_table: :canvadocs_submissions
+  has_many :canvadocs_submissions
 
   MIME_TYPES = %w(
     application/pdf
@@ -39,22 +39,52 @@ class CrocodocDocument < ActiveRecord::Base
   def upload
     return if uuid.present?
 
-    url = attachment.authenticated_s3_url(:expires => 1.day)
+    url = attachment.authenticated_s3_url(expires_in: 1.day)
 
-    response = Canvas.timeout_protection("crocodoc") {
-      crocodoc_api.upload(url)
-    }
+    begin
+      response = Canvas.timeout_protection("crocodoc_upload", raise_on_timeout: true) do
+        crocodoc_api.upload(url)
+      end
+    rescue Canvas::TimeoutCutoff
+      raise Canvas::Crocodoc::CutoffError, "not uploading due to timeout protection"
+    rescue Timeout::Error
+      raise Canvas::Crocodoc::TimeoutError, "not uploading due to timeout error"
+    end
 
     if response && response['uuid']
       update_attributes :uuid => response['uuid'], :process_state => 'QUEUED'
     elsif response.nil?
-      raise "no response received (request timed out?)"
+      raise "no response received"
     else
       raise response.inspect
     end
   end
 
+  def should_migrate_to_canvadocs?
+    account_context = attachment.context.try(:account)
+    account_context ||= attachment.context.try(:root_account)
+    Canvadocs.hijack_crocodoc_sessions? && account_context&.feature_enabled?(:new_annotations)
+  end
+
+  def canvadocs_can_annotate?(user)
+    user != nil
+  end
+  private :canvadocs_can_annotate?
+
+  def document_id
+    uuid
+  end
+  private :document_id
+
+  def canvadoc_options
+    {
+      migrate_crocodoc: true
+    }
+  end
+  private :canvadoc_options
+
   def session_url(opts = {})
+    return canvadocs_session_url opts.merge(canvadoc_options) if should_migrate_to_canvadocs?
     defaults = {
       :annotations => true,
       :downloadable => true,
@@ -76,7 +106,7 @@ class CrocodocDocument < ActiveRecord::Base
       opts[:editable] = false
     end
 
-    Canvas.timeout_protection("crocodoc", raise_on_timeout: true) do
+    Canvas.timeout_protection("crocodoc_session", raise_on_timeout: true) do
       response = crocodoc_api.session(uuid, opts)
       session = response['session']
       crocodoc_api.view(session)
@@ -97,7 +127,6 @@ class CrocodocDocument < ActiveRecord::Base
       opts[:filter] = user.crocodoc_id!
     end
 
-    submissions = self.submissions.preload(:assignment)
     if submissions.any? { |s| s.grants_right? user, :read_grade }
       opts[:filter] = 'all'
 
@@ -114,6 +143,12 @@ class CrocodocDocument < ActiveRecord::Base
     apply_whitelist(user, opts, whitelist) if whitelist
 
     opts
+  end
+
+  def submissions
+    self.canvadocs_submissions.
+      preload(submission: :assignment).
+      map &:submission
   end
 
   def apply_whitelist(user, opts, whitelist)
@@ -159,7 +194,9 @@ class CrocodocDocument < ActiveRecord::Base
         Shackles.activate(:master) do
           statuses = []
           docs.each_slice(bs) do |sub_docs|
-            statuses.concat CrocodocDocument.crocodoc_api.status(sub_docs.map(&:uuid))
+            Canvas.timeout_protection("crocodoc_status") do
+              statuses.concat CrocodocDocument.crocodoc_api.status(sub_docs.map(&:uuid))
+            end
           end
 
           bulk_updates = {}

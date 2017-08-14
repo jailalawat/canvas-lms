@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2012 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -41,6 +41,7 @@ module Api::V1::UserProfile
 
     if user == current_user
       json[:calendar] = {:ics => "#{feeds_calendar_url(user.feed_code)}.ics"}
+      json[:lti_user_id] = user.lti_context_id if user.lti_context_id.present?
     end
 
     if includes.include? 'user_services'

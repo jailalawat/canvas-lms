@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -18,7 +18,7 @@
 require 'dynamic_form'
 
 class PluginsController < ApplicationController
-  before_filter :require_setting_site_admin, :set_site_admin_context, :set_navigation
+  before_action :require_setting_site_admin, :set_site_admin_context, :set_navigation
 
   def index
     @plugins = Canvas::Plugin.all
@@ -27,7 +27,6 @@ class PluginsController < ApplicationController
   def show
     if find_plugin_setting
       if @plugin_setting.new_record?
-        @plugin_setting.disabled = true
         clear_encrypted_plugin_settings
       end
       @settings = @plugin.settings
@@ -39,11 +38,11 @@ class PluginsController < ApplicationController
 
   def update
     if find_plugin_setting
-      @plugin_setting.disabled = params[:plugin_setting][:disabled] if params[:plugin_setting] && params[:plugin_setting][:disabled]
+      @plugin_setting.disabled = value_to_boolean(params[:plugin_setting][:disabled]) if params[:plugin_setting] && !params[:plugin_setting][:disabled].nil?
       @plugin_setting.posted_settings = params[:settings] || {} unless @plugin_setting.disabled
       if @plugin_setting.save
         flash[:notice] = t('notices.settings_updated', "Plugin settings successfully updated.")
-        redirect_to plugin_path(@plugin.id, :all => params[:all])
+        redirect_to plugin_path(@plugin.id)
       else
         @settings = @plugin.settings
         flash[:error] = t('errors.setting_update_failed', "There was an error saving the plugin settings.")
@@ -60,7 +59,7 @@ class PluginsController < ApplicationController
   def find_plugin_setting
     if @plugin = Canvas::Plugin.find(params[:id])
       @plugin_setting = PluginSetting.find_by_name(@plugin.id)
-      @plugin_setting ||= PluginSetting.new(:name => @plugin.id, :settings => @plugin.default_settings)
+      @plugin_setting ||= PluginSetting.new(:name => @plugin.id, :settings => @plugin.default_settings) { |ps| ps.disabled = true }
       true
     else
       false

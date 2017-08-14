@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/wiki_and_tiny_common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/public_courses_context')
@@ -7,7 +24,7 @@ describe "Wiki Pages" do
   include_context "in-process server selenium tests"
   include FilesCommon
   include WikiAndTinyCommon
-  
+
   context "Navigation" do
     def edit_page(edit_text)
       get "/courses/#{@course.id}/pages/Page1/edit"
@@ -49,13 +66,7 @@ describe "Wiki Pages" do
     it "should have correct front page UI elements when set as home page", priority: "1", test_id: 126848 do
       front = @course.wiki.wiki_pages.create!(title: 'Front')
       front.set_as_front_page!
-      front.save!
-      get "/courses/#{@course.id}/wiki"
-      fln('Home').click
-      # setting front-page as home page
-      fj('.btn.button-sidebar-wide:contains("Choose Home Page")').click
-      fj('input[type=radio][value=wiki]').click
-      fj('button.btn.btn-primary.button_type_submit.ui-button.ui-widget.ui-state-default.ui-corner-all.ui-button-text-only').click
+      @course.update_attribute :default_view, "wiki"
       get "/courses/#{@course.id}"
       wait_for_ajaximations
       # validations
@@ -95,6 +106,13 @@ describe "Wiki Pages" do
       get "/courses/#{@course.id}/pages/Page1/edit"
       switch_editor_views(wiki_page_body)
       expect(f('textarea')).to include_text('test')
+    end
+
+    it "blocks linked page from redirecting parent page", priority: "2", test_id: 927147 do
+      @course.wiki.wiki_pages.create!(title: 'Garfield and Odie Food Preparation',
+        body: '<a href="http://example.com/poc/" target="_blank" id="click_here_now">click_here</a>')
+      get "/courses/#{@course.id}/pages/garfield-and-odie-food-preparation"
+      expect(f('#click_here_now').attribute("rel")).to eq "noreferrer"
     end
   end
 
@@ -352,23 +370,14 @@ describe "Wiki Pages" do
         get "/courses/#{@course.id}/pages/#{@vpage.url}/revisions"
       end
 
-      it "should let the revisions be focused" do
+      it "should focus the revision buttons" do
         driver.execute_script("$('.close-button').focus();")
         f('.close-button').send_keys(:tab)
-        all_revisions = ff('.revision')
+        all_revisions = ff('.revision-details')
         all_revisions.each do |revision|
           check_element_has_focus(revision)
           revision.send_keys(:tab)
         end
-      end
-
-      it "should focus on the 'restore this revision link' after selecting a revision" do
-        driver.execute_script("$('.revision:nth-child(2)').focus();")
-        element = fj('.revision:nth-child(2)')
-        element.send_keys(:enter)
-        wait_for_ajaximations
-        element.send_keys(:tab)
-        check_element_has_focus(f('.restore-link'))
       end
 
       it "should validate that revision restored is displayed", priority: "1", test_id: 126832 do
@@ -385,9 +394,15 @@ describe "Wiki Pages" do
         f('.close-button').click
         wait_for_ajaximations
         f('.icon-edit').click
-        f('.btn-primary').click
+        expect_new_page_load { f('.btn-primary').click }
+        expect(f('.show-content.user_content.clearfix.enhanced')).to include_text 'published by teacher'
+      end
+
+      it "keeps focus on clicked revision button" do
+        driver.execute_script("$('button.revision-details')[1].focus();")
+        ff('button.revision-details')[1].click
         wait_for_ajaximations
-        expect(f('div.user_content.clearfix.enhanced > p').text).to include 'published by teacher'
+        check_element_has_focus(ff('button.revision-details')[1])
       end
     end
 
@@ -499,6 +514,7 @@ describe "Wiki Pages" do
       Canvas::Plugin.register(:kaltura, nil, :settings => {'partner_id' => 1, 'subpartner_id' => 2, 'kaltura_sis' => '1'})
 
       @course.is_public = true
+      @course.workflow_state = 'available'
       @course.save!
 
       title = "foo"

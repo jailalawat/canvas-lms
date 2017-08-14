@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,20 +17,12 @@
 #
 
 # @API Authentication Providers
-# Authentication providers were previously known as account authorization
-# configs. They are being renamed. The urls with account_authorization_configs
-# are all deprecated as of 2015-07-16. Please use the authentication_providers
-# version instead.
 #
 # @model AuthenticationProvider
 #     {
 #       "id": "1",
 #       "description": "",
 #       "properties": {
-#         "login_handle_name": {
-#           "description": "_Deprecated_[2015-05-08: This is moving to an account setting ] Valid for SAML and CAS providers.",
-#           "type": "string"
-#         },
 #         "identifier_format": {
 #           "description": "Valid for SAML providers.",
 #           "example": "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
@@ -59,10 +51,6 @@
 #         "certificate_fingerprint": {
 #           "description": "Valid for SAML providers.",
 #           "example": "111222",
-#           "type": "string"
-#         },
-#         "change_password_url": {
-#           "description": "_Deprecated_[2015-05-08: This is moving to an account setting] Valid for SAML providers.",
 #           "type": "string"
 #         },
 #         "requested_authn_context": {
@@ -111,26 +99,12 @@
 #           "example": "nameid",
 #           "type": "string"
 #         },
-#         "unknown_user_url": {
-#           "description": "_Deprecated_[2015-05-08: This is moving to an account setting] Valid for SAML and CAS providers.",
-#           "example": "https://canvas.instructure.com/login",
-#           "type": "string"
-#         },
 #         "jit_provisioning": {
 #           "description": "Just In Time provisioning. Valid for all providers except Canvas (which has the similar in concept self_registration setting).",
 #           "type": "boolean"
-#         }
-#       }
-#     }
-#
-# @model DiscoveryUrl
-#     {
-#       "id": "DiscoveryUrl",
-#       "description": "",
-#       "properties": {
-#         "discovery_url": {
-#           "example": "http://...",
-#           "type": "string"
+#         },
+#         "federated_attributes": {
+#           "type": "FederatedAttributesConfig"
 #         }
 #       }
 #     }
@@ -163,8 +137,63 @@
 #       }
 #     }
 #
+# @model FederatedAttributesConfig
+#     {
+#       "description": "A mapping of Canvas attribute names to attribute names that a provider may send, in order to update the value of these attributes when a user logs in. The values can be a FederatedAttributeConfig, or a raw string corresponding to the \"attribute\" property of a FederatedAttributeConfig. In responses, full FederatedAttributeConfig objects are returned if JIT provisioning is enabled, otherwise just the attribute names are returned.",
+#       "properties": {
+#         "display_name": {
+#           "description": "The full display name of the user"
+#         },
+#         "email": {
+#           "description": "The user's e-mail address"
+#         },
+#         "given_name": {
+#           "description": "The first, or given, name of the user"
+#         },
+#         "integration_id": {
+#           "description": "The secondary unique identifier for SIS purposes"
+#         },
+#         "locale": {
+#           "description": "The user's prefererred locale/language"
+#         },
+#         "name": {
+#           "description": "The full name of the user"
+#         },
+#         "sis_user_id": {
+#           "description": "The unique SIS identifier"
+#         },
+#         "sortable_name": {
+#           "description": "The full name of the user for sorting purposes"
+#         },
+#         "surname": {
+#           "description": "The surname, or last name, of the user"
+#         },
+#         "timezone": {
+#           "description": "The user's preferred time zone"
+#         }
+#       }
+#     }
+#
+# @model FederatedAttributeConfig
+#     {
+#       "description": "A single attribute name to be federated when a user logs in",
+#       "properties": {
+#         "attribute": {
+#           "description": "The name of the attribute as it will be sent from the authentication provider",
+#           "type": "string",
+#           "example": "mail"
+#         },
+#         "provisioning_only": {
+#           "description": "If the attribute should be applied only when provisioning a new user, rather than all logins",
+#           "type": "boolean",
+#           "default": false,
+#           "example": false
+#         }
+#       }
+#     }
+#
 class AccountAuthorizationConfigsController < ApplicationController
-  before_filter :require_context, :require_root_account_management
+  before_action :require_context, :require_root_account_management
   include Api::V1::AccountAuthorizationConfig
 
   # @API List authentication providers
@@ -197,15 +226,6 @@ class AccountAuthorizationConfigsController < ApplicationController
   # recognized parameters depend on this auth_type; unrecognized parameters are discarded.
   # Provider specifications not specifying a valid auth_type are ignored.
   #
-  # _Deprecated_[2015-05-08] Any provider specification may include an
-  # optional 'login_handle_name' parameter. This parameter specifies the
-  # label used for unique login identifiers; for example: 'Login',
-  # 'Username', 'Student ID', etc. The default is 'Email'.
-  # _Deprecated_[2015-05-20] Any provider specification besides LDAP may include
-  # an optional 'unknown_user_url' parameters. This parameters specifies a url
-  # to redirect to when a user is authorized but is not found in Canvas.
-  # _Deprecated_ [Use update_sso_settings instead]
-  #
   # You can set the 'position' for any configuration. The config in the 1st position
   # is considered the default. You can set 'jit_provisioning' for any configuration
   # besides Canvas.
@@ -226,11 +246,6 @@ class AccountAuthorizationConfigsController < ApplicationController
   #
   #   An alternate SSO URL for logging into CAS. You probably should not set
   #   this.
-  #
-  # - unknown_user_url [Optional] _Deprecated_ [2015-05-20: use update_sso_settings instead]
-  #
-  #   A url to redirect to when a user is authorized through CAS but is not
-  #   found in Canvas.
   #
   # For Clever, the additional recognized parameters are:
   #
@@ -257,6 +272,11 @@ class AccountAuthorizationConfigsController < ApplicationController
   #   'teacher_number'. Note that some fields may not be populated for
   #   all users at Clever.
   #
+  # - federated_attributes [Optional]
+  #
+  #   See FederatedAttributesConfig. Valid provider attributes are 'id',
+  #   'sis_id', 'email', 'student_number', and 'teacher_number'.
+  #
   # For Facebook, the additional recognized parameters are:
   #
   # - app_id [Required]
@@ -271,6 +291,11 @@ class AccountAuthorizationConfigsController < ApplicationController
   #
   #   The attribute to use to look up the user's login in Canvas. Either
   #   'id' (the default), or 'email'
+  #
+  # - federated_attributes [Optional]
+  #
+  #   See FederatedAttributesConfig. Valid provider attributes are 'email',
+  #   'first_name', 'id', 'last_name', 'locale', and 'name'.
   #
   # For GitHub, the additional recognized parameters are:
   #
@@ -295,6 +320,11 @@ class AccountAuthorizationConfigsController < ApplicationController
   #   The attribute to use to look up the user's login in Canvas. Either
   #   'id' (the default), or 'login'
   #
+  # - federated_attributes [Optional]
+  #
+  #   See FederatedAttributesConfig. Valid provider attributes are 'email',
+  #   'id', 'login', and 'name'.
+  #
   # For Google, the additional recognized parameters are:
   #
   # - client_id [Required]
@@ -316,6 +346,11 @@ class AccountAuthorizationConfigsController < ApplicationController
   #
   #   The attribute to use to look up the user's login in Canvas. Either
   #   'sub' (the default), or 'email'
+  #
+  # - federated_attributes [Optional]
+  #
+  #   See FederatedAttributesConfig. Valid provider attributes are 'email',
+  #   'family_name', 'given_name', 'locale', 'name', and 'sub'.
   #
   # For LDAP, the additional recognized parameters are:
   #
@@ -356,10 +391,6 @@ class AccountAuthorizationConfigsController < ApplicationController
   #
   #   Password
   #
-  # - change_password_url [Optional] _Deprecated_ [2015-05-08: use update_sso_settings instead]
-  #
-  #   Forgot Password URL. Leave blank for default Canvas behavior.
-  #
   # For LinkedIn, the additional recognized parameters are:
   #
   # - client_id [Required]
@@ -376,6 +407,11 @@ class AccountAuthorizationConfigsController < ApplicationController
   #
   #   The attribute to use to look up the user's login in Canvas. Either
   #   'id' (the default), or 'emailAddress'
+  #
+  # - federated_attributes [Optional]
+  #
+  #   See FederatedAttributesConfig. Valid provider attributes are 'emailAddress',
+  #   'firstName', 'id', 'formattedName', and 'lastName'.
   #
   # For Microsoft, the additional recognized parameters are:
   #
@@ -401,6 +437,11 @@ class AccountAuthorizationConfigsController < ApplicationController
   #   Microsoft. Oid will not be populated for personal Microsoft accounts.
   #   Defaults to 'sub'
   #
+  # - federated_attributes [Optional]
+  #
+  #   See FederatedAttributesConfig. Valid provider attributes are 'email',
+  #   'name', 'preferred_username', 'oid', and 'sub'.
+  #
   # For OpenID Connect, the additional recognized parameters are:
   #
   # - client_id [Required]
@@ -417,22 +458,38 @@ class AccountAuthorizationConfigsController < ApplicationController
   #
   # - token_url [Required]
   #
-  #   The URL for exchanging the OAuth 2.0 authorization code for an access
-  #   token and id token
+  #   The URL for exchanging the OAuth 2.0 authorization code for an Access
+  #   Token and ID Token
   #
   # - scope [Optional]
   #
-  #   Space separated additional scopes to request for the token.
+  #   Space separated additional scopes to request for the token. Note that
+  #   you need not specify the 'openid' scope, or any scopes that can be
+  #   automatically inferred by the rules defined at
+  #   http://openid.net/specs/openid-connect-core-1_0.html#ScopeClaims
   #
   # - end_session_endpoint [Optional]
   #
   #   URL to send the end user to after logging out of Canvas. See
   #   https://openid.net/specs/openid-connect-session-1_0.html#RPLogout
   #
+  # - userinfo_endpoint [Optional]
+  #
+  #   URL to request additional claims from. If the initial ID Token received
+  #   from the provider cannot be used to satisfy the login_attribute and
+  #   all federated_attributes, this endpoint will be queried for additional
+  #   information.
+  #
   # - login_attribute [Optional]
   #
-  #   The attribute of the ID token to look up the user's login in Canvas.
+  #   The attribute of the ID Token to look up the user's login in Canvas.
   #   Defaults to 'sub'.
+  #
+  # - federated_attributes [Optional]
+  #
+  #   See FederatedAttributesConfig. Any value is allowed for the provider
+  #   attribute names, but standard claims are listed at
+  #   http://openid.net/specs/openid-connect-core-1_0.html#StandardClaims
   #
   # For SAML, the additional recognized parameters are:
   #
@@ -468,15 +525,6 @@ class AccountAuthorizationConfigsController < ApplicationController
   #
   #   The SAML service's certificate fingerprint.
   #
-  # - change_password_url [Optional] _Deprecated_ [2015-05-08: use update_sso_settings instead]
-  #
-  #   Forgot Password URL. Leave blank for default Canvas behavior.
-  #
-  # - unknown_user_url [Optional] _Deprecated_ [2015-05-20: use update_sso_settings instead]
-  #
-  #   A url to redirect to when a user is authorized through SAML but is not
-  #   found in Canvas.
-  #
   # - identifier_format
   #
   #   The SAML service's identifier format. Must be one of:
@@ -493,6 +541,10 @@ class AccountAuthorizationConfigsController < ApplicationController
   # - requested_authn_context [Optional]
   #
   #   The SAML AuthnContext
+  #
+  # - federated_attributes [Optional]
+  #
+  #   See FederatedAttributesConfig. Any value is allowed for the provider attribute names.
   #
   # For Twitter, the additional recognized parameters are:
   #
@@ -514,6 +566,11 @@ class AccountAuthorizationConfigsController < ApplicationController
   #   Accepts a boolean value, true designates the authentication service
   #   for use on parent registrations.  Only one service can be selected
   #   at a time so if set to true all others will be set to false
+  #
+  # - federated_attributes [Optional]
+  #
+  #   See FederatedAttributesConfig. Valid provider attributes are 'name',
+  #   'screen_name', 'time_zone', and 'user_id'.
   #
   # @example_request
   #   # Create LDAP config
@@ -546,7 +603,7 @@ class AccountAuthorizationConfigsController < ApplicationController
   #
   # @returns AuthenticationProvider
   def create
-    aac_data = strong_params.fetch(:authentication_provider, strong_params)
+    aac_data = params.fetch(:authentication_provider, params)
     position = aac_data.delete(:position)
     data = filter_data(aac_data)
     deselect_parent_registration(data)
@@ -602,7 +659,7 @@ class AccountAuthorizationConfigsController < ApplicationController
   #
   # @returns AuthenticationProvider
   def update
-    aac_data = strong_params.fetch(:authentication_provider, strong_params)
+    aac_data = params.fetch(:authentication_provider, params)
     aac = @account.authentication_providers.active.find params[:id]
     update_deprecated_account_settings_data(aac_data, aac)
     position = aac_data.delete(:position)
@@ -673,64 +730,6 @@ class AccountAuthorizationConfigsController < ApplicationController
     end
   end
 
-  # @API GET discovery url _Deprecated_[2015-05-08]
-  # Get the discovery url _Deprecated_[2015-05-08]
-  #
-  # [Use update_sso_settings instead]
-  #
-  # @example_request
-  #   curl 'https://<canvas>/api/v1/accounts/<account_id>/account_authorization_configs/discovery_url' \
-  #        -H 'Authorization: Bearer <token>'
-  #
-  # @returns DiscoveryUrl
-  def show_discovery_url
-    render :json => {:discovery_url => @account.auth_discovery_url}
-  end
-
-  # @API Set discovery url _Deprecated_[2015-05-08]
-  #
-  # [Use update_sso_settings instead]
-  #
-  # If you have multiple IdPs configured, you can set a `discovery_url`.
-  # If that is set, canvas will forward all users to that URL when they need to
-  # be authenticated. That page will need to then help the user figure out where
-  # they need to go to log in.
-  #
-  # If no discovery url is configured, the 1st auth config will be used to
-  # attempt to authenticate the user.
-  #
-  # @example_request
-  #   curl -XPUT 'https://<canvas>/api/v1/accounts/<account_id>/account_authorization_configs/discovery_url' \
-  #        -F 'discovery_url=<new_url>' \
-  #        -H 'Authorization: Bearer <token>'
-  #
-  # @returns DiscoveryUrl
-  def update_discovery_url
-    @account.auth_discovery_url = params[:discovery_url].presence
-
-    if @account.save
-      render :json => {:discovery_url => @account.auth_discovery_url}
-    else
-      render :json => @account.errors, :status => :bad_request
-    end
-  end
-
-  # @API Delete discovery url _Deprecated_[2015-05-08]
-  # Clear discovery url _Deprecated_[2015-05-08]
-  #
-  # [Use update_sso_settings instead]
-  #
-  # @example_request
-  #   curl -XDELETE 'https://<canvas>/api/v1/accounts/<account_id>/account_authorization_configs/discovery_url' \
-  #        -H 'Authorization: Bearer <token>'
-  #
-  def destroy_discovery_url
-    @account.auth_discovery_url = nil
-    @account.save!
-    render :json => {:discovery_url => @account.auth_discovery_url}
-  end
-
-
   def sso_settings_json(account)
     {
       sso_settings: {
@@ -780,7 +779,7 @@ class AccountAuthorizationConfigsController < ApplicationController
   #
   # @returns SSOSettings
   def update_sso_settings
-    sets = strong_params.require(:sso_settings).permit(:login_handle_name,
+    sets = params.require(:sso_settings).permit(:login_handle_name,
                                                        :change_password_url,
                                                        :auth_discovery_url,
                                                        :unknown_user_url)
@@ -913,7 +912,12 @@ class AccountAuthorizationConfigsController < ApplicationController
   protected
   def filter_data(data)
     auth_type = data.delete(:auth_type)
-    data = data.permit(*AccountAuthorizationConfig.find_sti_class(auth_type).recognized_params)
+    klass = AccountAuthorizationConfig.find_sti_class(auth_type)
+    federated_attributes = data[:federated_attributes]
+    federated_attributes = {} if federated_attributes == ""
+    federated_attributes = federated_attributes&.to_hash
+    data = data.permit(klass.recognized_params)
+    data[:federated_attributes] = federated_attributes if federated_attributes
     data[:auth_type] = auth_type
     if data[:auth_type] == 'ldap'
       data[:auth_over_tls] = 'start_tls' unless data.has_key?(:auth_over_tls)

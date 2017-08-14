@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2012 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -26,7 +26,7 @@ describe 'DataFixup::MoveContentExportNotificationsToMigrationCategory' do
 
     users = []
     3.times do |i|
-      u = user(:active_user => true)
+      u = user_factory(active_user: true)
       cc = u.communication_channels.create(:path => "user#{i}@example.com").tap{|cc| cc.confirm!} 
       NotificationPolicy.create(:notification => @n1, :communication_channel => cc, :frequency => "daily")
       NotificationPolicy.create(:notification => @n2, :communication_channel => cc, :frequency => "daily")

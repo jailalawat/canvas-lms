@@ -1,14 +1,30 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'underscore'
   'i18n!react_files'
   'react',
   'compiled/collections/FilesCollection'
-  'compiled/react/shared/utils/withReactElement'
   '../modules/customPropTypes'
   '../utils/updateAPIQuerySortParams'
   '../utils/getAllPages'
   '../utils/locationOrigin'
-], (_, I18n, React, FilesCollection, withReactElement, customPropTypes, updateAPIQuerySortParams, getAllPages) ->
+], (_, I18n, React, FilesCollection, customPropTypes, updateAPIQuerySortParams, getAllPages) ->
 
   SearchResults =
     displayName: 'SearchResults'
@@ -34,12 +50,21 @@ define [
         responseText =
           errors: [{message}]
 
-      @setState errors: if _.isArray(responseText.errors)
-                          responseText.errors
-                        else if responseText.errors?.base?
-                          [{message: "#{responseText.errors.base}, #{responseText.status}"}]
-                        else
-                          [{message}]
+      errors = if _.isArray(responseText.errors)
+                 @translateErrors(responseText.errors)
+               else if responseText.errors?.base?
+                 [{message: "#{responseText.errors.base}, #{responseText.status}"}]
+               else
+                 [{message}]
+      @setState errors: errors
+      $.screenReaderFlashMessageExclusive (_.map errors, (error) -> error.message).join ' '
+
+    translateErrors: (errors) ->
+      _.map errors, (error) ->
+        if error.message is "3 or more characters is required"
+          { message: I18n.t('Please enter a search term with three or more characters') }
+        else
+          error
 
     updateResults: (props) ->
       oldUrl = @state.collection.url

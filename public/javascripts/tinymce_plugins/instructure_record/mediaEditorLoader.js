@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2015 Instructure, Inc.
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -12,22 +12,20 @@
  * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
  * details.
  *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'jquery',
-  'str/htmlEscape',
-  'jsx/shared/rce/RceCommandShim',
-  'media_comments'
-], function($, htmlEscape, RceCommandShim) {
+import $ from 'jquery'
+import htmlEscape from '../../str/htmlEscape'
+import {send} from 'jsx/shared/rce/RceCommandShim'
+import '../../media_comments'
 
   var mediaEditorLoader = {
     insertCode: function(ed, mediaCommentId, mediaType){
       var $editor = $("#" + ed.id);
       var linkCode = this.makeLinkHtml(mediaCommentId, mediaType)
-      RceCommandShim.send($editor, 'insert_code', linkCode);
+      send($editor, 'insert_code', linkCode);
     },
 
     makeLinkHtml: function(mediaCommentId, mediaType) {
@@ -60,5 +58,4 @@ define([
     }
   }
 
-  return mediaEditorLoader;
-});
+export default mediaEditorLoader;

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,13 +20,13 @@ class WikiPagesController < ApplicationController
   include KalturaHelper
   include SubmittableHelper
 
-  before_filter :require_context
-  before_filter :get_wiki_page, :except => [:front_page]
-  before_filter :set_front_page, :only => [:front_page]
-  before_filter :set_pandapub_read_token
-  before_filter :set_js_rights
-  before_filter :set_js_wiki_data
-  before_filter :rich_content_service_config, only: [:edit, :index]
+  before_action :require_context
+  before_action :get_wiki_page, :except => [:front_page]
+  before_action :set_front_page, :only => [:front_page]
+  before_action :set_pandapub_read_token
+  before_action :set_js_rights
+  before_action :set_js_wiki_data
+  before_action :rich_content_service_config, only: [:edit, :index]
 
   add_crumb(proc { t '#crumbs.wiki_pages', "Pages"}) do |c|
     context = c.instance_variable_get('@context')
@@ -35,7 +35,7 @@ class WikiPagesController < ApplicationController
       c.send :polymorphic_path, [context, :wiki_pages]
     end
   end
-  before_filter { |c| c.active_tab = "pages" }
+  before_action { |c| c.active_tab = "pages" }
 
   def js_rights
     [:wiki, :page]
@@ -74,7 +74,11 @@ class WikiPagesController < ApplicationController
     if authorized_action(@context.wiki, @current_user, :read) && tab_enabled?(@context.class::TAB_PAGES)
       log_asset_access([ "pages", @context ], "pages", "other")
       js_env ConditionalRelease::Service.env_for @context
+      if @context.root_account.feature_enabled?(:student_planner)
+        js_env :student_planner_enabled => @context.grants_any_right?(@current_user, session, :manage)
+      end
       js_env :wiki_page_menu_tools => external_tools_display_hashes(:wiki_page_menu)
+      set_tutorial_js_env
       @padless = true
     end
   end
@@ -83,7 +87,8 @@ class WikiPagesController < ApplicationController
     if @page.new_record?
       if @page.grants_any_right?(@current_user, session, :update, :update_content)
         flash[:info] = t('notices.create_non_existent_page', 'The page "%{title}" does not exist, but you can create it below', :title => @page.title)
-        redirect_to polymorphic_url([@context, :wiki_page], id: @page_name || @page, titleize: params[:titleize], action: :edit)
+        encoded_name = @page_name && CGI.escape(@page_name).gsub("+", " ")
+        redirect_to polymorphic_url([@context, :wiki_page], id: encoded_name || @page, titleize: params[:titleize], action: :edit)
       else
         wiki_page = @wiki.wiki_pages.deleted_last.where(url: @page.url).first
         if wiki_page && wiki_page.deleted?
@@ -101,7 +106,8 @@ class WikiPagesController < ApplicationController
         add_crumb(@page.title)
         log_asset_access(@page, 'wiki', @wiki)
         wiki_page_jsenv(@context)
-        @mark_done = MarkDonePresenter.new(self, @context, params["module_item_id"], @current_user)
+        set_master_course_js_env_data(@page, @context)
+        @mark_done = MarkDonePresenter.new(self, @context, params["module_item_id"], @current_user, @page)
         @padless = true
       end
     end
@@ -109,7 +115,12 @@ class WikiPagesController < ApplicationController
 
   def edit
     if @page.grants_any_right?(@current_user, session, :update, :update_content)
+      set_master_course_js_env_data(@page, @context)
+
       js_env ConditionalRelease::Service.env_for @context
+      if @context.root_account.feature_enabled?(:student_planner)
+        js_env :student_planner_enabled => @page.context.grants_any_right?(@current_user, session, :manage)
+      end
       if !ConditionalRelease::Service.enabled_in_context?(@context) ||
         enforce_assignment_visible(@page)
         add_crumb(@page.title)

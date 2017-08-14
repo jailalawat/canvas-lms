@@ -1,7 +1,24 @@
+#
+# Copyright (C) 2015 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'timezone'
-  'bower/fullcalendar/dist/fullcalendar'
+  'fullcalendar'
   'jquery.instructure_date_and_time'
 ], ($, tz) ->
 
@@ -35,4 +52,13 @@ define [
   clone = (moment) ->
     $.fullCalendar.moment(moment)
 
-  fcUtil = {wrap, unwrap, now, clone}
+  # compensates for intervals spanning DST changes
+  addMinuteDelta = (moment, minuteDelta) ->
+    dayDelta = (minuteDelta / 1440) | 0
+    minuteDelta = minuteDelta % 1440
+    date = unwrap(moment)
+    date = tz.shift(date, (if dayDelta < 0 then '' else '+') + dayDelta + ' days')
+    date = tz.shift(date, (if minuteDelta < 0 then '' else '+') + minuteDelta + ' minutes')
+    wrap(date)
+
+  fcUtil = {wrap, unwrap, now, clone, addMinuteDelta}

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,8 +17,10 @@
 #
 
 class Feature
-  ATTRS = [:feature, :display_name, :description, :applies_to, :state, :root_opt_in, :enable_at, :beta, :development,
-    :release_notes_url, :custom_transition_proc, :after_state_change_proc, :autoexpand]
+  ATTRS = [:feature, :display_name, :description, :applies_to, :state,
+           :root_opt_in, :enable_at, :beta, :development,
+           :release_notes_url, :custom_transition_proc,
+           :after_state_change_proc, :autoexpand, :touch_context].freeze
   attr_reader *ATTRS
 
   def initialize(opts = {})
@@ -64,8 +66,8 @@ class Feature
   # Register one or more features.  Must be done during application initialization.
   # The feature_hash is as follows:
   #   automatic_essay_grading: {
-  #     display_name: lambda { I18n.t('features.automatic_essay_grading', 'Automatic Essay Grading') },
-  #     description: lambda { I18n.t('features.automatic_essay_grading_description, 'Popup text describing the feature goes here') },
+  #     display_name: -> { I18n.t('features.automatic_essay_grading', 'Automatic Essay Grading') },
+  #     description: -> { I18n.t('features.automatic_essay_grading_description, 'Popup text describing the feature goes here') },
   #     applies_to: 'Course', # or 'RootAccount' or 'Account' or 'User'
   #     state: 'allowed',     # or 'off', 'on', 'hidden', or 'hidden_in_prod'
   #                           # - 'hidden' means the feature must be set by a site admin before it will be visible
@@ -91,7 +93,7 @@ class Feature
   #
   #     # optional hook to be called before after a feature flag change
   #     # queue a delayed_job to perform any nontrivial processing
-  #     after_state_change_proc:  ->(context, old_state, new_state) { ... }
+  #     after_state_change_proc:  ->(user, context, old_state, new_state) { ... }
   #   }
 
   def self.register(feature_hash)
@@ -119,16 +121,6 @@ END
       state: 'hidden',
       root_opt_in: true
     },
-    'use_new_styles' =>
-    {
-      display_name: -> { I18n.t('New UI') },
-      description: -> { I18n.t(<<END) },
-This enables an updated navigation, new dashboard and a simpler, more modern look and feel.
-END
-      applies_to: 'RootAccount',
-      state: ENV['CANVAS_FORCE_USE_NEW_STYLES'] ? 'on' : 'allowed',
-      root_opt_in: true
-    },
     'epub_export' =>
     {
       display_name: -> { I18n.t('ePub Exporting') },
@@ -149,9 +141,28 @@ distinct and easier to identify. Note: Institution branding will be disabled.
 END
       applies_to: 'User',
       state: 'allowed',
-      beta: true,
       autoexpand: true
     },
+    'underline_all_links' =>
+    {
+      display_name: -> { I18n.t('Underline Links') },
+      description: -> { I18n.t('underline_all_links_description', <<-END, wrapper: { '*' => '<span class="feature-detail-underline">\1</span>' })},
+Underline Links displays hyperlinks in navigation menus, the Dashboard, and page sidebars as
+*underlined text*. This feature option does not apply to user-generated content links in the
+Rich Content Editor, which always underlines links for all users.
+END
+      applies_to: 'User',
+      state: 'allowed',
+      beta: true
+    },
+    'new_user_tutorial_on_off' =>
+    {
+      display_name: -> { I18n.t('Course Set-up Tutorial') },
+      description: -> { I18n.t('Course set-up tutorial provides tips on how to leverage the feature opportunities on each page in Canvas. It is especially useful when you are new to Canvas or are setting up a new course for the first time in a long time.') },
+      applies_to: 'User',
+      state: 'allowed',
+    },
+
     'outcome_gradebook' =>
     {
       display_name: -> { I18n.t('features.learning_mastery_gradebook', 'Learning Mastery Gradebook') },
@@ -191,6 +202,36 @@ END
       root_opt_in: true,
       beta: true
     },
+    'new_gradebook' =>
+    {
+      display_name: -> { I18n.t('New Gradebook') },
+      description:  -> { I18n.t(<<-END) },
+New Gradebook enables an early release of new Gradebook enhancements.
+END
+      applies_to: 'Course',
+      state: 'hidden',
+      root_opt_in: true,
+      beta: true,
+
+      custom_transition_proc: ->(user, context, _from_state, transitions) do
+        if context.is_a?(Course)
+          user_may_change_flag = context.account.grants_right?(user, :manage_account_settings)
+          transitions['on']['locked'] = !user_may_change_flag if transitions&.dig('on')
+          transitions['off']['locked'] = !user_may_change_flag if transitions&.dig('off')
+        elsif context.is_a?(Account)
+          transitions['on']['locked'] = true if transitions&.dig('on')
+        end
+      end
+    },
+    'new_gradebook_development' =>
+    {
+      display_name: -> { I18n.t('New Gradebook Development') },
+      description: -> { I18n.t('For development of features for New Gradebook.') },
+      applies_to: "RootAccount",
+      state: "hidden",
+      beta: true,
+      development: true
+    },
     'k12' =>
     {
       display_name: -> { I18n.t('features.k12', 'K-12 Specific Features') },
@@ -212,6 +253,15 @@ END
       root_opt_in: true,
       beta: true
     },
+    'duplicate_objects' =>
+    {
+      display_name: -> { I18n.t('Duplicate Objects') },
+      description: -> { I18n.t("Allows the duplicating of objects in Canvas") },
+      applies_to: 'Account',
+      state: 'hidden',
+      root_opt_in: true,
+      beta: true
+    },
     'allow_opt_out_of_inbox' =>
     {
       display_name: -> { I18n.t('features.allow_opt_out_of_inbox', "Allow Users to Opt-out of the Inbox") },
@@ -229,8 +279,7 @@ END
 Allow users to view and use external tools configured for LOR.
 END
       applies_to: 'User',
-      state: 'hidden',
-      beta: true
+      state: 'hidden'
     },
     'lor_for_account' =>
     {
@@ -239,19 +288,7 @@ END
 Allow users to view and use external tools configured for LOR.
 END
       applies_to: 'RootAccount',
-      state: 'hidden',
-      beta: true
-    },
-    'multiple_grading_periods' =>
-    {
-      display_name: -> { I18n.t('features.multiple_grading_periods', 'Multiple Grading Periods') },
-      description: -> { I18n.t('enable_multiple_grading_periods', <<-END) },
-      Multiple Grading Periods allows teachers and admins to create grading periods with set
-      cutoff dates. Assignments can be filtered by these grading periods in the gradebook.
-END
-      applies_to: 'Course',
-      state: 'allowed',
-      root_opt_in: true
+      state: 'hidden'
     },
     'course_catalog' =>
     {
@@ -283,43 +320,62 @@ END
     },
     'lti2_rereg' =>
     {
-        display_name: -> {I18n.t('LTI 2 Reregistration')},
-        description: -> { I18n.t('Enable reregistration for LTI 2 ')},
-        applies_to:'RootAccount',
-        state: 'hidden',
-        beta: true
+      display_name: -> {I18n.t('LTI 2 Reregistration')},
+      description: -> { I18n.t('Enable reregistration for LTI 2 ')},
+      applies_to:'RootAccount',
+      state: 'hidden',
+      beta: true
     },
     'quizzes_lti' =>
-      {
-        display_name: -> { I18n.t('Quiz LTI Plugin') },
-        description: -> { I18n.t('Use the new quiz LTI tool in place of regular canvas quizzes') },
-        applies_to: 'Course',
-        state: 'hidden',
-        beta: true,
-        root_opt_in: true
-      },
+    {
+      display_name: -> { I18n.t('Quiz LTI Plugin') },
+      description: -> { I18n.t('Use the new quiz LTI tool in place of regular canvas quizzes') },
+      applies_to: 'Course',
+      state: 'hidden',
+      beta: true,
+      root_opt_in: true
+    },
     'disable_lti_post_only' =>
-      {
-        display_name: -> { I18n.t('Don\'t Move LTI Query Params to POST Body') },
-        description: -> { I18n.t('If enabled, query parameters will not be copied to the POST body during an LTI launch.') },
-        applies_to: 'RootAccount',
-        state: 'hidden',
-        beta: true,
-        root_opt_in: true
-      },
+    {
+      display_name: -> { I18n.t('Don\'t Move LTI Query Params to POST Body') },
+      description: -> { I18n.t('If enabled, query parameters will not be copied to the POST body during an LTI launch.') },
+      applies_to: 'RootAccount',
+      state: 'hidden',
+      beta: true,
+      root_opt_in: true
+    },
+    'new_sis_integrations' =>
+    {
+      display_name: -> { I18n.t('Enable new SIS integration settings') },
+      description:  -> { I18n.t('Make new settings for SIS integrations visible and active') },
+      applies_to: 'Account',
+      state: 'hidden',
+      root_opt_in: true,
+      beta: true
+    },
     'bulk_sis_grade_export' =>
       {
-          display_name: -> { I18n.t('Allow Bulk Grade Export to SIS') },
-          description:  -> { I18n.t('Allows teachers to mark grade data to be exported in bulk to SIS integrations.') },
-          applies_to: 'RootAccount',
-          state: 'hidden',
-          root_opt_in: true,
-          beta: true
+        display_name: -> { I18n.t('Allow Bulk Grade Export to SIS') },
+        description:  -> { I18n.t('Allows teachers to mark grade data to be exported in bulk to SIS integrations.') },
+        applies_to: 'RootAccount',
+        state: 'hidden',
+        root_opt_in: true,
+        beta: true
       },
     'notification_service' =>
     {
       display_name: -> { I18n.t('Use remote service for notifications') },
       description: -> { I18n.t('Allow the ability to send notifications through our dispatch queue') },
+      applies_to: 'RootAccount',
+      state: 'hidden',
+      beta: true,
+      development: false,
+      root_opt_in: false
+    },
+    'better_scheduler' =>
+    {
+      display_name: -> { I18n.t('Use the new scheduler') },
+      description: -> { I18n.t('Uses the new scheduler and its functionality') },
       applies_to: 'RootAccount',
       state: 'hidden',
       beta: true,
@@ -340,18 +396,19 @@ END
       display_name: -> { I18n.t('Enable Dashboard Images for Courses')},
       description: -> {I18n.t('Allow course images to be assigned to a course and used on the dashboard cards.')},
       applies_to: 'Course',
-      state: 'hidden',
-      development: true,
+      state: 'allowed',
       root_opt_in: true,
       beta: true
     },
-    'gradebook_performance' => {
-      display_name: -> { I18n.t('Gradebook Performance') },
-      description: -> { I18n.t('Performance enhancements for the Gradebook') },
-      applies_to: 'Course',
+    'dashcard_reordering' =>
+    {
+      display_name: -> { I18n.t('Allow Reorder Dashboard Cards') },
+      description: -> { I18n.t('Allow dashboard cards to be reordered for each user.') },
+      applies_to: 'RootAccount',
       state: 'hidden',
+      beta: true,
       development: true,
-      root_opt_in: true
+      root_opt_in: false
     },
     'anonymous_grading' => {
       display_name: -> { I18n.t('Anonymous Grading') },
@@ -366,21 +423,15 @@ END
       state: 'hidden',
       root_opt_in: true
     },
-    'all_grading_periods_totals' =>
-    {
-      display_name: -> { I18n.t('Display Totals for "All Grading Periods"') },
-      description: -> { I18n.t('Display total grades when the "All Grading Periods" dropdown option is selected (Multiple Grading Periods must be enabled).') },
-      applies_to: 'Course',
-      state: 'allowed',
-      root_opt_in: true
-    },
     'course_user_search' => {
-      display_name: -> { I18n.t('Course and User Search') },
+      display_name: -> { I18n.t('Account Course and User Search') },
       description: -> { I18n.t('Updated UI for searching and displaying users and courses within an account.') },
       applies_to: 'Account',
       state: 'hidden',
+      beta: true,
       development: true,
-      root_opt_in: true
+      root_opt_in: true,
+      touch_context: true
     },
     'rich_content_service' =>
     {
@@ -414,13 +465,19 @@ END
     },
     'conditional_release' =>
     {
-      display_name: -> { I18n.t('Conditional Release') },
+      display_name: -> { I18n.t('Mastery Paths') },
       description: -> { I18n.t('Configure individual learning paths for students based on assessment results.') },
       applies_to: 'Course',
-      state: 'hidden',
+      state: 'allowed',
       beta: true,
       development: false,
-      root_opt_in: false,
+      root_opt_in: true,
+      after_state_change_proc:  ->(user, context, _old_state, new_state) {
+        if %w(on allowed).include?(new_state) && context.is_a?(Account)
+          @service_account = ConditionalRelease::Setup.new(context.id, user.id)
+          @service_account.activate!
+        end
+      }
     },
     'wrap_calendar_event_titles' =>
     {
@@ -434,10 +491,111 @@ END
     {
       display_name: -> { I18n.t("External Collaborations Tool") },
       description: -> { I18n.t("Use the new Collaborations external tool enabling more options for tools to use to collaborate") },
+      applies_to: 'Course',
+      state: 'hidden',
+      development: false,
+      root_opt_in: true,
+      touch_context: true
+    },
+    'new_annotations' =>
+    {
+      display_name: -> { I18n.t('New Annotations') },
+      description: -> { I18n.t('Use the new document annotation tool') },
+      applies_to: 'Account',
+      state: 'hidden',
+      beta: true,
+      root_opt_in: true,
+      custom_transition_proc: ->(_, _, from_state, transitions) do
+        if from_state == 'on'
+          transitions['off'] = { 'locked' => true, 'message' => I18n.t('This feature cannot be disabled once it has been turned on.') }
+          transitions['allowed'] = { 'locked' => true, 'message' => I18n.t('This feature cannot be disabled once it has been turned on.') }
+        end
+      end
+    },
+    'plagiarism_detection_platform' =>
+    {
+      display_name: -> { I18n.t('Plagiarism Detection Platform') },
+      description: -> { I18n.t('Enable the plagiarism detection platform') },
       applies_to: 'RootAccount',
       state: 'hidden',
+      beta: true,
       root_opt_in: true
-    }
+    },
+    'master_courses' =>
+    {
+      display_name: -> { I18n.t('Blueprint Courses') }, # this won't be confusing at all
+      description: -> { I18n.t('Enable the creation of Blueprint Courses') },
+      applies_to: 'RootAccount',
+      state: 'allowed',
+      beta: true,
+    },
+    'student_context_cards' =>
+    {
+      display_name: -> { I18n.t('Student Context Card') },
+      description: -> { I18n.t('Enable student context card links') },
+      applies_to: "RootAccount",
+      state: "allowed",
+      beta: true
+    },
+    'new_gradebook_history' =>
+    {
+      display_name: -> { I18n.t('New Gradebook History') },
+      description: -> { I18n.t('Enable New Gradebook History page.') },
+      applies_to: "RootAccount",
+      state: "hidden",
+      beta: true,
+      development: true,
+    },
+    'modules_home_page' =>
+    {
+      display_name: -> { I18n.t('Modules Home Page') },
+      description: -> { I18n.t('Default to modules for the course home page') },
+      applies_to: "RootAccount",
+      state: "allowed",
+    },
+    'new_user_tutorial' =>
+    {
+      display_name: -> { I18n.t('New User Tutorial')},
+      description: -> { I18n.t('Provide tutorial information for new users in a flyout tray.')},
+      applies_to: "RootAccount",
+      state: "allowed",
+    },
+    'student_planner' =>
+    {
+      display_name: -> { I18n.t('Student Planner')},
+      description: -> { I18n.t('Provides users with a planner dashboard option.')},
+      applies_to: "RootAccount",
+      state: "hidden",
+      beta: true,
+      development: true
+    },
+    'quizzes2_exporter' =>
+    {
+      display_name: -> { I18n.t('Export to Quizzes 2 format') },
+      description: -> { I18n.t('Export an existing quiz to new Quizzes 2 format') },
+      applies_to: "RootAccount",
+      state: "hidden",
+      beta: false,
+      development: true,
+    },
+    'lti_2_auth_url_registration' =>
+    {
+      display_name: -> { I18n.t('Send Authorization URL in LTI2 Registration') },
+      description: -> { I18n.t("If enabled, 'oauth2_access_token_url' will be sent in LTI2 registration launch") },
+      applies_to: 'RootAccount',
+      state: 'hidden',
+      beta: false,
+      root_opt_in: true
+    },
+    'graphql' =>
+    {
+      display_name: -> { I18n.t("GraphQL API") },
+      description: -> { I18n.t("EXPERIMENTAL GraphQL API.") },
+      applies_to: "RootAccount",
+      state: "hidden",
+      beta: true,
+      development: true,
+    },
   )
 
   def self.definitions
@@ -448,16 +606,16 @@ END
 
   def applies_to_object(object)
     case @applies_to
-      when 'RootAccount'
-        object.is_a?(Account) && object.root_account?
-      when 'Account'
-        object.is_a?(Account)
-      when 'Course'
-        object.is_a?(Course) || object.is_a?(Account)
-      when 'User'
-        object.is_a?(User) || object.is_a?(Account) && object.site_admin?
-      else
-        false
+    when 'RootAccount'
+      object.is_a?(Account) && object.root_account?
+    when 'Account'
+      object.is_a?(Account)
+    when 'Course'
+      object.is_a?(Course) || object.is_a?(Account)
+    when 'User'
+      object.is_a?(User) || object.is_a?(Account) && object.site_admin?
+    else
+      false
     end
   end
 

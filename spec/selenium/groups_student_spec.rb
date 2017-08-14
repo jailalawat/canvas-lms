@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2012 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/common')
 require File.expand_path(File.dirname(__FILE__) + '/helpers/groups_common')
 
@@ -69,7 +86,8 @@ describe "student groups" do
       it "should show students in the course", priority: "1", test_id: 180675 do
         expected_student_list = ["Test Student 1", "Test Student 2", "Test Student 3",
                                  "Test Student 4", "Test Student 5"]
-        student_list = ffj(".checkbox")
+        student_list = ff(".checkbox")
+        expect(student_list).to have_size(expected_student_list.size) # there should be no teachers in the list
 
         # check the list of students for expected names
         student_list.each_with_index do |student, index|

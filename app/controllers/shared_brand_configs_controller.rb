@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2016 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 # @API Shared Brand Configs
 # @beta
 # This is how you can share Themes with other people in your account or
@@ -42,8 +59,8 @@
 #
 
 class SharedBrandConfigsController < ApplicationController
-  before_filter :require_account_context, except: [:destroy]
-  before_filter :require_user
+  before_action :require_account_context, except: [:destroy]
+  before_action :require_user
   before_action :set_shared_brand_config, only: [:destroy, :update]
 
 
@@ -121,6 +138,6 @@ class SharedBrandConfigsController < ApplicationController
 
     # Never trust parameters from the scary internet, only allow the white list through.
     def shared_brand_config_params
-      strong_params.require(:shared_brand_config).permit(:brand_config_md5, :name)
+      params.require(:shared_brand_config).permit(:brand_config_md5, :name)
     end
 end

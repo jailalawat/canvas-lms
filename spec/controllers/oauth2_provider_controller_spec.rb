@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 - 2014 Instructure, Inc.
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -68,7 +68,7 @@ describe Oauth2ProviderController do
 
     context 'with a user logged in' do
       before :once do
-        user_with_pseudonym(:active_all => 1, :password => 'qwerty')
+        user_with_pseudonym(:active_all => 1, :password => 'qwertyuiop')
       end
 
       before :each do
@@ -169,6 +169,18 @@ describe Oauth2ProviderController do
       post :token, :client_id => key.id, :client_secret => key.api_key + "123"
       assert_status(401)
       expect(response.body).to match /invalid client/
+    end
+
+    it 'renders a 400 if a code is not provided for an authorization_code grant' do
+      expected_error = Canvas::Oauth::RequestError::ERROR_MAP[:authorization_code_not_supplied]
+
+      post :token, client_id: key.id, client_secret: key.api_key, grant_type: 'authorization_code'
+
+      assert_status(400)
+
+      response_hash = JSON.parse(response.body)
+      expect(response_hash['error']).to eq expected_error[:error].to_s
+      expect(response_hash['error_description']).to eq expected_error[:error_description]
     end
 
     it 'renders a 400 if the provided code does not match a token' do

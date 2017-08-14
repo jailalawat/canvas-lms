@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -56,7 +56,6 @@ class ExternalContentController < ApplicationController
     if params[:id]
       message_auth = Lti::MessageAuthenticator.new(request.original_url, request.GET.merge(request.POST))
       render_unauthorized_action and return unless message_auth.valid?
-      json_data = (params[:data] && Canvas::Security.decode_jwt(params[:data])) || {}
       render_unauthorized_action and return unless json_data[:content_item_id] == params[:id]
       render_unauthorized_action and return unless json_data[:oauth_consumer_key] == params[:oauth_consumer_key]
     end
@@ -98,7 +97,7 @@ class ExternalContentController < ApplicationController
       @return_url = nil unless uri.is_a?(URI::HTTP)
     end
     if @return_url.blank?
-      render :nothing => true, :status => 400
+      head :bad_request
     end
     @headers = false
   end
@@ -112,8 +111,13 @@ class ExternalContentController < ApplicationController
     content_item_selection.map do |item|
       item.placement_advice ||= default_placement_advice
       if item.type == IMS::LTI::Models::ContentItems::LtiLinkItem::TYPE
-        url_gen_params = {url: item.url}
-        url_gen_params[:display] = 'borderless' if item.placement_advice.presentation_document_target == 'iframe'
+        launch_url = item.url || json_data[:default_launch_url]
+        url_gen_params = {url: launch_url}
+
+        displays = {'iframe' => 'borderless', 'window' => 'borderless'}
+        url_gen_params[:display] =
+          displays[item.placement_advice.presentation_document_target]
+
         item.canvas_url = named_context_url(@context, :retrieve_context_external_tools_path, url_gen_params)
       end
       item
@@ -162,6 +166,10 @@ class ExternalContentController < ApplicationController
         display_height: 600,
         display_width: 800
     )
+  end
+
+  def json_data
+    @json_data ||= ((params[:data] && Canvas::Security.decode_jwt(params[:data])) || {}).with_indifferent_access
   end
 
 end

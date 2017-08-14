@@ -1,3 +1,21 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <div class="answer" id="form_answer_template" style="display: none; _width: 100%;">
 
   <table style="width: 100%; position: relative; _height: 10px; min-height: 10px;">
@@ -5,7 +23,10 @@
       <td class="answer_select" style="width: 30px;">
         <div style="width: 30px;" class="answer_box">
           <% click_to_set_correct = t("Click to set this answer as correct") %>
-          <a href="#" class="select_answer_link no-hover" role="button" title="<%= click_to_set_correct %>"><%= image_tag "blank_answer.png", :class => "answer_image", :alt => click_to_set_correct %></a><br/>
+          <a href="#" class="select_answer_link no-hover" role="button" title="<%= click_to_set_correct %>">
+            <span class="selectAsCorrectAnswerId screenreader-only"></span>
+            <%= image_tag "blank_answer.png", :class => "answer_image", :alt => click_to_set_correct %>
+          </a><br/>
           <span class="answer_weight"><input class="float_value" type="text" style="width: 25px;" aria-label="<%= t("Answer Weight") %>" name="answer_weight"/>%</span>
         </div>
       </td><td>
@@ -65,6 +86,7 @@
           <a href="#" class="comment_focus" title="<%= edit_comment_text %>">
             <span class="ellipsis" aria-hidden="true">...</span>
             <i class="icon-edit standalone-icon"></i>
+            <span class="commentAnswerId screenreader-only"></span>
             <span class="screenreader-only"><%= edit_comment_text %></span>
           </a>
           <span id="comments_header" class="details"><%= before_label(:answer_comments, "Comments, if the student chooses this answer") %></span>
@@ -82,10 +104,12 @@
           <% delete_html_text = t("Delete this Answer") %>
           <a href="#" class="edit_html" title="<%= edit_html_text %>">
             <i class="icon-edit standalone-icon"></i>
+            <span class="editAnswerId screenreader-only"></span>
             <span class="screenreader-only"><%= edit_html_text %></span>
           </a>
           <a href="#" class="delete_answer_link" title="<%= delete_html_text %>">
             <i class="icon-trash standalone-icon"></i>
+            <span class="deleteAnswerId screenreader-only"></span>
             <span class="screenreader-only"><%= delete_html_text %></span>
           </a>
         </div>

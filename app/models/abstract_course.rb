@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -19,8 +19,6 @@
 class AbstractCourse < ActiveRecord::Base
 
   include Workflow
-
-  attr_accessible :name, :account, :short_name, :enrollment_term, :root_account
 
   belongs_to :root_account, :class_name => 'Account'
   belongs_to :account

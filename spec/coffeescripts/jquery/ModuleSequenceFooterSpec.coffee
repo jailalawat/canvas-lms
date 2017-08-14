@@ -1,8 +1,25 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'compiled/jquery/ModuleSequenceFooter'
 ], ($) ->
-  module 'ModuleSequenceFooter: init',
+  QUnit.module 'ModuleSequenceFooter: init',
     setup: ->
       @$testEl = $('<div>')
       $('#fixtures').append @$testEl
@@ -58,7 +75,7 @@ define [
     equal @$testEl.find('.module-sequence-footer:not(.no-animation)').length, 1, 'no-animation removed from module-sequence-footer'
     equal @$testEl.find('.module-sequence-padding:not(.no-animation)').length, 1, 'no-animation removed from module-sequence-padding'
 
-  module 'ModuleSequenceFooter: rendering',
+  QUnit.module 'ModuleSequenceFooter: rendering',
     setup: ->
       @server = sinon.fakeServer.create()
       @$testEl = $('<div>')
@@ -232,3 +249,13 @@ define [
     @server.respond()
 
     ok @$testEl.show.called, 'show called'
+
+  test 'resize event gets triggered', ->
+    $(window).resize(() -> ok( true, "resize event triggered" ))
+    @server.respondWith "GET",
+      "/api/v1/courses/42/module_item_sequence?asset_type=Assignment&asset_id=123&frame_external_urls=true",
+      [
+        200, { "Content-Type": "application/json" }, JSON.stringify(itemTooltipData)
+      ]
+    @$testEl.moduleSequenceFooter({courseID: 42, assetType: 'Assignment', assetID: 123})
+    @server.respond()

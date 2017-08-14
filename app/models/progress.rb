@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2013 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -22,7 +22,6 @@ class Progress < ActiveRecord::Base
        :assignment, :attachment, :epub_export,
        { context_user: 'User', quiz_statistics: 'Quizzes::QuizStatistics' }]
   belongs_to :user
-  attr_accessible :context, :tag, :completion, :message
 
   validates_presence_of :context_id
   validates_presence_of :context_type

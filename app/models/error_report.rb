@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -29,10 +29,6 @@ class ErrorReport < ActiveRecord::Base
 
   # Define a custom callback for external notification of an error report.
   define_callbacks :on_send_to_external
-  # Setup callback to default behavior.
-  set_callback :on_send_to_external, :send_via_email_or_post
-
-  attr_accessible
 
   def send_to_external
     run_callbacks(:on_send_to_external)
@@ -64,10 +60,24 @@ class ErrorReport < ActiveRecord::Base
 
     def log_exception(category, exception, opts)
       category ||= exception.class.name
-      opts[:message] ||= exception.to_s
-      opts[:backtrace] = exception.backtrace.try(:join, "\n")
-      opts[:exception_message] = exception.to_s
+
       @exception = exception
+      message = exception.to_s rescue exception.class.name
+      backtrace = Array(exception.backtrace)
+      limit = 10
+      while (exception = exception.cause)
+        limit -= 1
+        break if limit == 0
+        cause = exception.to_s rescue exception.class.name
+        message += " caused by #{cause}"
+        new_backtrace = Array(exception.backtrace)
+        # remove the common lines of the backtrace, and separate it so you can see
+        # the error handling
+        backtrace = (new_backtrace - backtrace) + ["<Caused>"] + backtrace
+      end
+      opts[:message] ||= message
+      opts[:backtrace] = backtrace.join("\n")
+      opts[:exception_message] = message
       log_error(category, opts)
     end
 
@@ -174,6 +184,13 @@ class ErrorReport < ActiveRecord::Base
     write_attribute(:url, LoggingFilter.filter_uri(val))
   end
 
+  def safe_url?
+    uri = URI.parse(url)
+    ['http', 'https'].include?(uri.scheme)
+  rescue
+    false
+  end
+
   def guess_email
     self.email = nil if self.email && self.email.empty?
     self.email ||= self.user.email rescue nil
@@ -194,41 +211,4 @@ class ErrorReport < ActiveRecord::Base
   def self.categories
     distinct_values('category')
   end
-
-  # Send the error report based on configuration either via a POST or email to an external location.
-  def send_via_email_or_post
-    error_report = self
-    config = Canvas::Plugin.find('error_reporting').try(:settings) || {}
-
-    message_type = (error_report.backtrace || "").split("\n").first.match(/\APosted as[^_]*_([A-Z]*)_/)[1] rescue nil
-    message_type ||= "ERROR"
-
-    body = %{From #{error_report.email}, #{(error_report.user.name rescue "")}
-#{message_type} #{error_report.comments + "\n" if error_report.comments}
-#{"url: " + error_report.url + "\n" if error_report.url }
-
-#{"user_id: " + (error_report.user_id.to_s) + "\n" if error_report.user_id}
-error_id: #{error_report.id}
-
-#{error_report.message + "\n" if error_report.message}
-}
-
-    if config[:action] == 'post' && config[:url] && config[:subject_param] && config[:body_param]
-      params = {}
-      params[config[:subject_param]] = error_report.subject
-      params[config[:body_param]] = body
-      Net::HHTP.post_form(URI.parse(config[:url]), params)
-    elsif config[:action] == 'email' && config[:email]
-      Message.create!(
-        :to => config[:email],
-        :from => "#{error_report.email}",
-        :subject => "#{error_report.subject} (#{message_type})",
-        :body => body,
-        :delay_for => 0,
-        :context => error_report
-      )
-    end
-  end
-  private :send_via_email_or_post
-
 end

@@ -1,13 +1,54 @@
+/*
+ * Copyright (C) 2015 - present Instructure, Inc.
+ *
+ * This file is part of Canvas.
+ *
+ * Canvas is free software: you can redistribute it and/or modify it under
+ * the terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, version 3 of the License.
+ *
+ * Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU Affero General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
 @import "base/environment";
 @import "components/context_search";
 
-tr.rosterUser .avatar {
-  width: 20px;
-  height: 20px;
-  margin-top: 1px;
-  margin-right: -7px;
-  position: relative;
-  z-index: 1;
+// to reduce the avatar from displaying so large in the roster table
+.rosterUser .avatar {
+  width: $ic-sp*2;
+  height: $ic-sp*2;
+}
+
+.roster-container {
+  display: flex;
+}
+
+.roster-column {
+  flex: 0 0 50%;
+  display: flex;
+  flex-direction: column;
+}
+
+.user-list {
+  list-style-type: none;
+  margin: 10px 0 0;
+}
+
+.user-list__item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.user-list__item-details {
+  margin-left: 10px;
 }
 
 .token_input {
@@ -21,11 +62,45 @@ tr.rosterUser .avatar {
   li {
     @include name_bubbles;
     clear: left;
+    margin-top: $ic-sp/2;
   }
 }
 
-#edit_sections {
-  a.browser {
-    background: transparent url(/images/messages/context-search-sprite.png) 0 0 no-repeat;
+/* Add People */
+.addpeople {
+  .addpeople__peoplesearch {
+    fieldset {
+      margin-top:1.5em;
+    }
+    fieldset.peoplesearch__selections {
+      margin-right: auto;
+      margin-left: auto;
+      margin-top: .5rem;
+      text-align: center;
+      .peoplesearch__selection {
+        text-align: left;
+        margin: 0 1em;
+        display: inline-block;
+        width: 30%;
+      }
+    }
+    .peoplesearch__instructions {
+      margin: 1.5em 0;
+      text-align: center;
+      .usericon {
+        margin: 0 auto;
+        font-size: 48px;
+        line-height: 50px;
+      }
+    }
   }
+  .namelist {
+    margin: 1.5em 0;
+  }
+  .peoplevalidationissues__missing tr td:first-child {
+    width: 30px;
+  }
+}
+.addpeople:focus {
+  outline: none;
 }

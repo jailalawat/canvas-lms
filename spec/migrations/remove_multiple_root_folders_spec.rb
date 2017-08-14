@@ -1,16 +1,25 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
 require 'db/migrate/20130122193536_remove_multiple_root_folders'
 
 
 describe 'DataFixup::RemoveMultipleRootFolders' do
-
-  unless ActiveRecord::Base.connection.supports_ddl_transactions?
-    self.use_transactional_fixtures = false
-
-    after :all do
-      truncate_all_tables
-    end
-  end
 
   def get_root_folder_name(context)
     if context.is_a? Course
@@ -31,9 +40,9 @@ describe 'DataFixup::RemoveMultipleRootFolders' do
     12.times do |x|
       case x % 4
         when 0
-          context = course
+          context = course_factory
         when 1
-          context = user
+          context = user_factory
         when 2
           context = group
         when 3

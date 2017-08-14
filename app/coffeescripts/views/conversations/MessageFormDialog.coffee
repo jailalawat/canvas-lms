@@ -1,5 +1,5 @@
-  #
-# Copyright (C) 2013 Instructure, Inc.
+#
+# Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -31,7 +31,7 @@ define [
   'compiled/views/conversations/AutocompleteView'
   'compiled/views/conversations/CourseSelectionView'
   'compiled/views/conversations/ContextMessagesView'
-  'vendor/jquery.elastic'
+  'jquery.elastic'
 ], (I18n, $, _, {Collection}, DialogBaseView, template, preventDefault, composeTitleBarTemplate, composeButtonBarTemplate, addAttachmentTemplate, Message, AutocompleteView, CourseSelectionView, ContextMessagesView) ->
 
   ##
@@ -71,6 +71,7 @@ define [
       minHeight: 500
       height: 550
       resizable: true
+      title: I18n.t 'Compose Message'
       # Event handler for catching when the dialog is closed.
       # Overridding @close() or @cancel() doesn't work alone since
       # hitting ESC doesn't trigger either of those events.
@@ -187,6 +188,7 @@ define [
         el: @$messageCourse,
         courses: @options.courses,
         defaultOption: I18n.t('select_course', 'Select course')
+        messageableOnly: true
       )
       if @model
         if @model.get('context_code')
@@ -204,10 +206,8 @@ define [
         @courseView.setValue(@defaultCourse)
       if @model
         @courseView.$picker.css('display', 'none')
-        @recipientView.$input.focus()
       else
         @$messageCourseRO.css('display', 'none')
-        @courseView.focus()
 
       if @tokenInput = @$el.find('.recipients').data('token_input')
         # since it doesn't infer percentage widths, just whatever the current pixels are

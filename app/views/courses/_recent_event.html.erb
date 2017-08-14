@@ -1,3 +1,21 @@
+<%
+# Copyright (C) 2011 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+%>
+
 <li style="<%= hidden if is_hidden %>" class="event">
 
 <%
@@ -48,9 +66,9 @@
   >
     <i class="<%= icon_class %>" aria-label="<%= icon_aria_label %>"></i>
     <div class="event-details">
-      <b><%= recent_event.title %></b>
+      <b class="event-details__title"><%= recent_event.title %></b>
       <% if show_context %>
-        <p><%= context.nickname_for(@current_user) %></p>
+        <p><%= context.nickname_for(@current_user, :short_name) %></p>
       <% end %>
       <p>
         <% if is_assignment %>

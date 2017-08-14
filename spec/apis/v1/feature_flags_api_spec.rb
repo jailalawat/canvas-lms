@@ -16,6 +16,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require File.expand_path(File.dirname(__FILE__) + '/../api_spec_helper')
+require_relative '../../sharding_spec_helper'
 
 describe "Feature Flags API", type: :request do
   let_once(:t_site_admin) { Account.site_admin }
@@ -26,6 +27,7 @@ describe "Feature Flags API", type: :request do
   let_once(:t_root_admin) { account_admin_user account: t_root_account }
 
   before do
+    User.any_instance.stubs(:set_default_feature_flags)
     Feature.stubs(:definitions).returns({
       'root_account_feature' => Feature.new(feature: 'root_account_feature', applies_to: 'RootAccount', state: 'allowed'),
       'account_feature' => Feature.new(feature: 'account_feature', applies_to: 'Account', state: 'on', display_name: lambda { "Account Feature FRD" }, description: lambda { "FRD!!" }, beta: true,  autoexpand: true),
@@ -124,7 +126,7 @@ describe "Feature Flags API", type: :request do
     describe "hidden" do
       it "should show hidden features on site admin" do
         json = api_call_as_user(site_admin_user, :get, "/api/v1/accounts/#{t_site_admin.id}/features",
-                        { controller: 'feature_flags', action: 'index', format: 'json', account_id: t_site_admin.to_param })
+                        { controller: 'feature_flags', action: 'index', format: 'json', account_id: t_site_admin.id.to_s })
         expect(json.map { |f| f['feature'] }.sort).to eql %w(account_feature course_feature hidden_feature hidden_user_feature root_account_feature root_opt_in_feature user_feature)
         expect(json.find { |f| f['feature'] == 'hidden_feature' }['feature_flag']['hidden']).to eq true
       end
@@ -268,6 +270,22 @@ describe "Feature Flags API", type: :request do
       expect(flag).not_to be_enabled
     end
 
+    context "sharding" do
+      specs_require_sharding
+
+      it "should not explode with cross-shard updating" do
+        @shard1.activate do
+          user_factory
+        end
+
+        flag = @user.feature_flags.create! feature: 'user_feature', state: 'on'
+        api_call_as_user(@user, :put, "/api/v1/users/#{@user.id}/features/flags/user_feature?state=off",
+          { controller: 'feature_flags', action: 'update', format: 'json', user_id: @user.id, feature: 'user_feature', state: 'off' })
+        flag.reload
+        expect(flag).not_to be_enabled
+      end
+    end
+
     it "should refuse to update if the canvas default locks the feature" do
       api_call_as_user(t_root_admin, :put, "/api/v1/accounts/#{t_sub_account.id}/features/flags/account_feature?state=off",
                { controller: 'feature_flags', action: 'update', format: 'json', account_id: t_sub_account.to_param, feature: 'account_feature', state: 'off' },
@@ -314,7 +332,7 @@ describe "Feature Flags API", type: :request do
     describe "hidden" do
       it "should create a site admin feature flag" do
         api_call_as_user(site_admin_user, :put, "/api/v1/accounts/#{t_site_admin.id}/features/flags/hidden_feature",
-                 { controller: 'feature_flags', action: 'update', format: 'json', account_id: t_site_admin.to_param, feature: 'hidden_feature' })
+                 { controller: 'feature_flags', action: 'update', format: 'json', account_id: t_site_admin.id.to_s, feature: 'hidden_feature' })
         expect(t_site_admin.feature_flags.where(feature: 'hidden_feature').count).to eql 1
       end
 
@@ -344,7 +362,7 @@ describe "Feature Flags API", type: :request do
 
         it "should not create a site admin feature flag" do
           api_call_as_user(@site_admin_member, :put, "/api/v1/accounts/#{t_site_admin.id}/features/flags/hidden_feature",
-                           { controller: 'feature_flags', action: 'update', format: 'json', account_id: t_site_admin.to_param, feature: 'hidden_feature' },
+                           { controller: 'feature_flags', action: 'update', format: 'json', account_id: t_site_admin.id.to_s, feature: 'hidden_feature' },
                            {}, {}, { expected_status: 401 })
           expect(t_site_admin.feature_flags.where(feature: 'hidden_feature')).not_to be_any
         end
@@ -467,8 +485,8 @@ describe "Feature Flags API", type: :request do
     before do
       Feature.stubs(:definitions).returns({
           'custom_feature' => Feature.new(feature: 'custom_feature', applies_to: 'Course', state: 'allowed',
-                after_state_change_proc: ->(context, from_state, to_state) do
-                  t_state_changes << [context.id, from_state, to_state]
+                after_state_change_proc: ->(user, context, from_state, to_state) do
+                  t_state_changes << [user.id, context.id, from_state, to_state]
                 end
           )
       })
@@ -479,7 +497,7 @@ describe "Feature Flags API", type: :request do
         api_call_as_user(t_root_admin, :put, "/api/v1/courses/#{t_course.id}/features/flags/custom_feature?state=on",
            { controller: 'feature_flags', action: 'update', format: 'json', course_id: t_course.to_param, feature: 'custom_feature', state: 'on' })
       }.to change(t_state_changes, :size).by(1)
-      expect(t_state_changes.last).to eql [t_course.id, 'allowed', 'on']
+      expect(t_state_changes.last).to eql [t_root_admin.id, t_course.id, 'allowed', 'on']
     end
 
     it "should fire when changing a feature flag's state" do
@@ -488,7 +506,7 @@ describe "Feature Flags API", type: :request do
         api_call_as_user(t_root_admin, :put, "/api/v1/courses/#{t_course.id}/features/flags/custom_feature?state=on",
            { controller: 'feature_flags', action: 'update', format: 'json', course_id: t_course.to_param, feature: 'custom_feature', state: 'on' })
       }.to change(t_state_changes, :size).by(1)
-      expect(t_state_changes.last).to eql [t_course.id, 'off', 'on']
+      expect(t_state_changes.last).to eql [t_root_admin.id, t_course.id, 'off', 'on']
     end
   end
 

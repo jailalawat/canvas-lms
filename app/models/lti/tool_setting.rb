@@ -1,4 +1,5 @@
-# Copyright (C) 2014 Instructure, Inc.
+#
+# Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,15 +18,20 @@
 
 module Lti
   class ToolSetting < ActiveRecord::Base
-    attr_accessible :tool_proxy, :context, :resource_link_id, :custom
-
     belongs_to :tool_proxy
     belongs_to :context, polymorphic: [:course, :account]
 
-    validates_presence_of :tool_proxy
     validates_presence_of :context, if: :has_resource_link_id?
 
     serialize :custom
+    serialize :custom_parameters
+
+    def message_handler(mh_context)
+      MessageHandler.by_resource_codes(vendor_code: vendor_code,
+                                       product_code: product_code,
+                                       resource_type_code: resource_type_code,
+                                       context: mh_context)
+    end
 
     private
     def has_resource_link_id?

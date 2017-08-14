@@ -20,7 +20,7 @@ require File.expand_path(File.dirname(__FILE__) + '/../api_spec_helper')
 
 describe SectionsController, type: :request do
   describe '#index' do
-    USER_API_FIELDS = %w(id name sortable_name short_name)
+    let(:user_api_fields) { %w(id name sortable_name short_name) }
 
     before :once do
       course_with_teacher(:active_all => true, :user => user_with_pseudonym(:name => 'UWP'))
@@ -45,8 +45,8 @@ describe SectionsController, type: :request do
       json = api_call(:get, "/api/v1/courses/#{@course2.id}/sections.json",
                       { :controller => 'sections', :action => 'index', :course_id => @course2.to_param, :format => 'json' }, { :include => ['students'] })
       expect(json.size).to eq 2
-      expect(json.find { |s| s['name'] == section1.name }['students']).to eq api_json_response([user1], :only => USER_API_FIELDS)
-      expect(json.find { |s| s['name'] == section2.name }['students']).to eq api_json_response([user2], :only => USER_API_FIELDS)
+      expect(json.find { |s| s['name'] == section1.name }['students']).to eq api_json_response([user1], :only => user_api_fields)
+      expect(json.find { |s| s['name'] == section2.name }['students']).to eq api_json_response([user2], :only => user_api_fields)
     end
 
     it "should return the list of enrollments if 'students' and 'enrollments' flags are given" do
@@ -96,6 +96,15 @@ describe SectionsController, type: :request do
       expect(json.size).to eq 1
     end
 
+    it "should respect ?per_page=n" do
+      @course2.course_sections.create!(:name => 'Section B')
+      @course2.course_sections.create!(:name => 'Section C')
+      json = api_call(:get, "/api/v1/courses/#{@course2.id}/sections.json",
+                      { :controller => 'sections', :action => 'index', :course_id => @course2.to_param, :format => 'json' },
+                      { :per_page => 1 })
+      expect(json.size).to eq 1
+    end
+
     it "should return sections but not students if user has :read but not :read_roster, :view_all_grades, or :manage_grades" do
       RoleOverride.create!(:context => Account.default, :permission => 'read_roster', :role => ta_role, :enabled => false)
       RoleOverride.create!(:context => Account.default, :permission => 'view_all_grades', :role => ta_role, :enabled => false)
@@ -121,6 +130,20 @@ describe SectionsController, type: :request do
 
       expect(json.first["name"]).to eq @course.default_section.name
       expect(json.first.keys.include?("students")).to be_falsey
+    end
+
+    it "should return all sections if :all are specified" do
+      12.times { @course2.course_sections.create!(:name => 'Section #{i}') }
+
+      endpoint = "/api/v1/courses/#{@course2.id}/sections.json"
+      params = { :controller => 'sections', :action => 'index', :course_id => @course2.to_param, :format => 'json' }
+
+      json = api_call(:get, endpoint, params, {})
+      expect(json.size).to eq 10
+
+      params[:all] = true
+      json = api_call(:get, endpoint, params, {})
+      expect(json.size).to eq @course2.course_sections.count
     end
   end
 
@@ -151,6 +174,15 @@ describe SectionsController, type: :request do
         })
       end
 
+      it "should return the count of active and invited students if 'total_students' flag is given" do
+        @course.offer!
+        user2 = User.create!(:name => 'Bernard')
+        @course.enroll_user(user2, 'StudentEnrollment', :section => @section).accept!
+
+        json = api_call(:get, "#{@path_prefix}/#{@section.id}", @path_params.merge({ :id => @section.to_param, :include => ['total_students'] }))
+        expect(json['total_students']).to eq 1
+      end
+
       it "should be accessible from the course context via sis id" do
         @section.update_attribute(:sis_source_id, 'my_section')
         json = api_call(:get, "#{@path_prefix}/sis_section_id:my_section", @path_params.merge({ :id => 'sis_section_id:my_section' }))
@@ -168,7 +200,7 @@ describe SectionsController, type: :request do
       end
 
       it "should scope course sections to the course" do
-        @other_course = course
+        @other_course = course_factory
         @other_section = @other_course.default_section
         site_admin_user
         api_call(:get, "#{@path_prefix}/#{@other_section.id}", @path_params.merge({ :id => @other_section.to_param }), {}, {}, :expected_status => 404)
@@ -262,7 +294,7 @@ describe SectionsController, type: :request do
 
   describe "#create" do
     before :once do
-      course
+      course_factory
       @path_prefix = "/api/v1/courses/#{@course.id}/sections"
       @path_params = { :controller => 'sections', :action => 'create', :course_id => @course.to_param, :format => 'json' }
     end
@@ -379,7 +411,7 @@ describe SectionsController, type: :request do
 
   describe "#update" do
     before :once do
-      course
+      course_factory
       @section = @course.course_sections.create! :name => "Test Section"
       @section.update_attribute(:sis_source_id, "SISsy")
       @path_prefix = "/api/v1/sections"
@@ -470,7 +502,7 @@ describe SectionsController, type: :request do
 
   describe "#delete" do
     before :once do
-      course
+      course_factory
       @section = @course.course_sections.create! :name => "Test Section"
       @section.update_attribute(:sis_source_id, "SISsy")
       @path_prefix = "/api/v1/sections"
@@ -524,8 +556,8 @@ describe SectionsController, type: :request do
 
   describe "#crosslist" do
     before :once do
-      @dest_course = course
-      course
+      @dest_course = course_factory
+      course_factory
       @section = @course.course_sections.create!
       @params = { :controller => 'sections', :action => 'crosslist', :format => 'json' }
     end
@@ -622,8 +654,8 @@ describe SectionsController, type: :request do
 
   describe "#uncrosslist" do
     before :once do
-      @dest_course = course
-      course
+      @dest_course = course_factory
+      course_factory
       @section = @course.course_sections.create!
       @section.crosslist_to_course(@dest_course)
       @params = { :controller => 'sections', :action => 'uncrosslist', :format => 'json' }

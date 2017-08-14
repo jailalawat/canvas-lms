@@ -1,4 +1,5 @@
-# Copyright (C) 2016 Instructure, Inc.
+#
+# Copyright (C) 2015 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -72,6 +73,7 @@ describe Submissions::AttachmentForSubmissionDownload do
             @submission.save
           end
         }.to change(@submission.versions, :count), 'precondition'
+        @submission.reload
         expect(@submission.attachment).to be_nil, 'precondition'
         @options = { download: @attachment.id }
         expect(subject.attachment).to eq @attachment

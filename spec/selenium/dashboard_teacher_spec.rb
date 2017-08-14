@@ -1,9 +1,25 @@
+#
+# Copyright (C) 2014 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative 'common'
 require_relative 'helpers/notifications_common'
-include NotificationsCommon
-
 
 describe "dashboard" do
+  include NotificationsCommon
   include_context "in-process server selenium tests"
 
   context "as a teacher" do
@@ -26,7 +42,7 @@ describe "dashboard" do
 
     it "should display assignment to grade in to do list for a teacher", priority: "1", test_id: 216397 do
       assignment = assignment_model({:submission_types => 'online_text_entry', :course => @course})
-      student = user_with_pseudonym(:active_user => true, :username => 'student@example.com', :password => 'qwerty')
+      student = user_with_pseudonym(:active_user => true, :username => 'student@example.com', :password => 'qwertyuiop')
       @course.enroll_user(student, "StudentEnrollment", :enrollment_state => 'active')
       assignment.reload
       assignment.submit_homework(student, {:submission_type => 'online_text_entry', :body => 'ABC'})
@@ -41,8 +57,8 @@ describe "dashboard" do
 
     it "should be able to ignore an assignment until the next submission", priority: "1", test_id: 216399 do
       assignment = assignment_model({:submission_types => 'online_text_entry', :course => @course})
-      student = user_with_pseudonym(:active_user => true, :username => 'student@example.com', :password => 'qwerty')
-      student2 = user_with_pseudonym(:active_user => true, :username => 'student2@example.com', :password => 'qwerty')
+      student = user_with_pseudonym(:active_user => true, :username => 'student@example.com', :password => 'qwertyuiop')
+      student2 = user_with_pseudonym(:active_user => true, :username => 'student2@example.com', :password => 'qwertyuiop')
       @course.enroll_user(student, "StudentEnrollment", :enrollment_state => 'active')
       @course.enroll_user(student2, "StudentEnrollment", :enrollment_state => 'active')
       assignment.reload
@@ -76,13 +92,14 @@ describe "dashboard" do
 
     context 'stream items' do
       before :once do
-        NotificationsCommon.setup_notification(@teacher, name: 'Assignment Created')
+        setup_notification(@teacher, name: 'Assignment Created')
       end
 
       it 'shows an assignment stream item under Recent Activity in dashboard', priority: "1", test_id: 108723 do
         assignment_model({:submission_types => ['online_text_entry'], :course => @course})
         get "/"
-        f('#dashboardToggleButton').click if ENV['CANVAS_FORCE_USE_NEW_STYLES']
+        f('#DashboardOptionsMenu_Container button').click
+        fj('span[role="menuitemradio"]:contains("Recent Activity")').click
         find('.toggle-details').click
         expect(fj('.fake-link:contains("Unnamed")')).to be_present
       end
@@ -174,7 +191,7 @@ describe "dashboard" do
     describe "Todo Ignore Options Focus Management" do
       before :each do
         assignment = assignment_model({:submission_types => 'online_text_entry', :course => @course})
-        @student = user_with_pseudonym(:active_user => true, :username => 'student@example.com', :password => 'qwerty')
+        @student = user_with_pseudonym(:active_user => true, :username => 'student@example.com', :password => 'qwertyuiop')
         @course.enroll_user(@student, "StudentEnrollment", :enrollment_state => 'active')
         assignment.submit_homework(@student, {:submission_type => 'online_text_entry', :body => 'ABC'})
       end
@@ -208,7 +225,7 @@ describe "dashboard" do
     it "should not display assignment to grade in to do list for a designer", priority: "1", test_id: 216402 do
       course_with_designer_logged_in(:active_all => true)
       assignment = assignment_model({:submission_types => 'online_text_entry', :course => @course})
-      student = user_with_pseudonym(:active_user => true, :username => 'student@example.com', :password => 'qwerty')
+      student = user_with_pseudonym(:active_user => true, :username => 'student@example.com', :password => 'qwertyuiop')
       @course.enroll_user(student, "StudentEnrollment", :enrollment_state => 'active')
       assignment.reload
       assignment.submit_homework(student, {:submission_type => 'online_text_entry', :body => 'ABC'})
@@ -247,16 +264,28 @@ describe "dashboard" do
 
         get "/"
 
-        if ENV['CANVAS_FORCE_USE_NEW_STYLES']
-          f('#global_nav_courses_link').click
-          expect(fj('.ReactTray-list-item a:contains("All Courses")')).to be_present
-        else
-          course_menu_item = f("#courses_menu_item")
-          hover(course_menu_item)
-          expect(course_menu_item).to include_text('My Courses')
-          expect(course_menu_item).to include_text('View All or Customize')
-        end
+        f('#global_nav_courses_link').click
+        expect(fj('.ic-NavMenu-list-item a:contains("All Courses")')).to be_present
       end
+    end
+  end
+
+  context 'as a teacher in an unpublished course' do
+    before do
+      course_with_teacher_logged_in(:active_course => false)
+    end
+
+    it 'should not show an unpublished assignment for an unpublished course', priority: "2", test_id: 56003 do
+      name = 'venkman'
+      due_date = Time.zone.now.utc + 2.days
+      assignment = @course.assignments.create(:name => name, :submission_types => 'online', :due_at => due_date, :lock_at => Time.zone.now, :unlock_at => due_date)
+
+      get '/'
+      expect(f('.coming_up')).to include_text(name)
+
+      assignment.unpublish
+      get '/'
+      expect(f('.coming_up')).not_to include_text(name)
     end
   end
 end

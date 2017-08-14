@@ -1,20 +1,29 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'ember'
-  'compiled/gradebook2/GradebookHeaderMenu'
-  'compiled/gradebook2/AssignmentGroupWeightsDialog'
+  'underscore'
+  'compiled/gradebook/GradebookHeaderMenu'
   'compiled/SubmissionDetailsDialog'
-], (Ember, GradebookHeaderMenu, AssignmentGroupWeightsDialog, SubmissionDetailsDialog) ->
+], (Ember, _, GradebookHeaderMenu, SubmissionDetailsDialog) ->
 
   AssignmentsView = Ember.View.extend
     templateName: 'assignments'
-
-    setupDialog: (->
-      @agDialog = new AssignmentGroupWeightsDialog({context: ENV.GRADEBOOK_OPTIONS, assignmentGroups:[], mergeFunction: @mergeObjects})
-    ).on('didInsertElement')
-
-    removeDialog: (->
-      @agDialog.$dialog.dialog('destroy')
-    ).on('willDestroyElement')
 
     mergeObjects: (old_ag, new_ag) ->
       Ember.setProperties(old_ag, new_ag)
@@ -31,6 +40,7 @@ define [
           context_url: ENV.GRADEBOOK_OPTIONS.context_url
           speed_grader_enabled: ENV.GRADEBOOK_OPTIONS.speed_grader_enabled
           change_grade_url: ENV.GRADEBOOK_OPTIONS.change_grade_url
+          isAdmin: _.contains(ENV.current_user_roles, 'admin')
 
         dialogs =
           'assignment_details': GradebookHeaderMenu::showAssignmentDetails
@@ -40,12 +50,6 @@ define [
           'submission': SubmissionDetailsDialog.open
 
         switch dialogType
-          when 'ag_weights'
-            options =
-              context: ENV.GRADEBOOK_OPTIONS
-              assignmentGroups: con.get('assignment_groups').toArray()
-            @agDialog.update(options)
-            @agDialog.$dialog.dialog('open')
           when 'submission'
             dialogs[dialogType]?.call(this, con.get('selectedAssignment'), con.get('selectedStudent'), options)
           else

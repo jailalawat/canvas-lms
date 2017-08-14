@@ -1,3 +1,20 @@
+#
+# Copyright (C) 2013 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
 define [
   'jquery'
   'underscore'
@@ -98,8 +115,12 @@ define [
       # e.g. SIS groups, we shouldn't be able to edit them
       @get('role') is 'uncategorized'
 
-    assignUnassignedMembers: ->
-      $.ajaxJSON "/api/v1/group_categories/#{@id}/assign_unassigned_members", 'POST', {}, @setUpProgress
+    assignUnassignedMembers: (group_by_section) ->
+      if group_by_section
+        qs = "?group_by_section=1"
+      else
+        qs = ''
+      $.ajaxJSON "/api/v1/group_categories/#{@id}/assign_unassigned_members#{qs}", 'POST', {}, @setUpProgress
 
     cloneGroupCategoryWithName: (name) ->
       $.ajaxJSON "/group_categories/#{@id}/clone_with_name", 'POST', {name: name}
@@ -122,11 +143,13 @@ define [
     sync: (method, model, options = {}) ->
       options.url = @urlFor(method)
       if method is 'create' and model.get('split_groups') is '1'
+        model.set('assign_async', true) # if we don't specify this, it will auto-assign on creation, not asyncronously
+        group_by_section = (model.get('group_by_section') == '1')
         success = options.success ? ->
         options.success = (args) =>
           @progressStarting = true
           success(args)
-          @assignUnassignedMembers()
+          @assignUnassignedMembers(group_by_section)
       else if method is 'delete'
         if model.progressModel
           model.progressModel.onPoll = ->
