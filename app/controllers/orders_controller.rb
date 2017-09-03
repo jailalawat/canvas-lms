@@ -1,6 +1,7 @@
 require 'encryption_new_pg'
 class OrdersController < ApplicationController
   include EncryptionNewPG
+
   skip_before_action :verify_authenticity_token, only: :check_paytm
 
   def express
